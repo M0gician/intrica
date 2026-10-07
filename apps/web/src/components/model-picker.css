@@ -1,0 +1,133 @@
+.model-picker {
+  position: relative;
+  color: var(--text-primary);
+}
+.model-trigger {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 9px;
+  max-width: 260px;
+  font-size: 12px;
+  cursor: pointer;
+  color: inherit;
+}
+.model-trigger > span:first-of-type {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.model-trigger:hover,
+.model-trigger[aria-expanded="true"] {
+  background: #eae8e2;
+}
+.model-trigger small {
+  font-size: 10px;
+  background: #e5e3dc;
+  border-radius: 4px;
+  padding: 2px 4px;
+  white-space: nowrap;
+}
+.model-menu {
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  width: 310px;
+  max-width: calc(100vw - 24px);
+  padding: 10px;
+  z-index: 100;
+}
+.model-menu[data-floating-ready="false"] {
+  opacity: 0;
+  pointer-events: none;
+}
+.model-menu-heading {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 7px 10px;
+  font-size: 12px;
+}
+.model-menu-heading > span,
+.model-note,
+.model-label {
+  color: var(--text-secondary);
+}
+.model-options {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.model-options button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.model-options button > span:first-child {
+  min-width: 0;
+}
+.model-options strong,
+.model-options small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-options strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.model-options small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin-top: 3px;
+}
+.model-options button[aria-selected="true"] {
+  background: var(--control-hover);
+  color: var(--text-primary);
+}
+.model-menu-actions {
+  display: flex;
+  gap: 6px;
+  border-top: 1px solid #eeece6;
+  padding-top: 8px;
+}
+.model-menu-actions button {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
+}
+.model-note {
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 10px 4px 2px;
+}
+.model-label {
+  display: block;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 4px 0;
+}
+.model-picker button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.model-picker button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.agent-composer > .model-label,
+.agent-compose > .model-label {
+  flex: 1;
+  min-width: 0;
+  align-self: center;
+  margin: 0;
+  text-align: left;
+}

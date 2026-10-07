@@ -1,0 +1,30 @@
+:root {
+  --chrome-inset: 12px;
+  --chrome-control-size: 40px;
+  --control-soft: #f2f0eb;
+  --control-hover: #e8e5de;
+  --control-strong: #343941;
+  --control-strong-hover: #24292f;
+  --canvas-bg: #f1efe8;
+  --card-bg: #fffefa;
+  --card-border: #ddd9d0;
+  --text-primary: #23262d;
+  --text-secondary: #5f646c;
+  --primary: #3b47c4;
+  --primary-soft: #e7e9f9;
+  --candidate: #8b7dd8;
+  --candidate-soft: #f2effc;
+  --error: #d05555;
+  --error-soft: #fbeaea;
+  --latest-bg: #fdf3e0;
+  --latest-border: #e0a94f;
+  --shadow-card: 0 2px 3px #43351e09, 0 6px 16px #43351e06;
+  --shadow-panel: 0 8px 30px rgba(35, 38, 45, 0.16);
+  font-size: 14px;
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+}
+@media (pointer: coarse) {
+  :root {
+    --chrome-control-size: 44px;
+  }
+}

@@ -1,0 +1,317 @@
+.agent-transcript-shell {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.agent-transcript {
+  flex: 1;
+  height: 100%;
+  padding: 20px 20px 64px;
+}
+.agent-transcript article {
+  margin: 12px 0 24px;
+  overflow-wrap: anywhere;
+}
+.chat-role {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.chat-user {
+  background: #f6f5f2;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+.chat-turn {
+  margin: 0 0 22px;
+}
+.chat-user {
+  margin-left: 28px;
+  border-radius: 14px;
+  padding: 10px 14px;
+  background: #f1f0ed;
+  font-size: 14px;
+}
+.chat-assistant {
+  margin: 14px 0 0;
+  font-size: 14px;
+}
+.agent-thinking,
+.agent-tool {
+  margin: 10px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.agent-thinking summary,
+.agent-tool summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+.agent-tool pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
+}
+.agent-progress {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.agent-tool h3 {
+  font-size: 11px;
+  font-weight: 500;
+  margin: 12px 0 4px;
+}
+.agent-capabilities summary {
+  cursor: pointer;
+}
+
+.agent-node-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  font-size: 13px;
+}
+.agent-permissions {
+  border: 1px solid #ded6b6;
+  border-radius: 8px;
+  padding: 12px;
+}
+.agent-permissions article {
+  padding-top: 12px;
+}
+.agent-permissions p {
+  margin: 6px 0;
+}
+.agent-permissions small {
+  color: #77736e;
+}
+.agent-activity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  gap: 16px;
+}
+.agent-event > small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.agent-event .markdown-lite {
+  font-size: 13px;
+}
+.agent-event pre {
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+}
+:where(.agent-event) details {
+  margin-top: 6px;
+}
+.agent-event-error {
+  color: #b84949;
+}
+.agent-inbox {
+  position: absolute;
+  top: 70px;
+  right: 24px;
+  z-index: 40;
+  border: 1px solid #d7b862;
+  border-radius: 16px;
+  padding: 6px 12px;
+  background: #fff9e7;
+}
+.agent-inbox {
+  right: calc(var(--workspace-width, 0px) + 24px);
+}
+.agent-event-user {
+  background: var(--primary-soft);
+  border-radius: 10px;
+  padding: 12px;
+  margin-left: 32px;
+}
+.agent-event-trigger {
+  color: var(--text-secondary);
+  font-size: 11px;
+  border-left: 2px solid var(--card-border);
+  padding-left: 10px;
+}
+.agent-event-message {
+  border-left: 2px solid #7f9b91;
+  padding-left: 12px;
+}
+.agent-event-tool {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.agent-jump {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: 6px 10px;
+  background: #fffefa;
+  color: var(--primary);
+  box-shadow: 0 2px 8px #24204012;
+  font-size: 11px;
+  cursor: pointer;
+}
+.collaboration-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+.workspace-panel .collaboration-heading h2 {
+  font-size: 18px;
+  margin: 0;
+}
+.collaboration-heading select {
+  max-width: 160px;
+  border: 1px solid var(--card-border);
+  border-radius: 7px;
+  background: white;
+  padding: 6px;
+  font: 12px system-ui;
+}
+.workspace-panel .panel-body.agent-inspector,
+.workspace-panel .panel-body.agent-collaboration {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+.agent-collaboration .collaboration-heading {
+  padding: 16px 20px;
+}
+.agent-timeline {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.agent-timeline-scroll {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  scrollbar-gutter: stable;
+  overflow-anchor: none;
+}
+.agent-timeline-content {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 20px 64px;
+  width: 100%;
+  max-width: 800px;
+  margin-inline: auto;
+  min-width: 0;
+}
+.agent-timeline-content > * {
+  flex-shrink: 0;
+  min-width: 0;
+}
+.agent-event {
+  min-width: 0;
+  max-width: 100%;
+}
+.agent-event pre,
+.agent-event code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.agent-event .markdown-table-scroll {
+  overflow: visible;
+}
+.agent-event .markdown-lite table {
+  display: table;
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  overflow-wrap: anywhere;
+}
+.agent-event .markdown-lite th,
+.agent-event .markdown-lite td {
+  min-width: 0;
+  padding: 4px;
+}
+.agent-event-broadcast {
+  border-left: 2px solid #7f9b91;
+  padding-left: 12px;
+}
+.agent-event-time {
+  margin-left: 7px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  font-variant-numeric: tabular-nums;
+}
+.agent-collaboration .agent-event-time,
+.agent-event:hover .agent-event-time,
+.agent-event:focus-within .agent-event-time {
+  opacity: 1;
+}
+.broadcast-scope {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.agent-older-request > small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.agent-load-earlier {
+  margin: 12px auto;
+  display: block;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+}
+.agent-timeline {
+  container-type: inline-size;
+}
+.agent-inbox > summary {
+  cursor: pointer;
+}
+.agent-inbox-list {
+  width: min(340px, calc(100vw - 80px));
+  max-height: 50vh;
+  overflow: auto;
+  padding-top: 8px;
+}
+.agent-inbox-request {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 8px;
+  text-align: left;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+.agent-inbox-request:hover {
+  background: #eee8d8;
+}
+.agent-inbox-list strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-inbox-list small {
+  color: var(--text-secondary);
+}

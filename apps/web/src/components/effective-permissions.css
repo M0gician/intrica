@@ -1,0 +1,109 @@
+.agent-permissions-header,
+.permissions-summary,
+.permission-resource-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.agent-permissions-header > div {
+  min-width: 0;
+}
+.agent-permissions-header strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.agent-permissions-header small {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.agent-permissions-header .icon-button .icon-caption,
+.permissions-summary .icon-button .icon-caption {
+  top: calc(100% + 6px);
+  bottom: auto;
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.effective-permissions {
+  min-width: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.permissions-server {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 12px 0;
+  color: var(--text-secondary);
+}
+.permissions-server svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.permissions-summary h3,
+.effective-permissions h4 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.permissions-role {
+  margin: 4px 0 16px;
+}
+.effective-permissions ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.effective-permissions li {
+  padding-block: 10px;
+  border-top: 1px solid var(--card-border);
+}
+.permission-resource-heading {
+  align-items: flex-start;
+}
+.permission-resource-heading strong {
+  min-width: 0;
+  font-weight: 500;
+}
+.permission-resource-heading > span {
+  flex-shrink: 0;
+  border-radius: 5px;
+  padding: 2px 6px;
+  background: var(--control-soft);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.permission-resource-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+.permission-resource-actions button {
+  min-height: 28px;
+  padding: 2px 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.permission-resource-actions button:hover {
+  text-decoration: underline;
+}
+.permissions-note {
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.agent-permission-edit {
+  border-top: 1px solid var(--card-border);
+  padding-top: 10px;
+  margin-top: 14px;
+}
+.agent-permission-edit > summary {
+  cursor: pointer;
+  padding: 4px 0;
+  color: var(--text-secondary);
+}

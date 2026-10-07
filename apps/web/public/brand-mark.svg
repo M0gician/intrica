@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Intrica</title>
+  <desc id="desc">A loosely drawn portrait and a to-do note connected by a red thread on warm paper.</desc>
+  <g transform="translate(81.92 81.92) scale(0.84)">
+  <rect x="24" y="24" width="976" height="976" rx="216" fill="#f6eddc" />
+  <g transform="translate(-82.4 -70.4) scale(1.2)">
+  <g transform="rotate(-8 353 440)">
+    <path d="M206 228 506 236 499 666 208 658Z" fill="#d8cbbb" opacity=".38" transform="translate(8 9)" />
+    <path d="M206 228 506 236 499 666 208 658Z" fill="#fffdf6" />
+    <path d="M298 367c-5-44 23-66 57-63 35 3 49 29 45 63l-5 38c-4 34-21 53-42 52-28-1-45-26-47-54" fill="#efdbc6" />
+    <path d="M298 367c-5-44 23-66 57-63 35 3 49 29 45 63m-94 20c1 43 18 69 47 70 23 1 39-21 42-52" fill="none" stroke="#51473e" stroke-width="13" stroke-linecap="round" />
+    <path d="M302 351c29-2 46-16 53-31 8 17 22 26 42 32M354 376l-6 23 12 2" fill="none" stroke="#51473e" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M340 450 333 478c-47 8-74 32-77 80m109-105 6 26c43 9 65 35 67 80M334 479l19 18 18-18" fill="none" stroke="#51473e" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M286 604c41 3 84 2 128-1" fill="none" stroke="#cbbbab" stroke-width="10" stroke-linecap="round" />
+  </g>
+  <g transform="rotate(7 657 610)">
+    <path d="M527 431 811 421 814 764 528 771Z" fill="#d8cbbb" opacity=".38" transform="translate(6 8)" />
+    <path d="M527 431 811 421 814 764 528 771Z" fill="#f1d991" />
+    <path d="m568 518 32 1-1 33-31-2Zm0 97 31 1 1 33-32-1Z" fill="none" stroke="#61523f" stroke-width="10" stroke-linejoin="round" />
+    <path d="m568 531 12 12 30-36" fill="none" stroke="#b9473d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M632 533c38-2 62-2 100 0m-101 96c34 1 66 0 99-3" fill="none" stroke="#61523f" stroke-width="12" stroke-linecap="round" />
+  </g>
+  <path d="M346 251c100 6 189 141 288 164" fill="none" stroke="#bd483f" stroke-width="18" stroke-linecap="round" />
+  <path d="M349 238c-17-9-27 6-21 18 7 11 24 10 28-2m278 148c-12-9-27 1-23 14 4 15 24 14 28 0" fill="#f6eddc" stroke="#bd483f" stroke-width="11" stroke-linecap="round" />
+  </g>
+  </g>
+</svg>

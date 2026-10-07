@@ -1,0 +1,156 @@
+{
+  "name": "@intrica/desktop",
+  "license": "MIT",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "build": "node scripts/build-language.mjs && node ../../scripts/build-metadata.mjs assets/build.json && node --check main.mjs && node --check preload.cjs && node --check connections.mjs && node --check ssh.mjs && node --check protocol.mjs && node --check updates.mjs && node --check files.mjs",
+    "dev": "pnpm run prepare:app && electron .",
+    "test": "pnpm run prepare:app && node --test connections.test.mjs ssh.test.mjs updates.test.mjs files.test.mjs test.mjs standalone.test.mjs remote.test.mjs",
+    "package": "pnpm run prepare:app && electron-builder",
+    "package:dir": "pnpm run prepare:app && electron-builder --dir",
+    "prepare:app": "pnpm run icons && pnpm --filter @intrica/server... --filter @intrica/web... build && pnpm run build",
+    "icons": "node scripts/build-icons.mjs"
+  },
+  "devDependencies": {
+    "@electron/osx-sign": "1.3.1",
+    "@intrica/web": "workspace:*",
+    "@playwright/test": "1.62.1",
+    "electron": "44.2.0",
+    "electron-builder": "26.0.12",
+    "sharp": "0.35.4"
+  },
+  "dependencies": {
+    "@intrica/releases": "workspace:*",
+    "@intrica/contracts": "workspace:*",
+    "@intrica/client": "workspace:*",
+    "@intrica/server": "workspace:*"
+  },
+  "build": {
+    "appId": "com.intrica.desktop",
+    "productName": "Intrica",
+    "asar": true,
+    "files": [
+      "*.mjs",
+      "preload.cjs",
+      "assets/**/*",
+      "package.json",
+      "!test.mjs",
+      "!**/src/**/*",
+      "!**/tests/**/*",
+      "!**/__tests__/**/*",
+      "!**/*.test.*",
+      "!**/.data/**/*",
+      "!**/test-results/**/*",
+      "!**/tsconfig*.json",
+      "!**/*.map",
+      "!*.test.mjs"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/icon.icns",
+      "sign": "./scripts/sign-mac.mjs"
+    },
+    "linux": {
+      "executableName": "intrica",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "extraResources": [
+      {
+        "from": "../../packages/releases/dist",
+        "to": "deployment/node_modules/@intrica/releases/dist"
+      },
+      {
+        "from": "../../packages/releases/package.json",
+        "to": "deployment/node_modules/@intrica/releases/package.json"
+      },
+      {
+        "from": "../../LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "../../scripts/deploy-server.mjs",
+        "to": "deployment/deploy-server.mjs"
+      },
+      {
+        "from": "../../scripts/install-server.sh",
+        "to": "deployment/install-server.sh"
+      },
+      {
+        "from": "../web/dist",
+        "to": "renderer"
+      },
+      {
+        "from": "../../db/schema.sql",
+        "to": "db/schema.sql"
+      },
+      {
+        "from": "../../db/migrations",
+        "to": "db/migrations"
+      }
+    ],
+    "asarUnpack": [
+      "**/node_modules/@napi-rs/**/*",
+      "**/node_modules/@vscode/ripgrep*/**/*",
+      "**/node_modules/@embedded-postgres/**/*",
+      "**/node_modules/embedded-postgres/**/*",
+      "**/node_modules/pg/**/*",
+      "**/node_modules/pg-connection-string/**/*",
+      "**/node_modules/pg-pool/**/*",
+      "**/node_modules/pg-protocol/**/*",
+      "**/node_modules/pg-types/**/*",
+      "**/node_modules/pg-int8/**/*",
+      "**/node_modules/pgpass/**/*",
+      "**/node_modules/postgres-array/**/*",
+      "**/node_modules/postgres-bytea/**/*",
+      "**/node_modules/postgres-date/**/*",
+      "**/node_modules/postgres-interval/**/*",
+      "**/node_modules/split2/**/*",
+      "**/node_modules/xtend/**/*",
+      "**/node_modules/packet-reader/**/*",
+      "**/node_modules/async-exit-hook/**/*",
+      "**/node_modules/node-pty/**/*",
+      "**/node_modules/@img/**/*",
+      "**/node_modules/sharp/**/*"
+    ],
+    "artifactName": "Intrica-${version}-${os}-${arch}.${ext}",
+    "deb": {
+      "packageName": "intrica"
+    }
+  },
+  "description": "A local evidence canvas for thinking with connected resources and agents.",
+  "author": {
+    "name": "Intrica",
+    "email": "13779937+M0gician@users.noreply.github.com"
+  },
+  "optionalDependencies": {
+    "@napi-rs/canvas-darwin-arm64": "1.0.9",
+    "@napi-rs/canvas-linux-x64-gnu": "1.0.9",
+    "@embedded-postgres/darwin-arm64": "18.4.0-beta.17",
+    "@embedded-postgres/linux-x64": "18.4.0-beta.17",
+    "@img/sharp-darwin-arm64": "0.35.4",
+    "@img/sharp-libvips-darwin-arm64": "1.3.3",
+    "@img/sharp-libvips-linux-x64": "1.3.3",
+    "@img/sharp-linux-x64": "0.35.4"
+  },
+  "homepage": "https://github.com/M0gician/intrica"
+}

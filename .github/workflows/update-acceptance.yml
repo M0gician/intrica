@@ -1,0 +1,117 @@
+name: Update acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: Previous published version (without v)
+        required: true
+      to:
+        description: Latest published version to verify (without v)
+        required: true
+      component:
+        description: Update path to verify
+        type: choice
+        options: [desktop, server, all]
+        default: all
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    if: inputs.component != 'server'
+    name: Published ${{ matrix.name }} desktop update
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            runner: ubuntu-22.04
+          - name: macOS
+            runner: macos-15
+    timeout-minutes: 20
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      FROM_VERSION: ${{ inputs.from }}
+      TO_VERSION: ${{ inputs.to }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - name: Install Linux runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap libfuse2 xvfb libgtk-3-0 libnss3 libgbm1 libasound2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.18.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.20.0
+          dest: ${{ runner.temp }}/pnpm
+
+      - name: Install test dependencies
+        run: |
+          pnpm install --store-dir "$RUNNER_TOOL_CACHE/intrica-pnpm-store" --frozen-lockfile --ignore-scripts --filter intrica... --filter @intrica/tests-e2e
+          pnpm --filter @intrica/releases build
+      - name: Download and verify previous desktop
+        shell: bash
+        run: |
+          [[ "$FROM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$TO_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "INTRICA_UPGRADE_VERSION=$TO_VERSION" >> "$GITHUB_ENV"
+          executable=$(node scripts/prepare-desktop-upgrade.mjs "$FROM_VERSION" "$RUNNER_TEMP/previous")
+          echo "INTRICA_UPGRADE_FROM_EXECUTABLE=$executable" >> "$GITHUB_ENV"
+      - name: Upgrade the published app and resume its team
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run --auto-servernum node --test tests/e2e/desktop-upgrade.test.mjs
+          else
+            node --test tests/e2e/desktop-upgrade.test.mjs
+          fi
+
+  server:
+    if: inputs.component != 'desktop'
+    name: Published native server update
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      FROM_VERSION: ${{ inputs.from }}
+      TO_VERSION: ${{ inputs.to }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - name: Install isolation runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.18.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.20.0
+          dest: ${{ runner.temp }}/pnpm
+      - name: Build release utilities
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts --filter intrica...
+          pnpm --filter @intrica/releases build
+      - name: Download and verify published server packages
+        shell: bash
+        run: |
+          echo "TO_VERSION=$TO_VERSION" >> "$GITHUB_ENV"
+          for version in "$FROM_VERSION" "$TO_VERSION"; do
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            node scripts/download-release.mjs "$version" server-linux-x64.tar.gz "$RUNNER_TEMP/server-$version"
+          done
+      - name: Upgrade the service with its existing team and approval
+        env:
+          INTRICA_UPGRADE_PUBLISHED: "1"
+        run: node scripts/test-server-package.mjs "$RUNNER_TEMP/server-$FROM_VERSION/Intrica-$FROM_VERSION-server-linux-x64.tar.gz" "$RUNNER_TEMP/server-$TO_VERSION/Intrica-$TO_VERSION-server-linux-x64.tar.gz"

@@ -1,0 +1,38 @@
+.dialog-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.toast {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-self: center;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #23262d;
+  color: #fff;
+  border-radius: 10px;
+  box-shadow: var(--shadow-panel);
+  z-index: 60;
+  animation: chip-in 180ms ease;
+  font-size: 13px;
+}
+
+.toast-button {
+  color: #c6cbf5;
+  --button-hover: #414652;
+}
+
+.toast-action {
+  font-weight: 600;
+}
+fieldset.dialog-actions {
+  border: 0;
+  padding: 0;
+}

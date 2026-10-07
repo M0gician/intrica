@@ -1,0 +1,16 @@
+{
+  "model": {
+    "kind": "pi",
+    "provider": "custom",
+    "modelId": "my-local-model",
+    "baseUrl": "http://127.0.0.1:11434/v1",
+    "apiKeyEnv": "INTRICA_MODEL_API_KEY",
+    "contextWindow": 131072,
+    "maxOutputTokens": 32768,
+    "supportsVision": false,
+    "mock": {
+      "streamDelayMs": 40,
+      "supportsVision": true
+    }
+  }
+}

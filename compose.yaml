@@ -1,0 +1,34 @@
+# 自托管 API/Worker 与 PostgreSQL；数据库仅在 Compose 网络内可见。
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: intrica
+      POSTGRES_PASSWORD: intrica
+      POSTGRES_DB: intrica
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U intrica -d intrica"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql
+  intrica:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgres://intrica:intrica@postgres:5432/intrica
+      DATA_DIR: /data
+      INTRICA_ACCESS_TOKEN: ${INTRICA_ACCESS_TOKEN:?set INTRICA_ACCESS_TOKEN}
+      HOST: 0.0.0.0
+      INTRICA_WEB_ROOT: /app/apps/web/dist
+    volumes:
+      - intrica-data:/data
+    stop_grace_period: 60s
+volumes:
+  pgdata:
+  intrica-data:

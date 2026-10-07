@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.data/
+coverage/
+playwright-report/
+test-results/
+*.log
+.DS_Store
+intrica.config.json
+
+apps/desktop/release/
+apps/desktop/assets/build.json
+release-server/
+
+.env
+.env.*
+!.env.example

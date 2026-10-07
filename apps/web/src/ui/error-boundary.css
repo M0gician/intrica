@@ -1,0 +1,16 @@
+.ui-error-boundary {
+  display: grid;
+  place-content: center;
+  justify-items: start;
+  gap: 12px;
+  min-height: 100%;
+  padding: 24px;
+  color: var(--text-primary);
+  background: var(--canvas-bg);
+}
+
+.ui-error-boundary :is(h2, p) {
+  margin: 0;
+  max-width: 60ch;
+  overflow-wrap: anywhere;
+}

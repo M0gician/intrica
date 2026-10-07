@@ -1,0 +1,158 @@
+.has-message-rail .agent-timeline-content,
+.has-message-rail .agent-transcript {
+  padding-inline-end: 64px;
+}
+.message-rail {
+  position: absolute;
+  top: 50%;
+  right: calc(12px + var(--message-scrollbar-width));
+  transform: translateY(-50%);
+  width: 36px;
+  z-index: 4;
+}
+.message-rail-track {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  touch-action: none;
+}
+.message-rail-group button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 36px;
+  height: var(--message-tick-height);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.message-rail-group button > span {
+  width: 26px;
+  height: 2px;
+  transform-origin: right;
+  background: var(--text-secondary);
+  opacity: 0.4;
+  transition:
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+.message-rail-group button[aria-current] > span,
+.message-rail-group button[data-bookmarked="true"] > span {
+  opacity: 0.6;
+}
+.message-rail-group button:is([data-preview], :focus-visible, [data-bookmarked="true"]) > span {
+  opacity: 1;
+  background: var(--text-primary);
+}
+.message-rail-track:has([data-preview])
+  button[aria-current]:not([data-preview]):not([data-bookmarked="true"])
+  > span {
+  opacity: 0.4;
+}
+.message-rail-group button:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: -1px;
+}
+.message-rail-group i {
+  position: absolute;
+  right: 0;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform 160ms ease;
+}
+.message-preview {
+  position: fixed;
+  inset: auto;
+  top: anchor(center);
+  right: anchor(left);
+  position-try-fallbacks: flip-block, flip-inline;
+  transform: translateY(-50%);
+  margin: 0;
+  width: min(320px, calc(100vw - 16px));
+  padding: 8px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-panel);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 20px;
+}
+.message-preview header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.message-preview strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+.message-preview .message-preview-bookmark {
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+.message-preview p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+}
+.message-preview-reply {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 20px;
+}
+.message-preview-reply :is(p, pre, ul, ol, blockquote) {
+  margin: 0;
+}
+.message-preview-reply > :first-child {
+  margin-top: 4px;
+}
+.message-preview-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-block: 4px;
+}
+.message-preview-loading > span[aria-hidden] {
+  height: 12px;
+  border-radius: 4px;
+  background: var(--control-soft);
+}
+.message-preview-artifacts {
+  display: flex;
+  gap: 12px;
+}
+.message-artifact-tag {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  max-width: 144px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.message-navigation-target:not(.chat-turn),
+.message-navigation-target > .chat-user {
+  outline: 2px solid var(--card-border);
+  outline-offset: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-rail-group button > span,
+  .message-rail-group i {
+    transition: none;
+  }
+}

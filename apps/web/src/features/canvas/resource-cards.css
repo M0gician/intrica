@@ -1,0 +1,306 @@
+.node-card.image-card .node-card-image {
+  border: 4px solid #fffefa;
+  border-radius: 2px;
+}
+.node-card.directory-card {
+  background: #f8f2e7;
+  border-color: #d9c9a9;
+}
+.directory-card::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: -7px;
+  width: 52px;
+  height: 7px;
+  background: #f8f2e7;
+  border: 1px solid #d9c9a9;
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  pointer-events: none;
+}
+.directory-card .node-type-icon {
+  display: none;
+}
+.directory-card .node-card-header {
+  border-bottom-color: #e8dcc4;
+}
+.directory-card-content {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: center;
+}
+.directory-card-content > svg {
+  grid-row: span 2;
+  color: #8b6b35;
+}
+.directory-kind-label {
+  color: #625a4a;
+  font-size: 11px;
+}
+.directory-card-content > p {
+  color: #625a4a;
+  font-size: 11px;
+  margin: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  direction: rtl;
+  text-align: left;
+}
+.resource-open-hint {
+  opacity: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  grid-column: 1 / -1;
+  margin-top: 6px;
+}
+.node-card.bookmark-card .node-card-body {
+  display: flex;
+  min-height: 0;
+  padding: 0;
+}
+.bookmark-card-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+}
+.bookmark-card-preview {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+  background: #f4f2ec;
+  border-bottom: 1px solid var(--card-border);
+  position: relative;
+}
+.bookmark-host {
+  display: block;
+  flex: none;
+  padding: 3px 12px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-card.image-card .node-card-header {
+  order: 2;
+  border-bottom: 0;
+  padding: 6px 10px;
+  min-height: 30px;
+  cursor: grab;
+}
+.image-card .node-card-title {
+  -webkit-line-clamp: 1;
+  font-size: 12px;
+}
+.node-card.image-card .node-card-body {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  min-height: 0;
+  margin: 6px 6px 0;
+  background: #efeeea;
+  cursor: grab;
+}
+.node-card.image-card .node-card-image {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  max-width: none;
+  object-fit: contain;
+  border: 0;
+  margin: 0;
+  border-radius: 2px;
+  user-select: none;
+}
+.node-card.path-image-card .node-card-header {
+  order: 2;
+}
+.node-card.path-image-card .node-card-body {
+  min-height: 96px;
+}
+.image-loading {
+  width: 28px;
+  height: 28px;
+  border: 2px solid #d8d4c8;
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: image-loading-spin 700ms linear infinite;
+}
+.image-unavailable {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.node-card.todo-card {
+  background: #fff9d9;
+  border-color: #e0d294;
+  box-shadow: 1px 3px 0 #ddd3a44a;
+  min-height: 90px;
+}
+.node-card.todo-card.selected {
+  border-color: var(--primary);
+  box-shadow:
+    0 0 0 2px var(--primary),
+    1px 3px 0 #ddd3a44a;
+}
+.node-card.todo-card .node-card-header {
+  background: #fffcf0;
+  border-bottom-color: #e9dfb5;
+  padding: 7px 12px;
+}
+.node-card.todo-card .node-card-body {
+  flex: none;
+  padding: 8px 14px 14px;
+  max-height: 420px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  touch-action: pan-y;
+}
+.todo-card-content {
+  min-width: 0;
+}
+.todo-list.markdown-lite {
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.todo-list.markdown-lite h1,
+.todo-list.markdown-lite h2,
+.todo-list.markdown-lite h3 {
+  margin: 10px 0 6px;
+  line-height: 1.4;
+  font-size: 14px;
+}
+.todo-list.markdown-lite h1 {
+  font-size: 16px;
+}
+.todo-list.markdown-lite p {
+  margin: 5px 0;
+  font-size: inherit;
+}
+.todo-list.markdown-lite ul,
+.todo-list.markdown-lite ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.todo-list.markdown-lite .contains-task-list {
+  list-style: none;
+  padding-left: 4px;
+}
+.todo-list.markdown-lite li {
+  margin: 4px 0;
+}
+.todo-list.markdown-lite li ul {
+  padding-left: 20px;
+}
+.todo-list.markdown-lite input {
+  accent-color: #746134;
+  width: 13px;
+  height: 13px;
+  margin: 0 7px 0 0;
+  vertical-align: -2px;
+  cursor: pointer;
+}
+.todo-list.markdown-lite li:has(> input:checked) {
+  color: #817d6a;
+}
+.todo-list.markdown-lite > :first-child {
+  margin-top: 0;
+}
+.todo-plain-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  line-height: 1.55;
+}
+.todo-menu-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  justify-content: center;
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.directory-card::before {
+  display: none;
+}
+.directory-card .node-type-icon {
+  display: inline-flex;
+}
+.directory-card-content {
+  display: block;
+}
+.node-card .directory-card-content > svg,
+.node-card .directory-kind-label,
+.node-card.directory-card .resource-open-hint {
+  display: none;
+}
+.node-card .directory-card-content > p {
+  font-size: 11px;
+  margin: 0;
+  color: var(--text-secondary);
+}
+.node-card.directory-card .node-card-header,
+.node-card.bookmark-card .node-card-header {
+  min-height: 36px;
+  padding: 8px 12px;
+}
+.node-card.directory-card .node-card-body {
+  padding: 4px 12px 10px;
+}
+.bookmark-card-preview > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+.bookmark-preview-summary {
+  height: 100%;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+.bookmark-preview-title {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.bookmark-preview-description {
+  font-size: 10px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+}
+.bookmark-preview-kind {
+  position: absolute;
+  right: 5px;
+  bottom: 4px;
+  padding: 2px 4px;
+  background: #fffefae8;
+  color: #625f57;
+  border-radius: 3px;
+  font-size: 8px;
+}

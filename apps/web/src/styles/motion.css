@@ -1,0 +1,102 @@
+@keyframes menu-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chip-fail-flash {
+  0%,
+  100% {
+    box-shadow: var(--shadow-card);
+  }
+  50% {
+    box-shadow: 0 0 0 3px var(--error-soft);
+  }
+}
+
+@keyframes panel-slide-in {
+  from {
+    transform: translateX(32px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .node-card,
+  .icon-button .icon-caption {
+    transition:
+      border-color 80ms ease,
+      box-shadow 80ms ease,
+      opacity 80ms ease;
+  }
+
+  .inspector-panel,
+  .task-chip,
+  .toast {
+    animation: none;
+  }
+
+  .node-card.selected {
+    transform: none;
+  }
+}
+@keyframes agent-working {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .state-working .agent-status-dot {
+    animation: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .node-actions,
+  .node-connect-port {
+    transition: none;
+  }
+}
+@keyframes image-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@container (max-width: 440px) {
+  .top-bar-path .canvas-name,
+  .top-bar-path .canvas-chevron,
+  .top-bar-controls .zoom-controls button:first-child,
+  .top-bar-controls .zoom-controls button:nth-of-type(2),
+  .top-bar-controls .model-trigger small {
+    display: none;
+  }
+}
+@container (max-width: 260px) {
+  .top-bar-controls .zoom-controls,
+  .top-bar-path .canvas-name,
+  .top-bar-path .nested-breadcrumb {
+    display: none;
+  }
+}

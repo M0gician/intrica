@@ -1,0 +1,286 @@
+.agent-access-card {
+  min-width: 0;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.agent-access-card[data-status="pending"] {
+  border-color: #d5c9a5;
+}
+.agent-access-card:focus,
+.agent-access-card summary:focus-visible,
+.agent-access-card pre:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.agent-access-card > details {
+  margin: 0;
+}
+.access-card-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 10px 12px;
+  list-style: none;
+  cursor: pointer;
+  border-radius: 11px;
+}
+.access-card-summary::-webkit-details-marker {
+  display: none;
+}
+.access-card-summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  color: var(--text-secondary);
+}
+.agent-access-card > details[open] > .access-card-summary {
+  border-bottom: 1px solid var(--card-border);
+  border-radius: 11px 11px 0 0;
+}
+.agent-access-card > details[open] > .access-card-summary::before {
+  transform: rotate(45deg);
+}
+.access-summary-title {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.access-summary-state {
+  margin-left: auto;
+  max-width: 44%;
+  flex-shrink: 0;
+  border-radius: 6px;
+  padding: 3px 7px;
+  color: var(--text-secondary);
+  background: var(--control-soft);
+  font-size: 11px;
+  text-align: center;
+}
+.agent-access-card[data-status="pending"] .access-summary-state {
+  color: #70571f;
+  background: #f5edda;
+}
+.agent-access-card[data-status="approved"] .access-summary-state {
+  color: #43644d;
+  background: #edf3ee;
+}
+.access-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 12px 12px;
+}
+.access-card-body p {
+  margin: 6px 0 0;
+}
+.access-section {
+  min-width: 0;
+}
+.access-section h4,
+.access-card-body h5 {
+  margin: 0 0 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+.access-request {
+  padding-left: 10px;
+  border-left: 2px solid var(--card-border);
+}
+.access-card-body .access-attribution {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.access-request-text {
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.access-facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.access-facts > div {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.access-facts dt {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.access-facts dd {
+  min-width: 0;
+  margin: 0;
+  user-select: text;
+}
+.access-facts .access-fact-wide {
+  grid-template-columns: minmax(0, 1fr);
+}
+.access-path,
+.agent-access-card .host-action-preview {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--control-soft);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  font:
+    11px / 1.55 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+.agent-access-card .host-action-preview {
+  max-height: 240px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin: 6px 0 0;
+}
+.access-payload,
+.access-resources {
+  margin-top: 10px;
+}
+.access-message,
+.access-decision-reason {
+  white-space: pre-wrap;
+}
+.access-message {
+  padding: 8px 10px;
+  background: var(--control-soft);
+  border-radius: 6px;
+}
+.access-resources ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.access-resource-link {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  padding: 3px 0;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.access-resource-link:hover {
+  text-decoration: underline;
+}
+.access-resource-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.access-impact {
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--control-soft);
+}
+.access-impact[data-risk="true"] {
+  background: #faf4e6;
+  border-left: 2px solid #d5b96f;
+}
+.access-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+}
+.access-section-heading h4 {
+  margin: 0;
+}
+.access-scope {
+  font-size: 11px;
+  font-weight: 500;
+}
+.access-blocked {
+  font-weight: 500;
+}
+.access-impact-note {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.access-card-body .access-reviewer {
+  margin: 0 0 4px;
+  font-weight: 500;
+}
+.access-card-body .access-timing {
+  margin: 0 0 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.access-decisions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  margin: 10px 0 0;
+  border: 0;
+}
+.access-decisions > button {
+  min-width: 72px;
+}
+.access-resolution {
+  border-top: 1px solid var(--card-border);
+  padding-top: 12px;
+}
+.access-resolution-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.access-record-details {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.access-record-details > summary {
+  padding: 4px 0;
+  cursor: pointer;
+}
+.access-record-details[open] > summary {
+  margin-bottom: 8px;
+}
+.access-record-details h5 {
+  margin-top: 10px;
+}
+.access-followup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  border-top: 1px solid var(--card-border);
+  padding-top: 10px;
+}
+.access-followup p {
+  flex: 1 1 160px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.access-followup > button {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
+}

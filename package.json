@@ -1,0 +1,32 @@
+{
+  "name": "intrica",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --sort build",
+    "typecheck": "node scripts/check-boundaries.mjs && node scripts/check-i18n.mjs && pnpm -r typecheck",
+    "lint": "biome check .",
+    "test": "pnpm -r test",
+    "test:matrix": "node --test --test-concurrency=1 tests/e2e/client-matrix.test.mjs",
+    "dev": "pnpm --filter @intrica/desktop dev",
+    "web": "pnpm run web:prepare && node scripts/web-dev.mjs",
+    "web:dev": "pnpm run web",
+    "web:build": "pnpm --filter @intrica/web... build",
+    "server": "pnpm --filter @intrica/server... build && pnpm --filter @intrica/server start",
+    "web:prepare": "pnpm --filter @intrica/server... --filter @intrica/web... build",
+    "desktop": "pnpm dev",
+    "desktop:package": "pnpm --filter @intrica/desktop package",
+    "desktop:package:dir": "pnpm --filter @intrica/desktop package:dir",
+    "start": "pnpm dev"
+  },
+  "devDependencies": {
+    "@intrica/releases": "workspace:*",
+    "@biomejs/biome": "2.5.12",
+    "typescript": "5.9.3"
+  }
+}

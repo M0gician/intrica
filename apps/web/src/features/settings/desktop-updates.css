@@ -1,0 +1,70 @@
+.desktop-update-notice {
+  position: fixed;
+  inset-inline-start: 16px;
+  bottom: 12px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+  box-shadow: 0 2px 8px #0000000a;
+}
+
+.desktop-update-notice button {
+  flex-shrink: 0;
+}
+
+/* The notice is advisory. Defer it while canvas actions, task status, or a toast
+   occupy the bottom region instead of competing for scarce width or guessing
+   their height. Hiding does not dismiss the release or change Agent state. */
+body:has(.bottom-controls, .task-bar, .toast) .desktop-update-notice {
+  display: none;
+}
+
+.desktop-update-preferences {
+  display: grid;
+  gap: 8px;
+  margin-block: 12px;
+  padding: 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+}
+
+.desktop-update-preferences label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.desktop-update-preferences input[type="checkbox"] {
+  width: auto;
+  flex: none;
+}
+
+.desktop-update-preferences p {
+  margin: 0;
+}
+
+.desktop-update-badge {
+  color: var(--primary);
+  font-size: 8px;
+  margin-inline-start: 6px;
+}
+
+.build-identity {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 12px;
+  font-size: 12px;
+}
+.build-identity dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

@@ -1,0 +1,333 @@
+.canvas-switcher {
+  position: relative;
+  min-width: 0;
+}
+.canvas-switcher .switcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--chrome-control-size);
+  max-width: min(260px, 100%);
+  padding: 0 calc((var(--chrome-control-size) - 16px) / 2);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.switcher-trigger > svg {
+  flex-shrink: 0;
+}
+.switcher-trigger:hover,
+.switcher-trigger[aria-expanded="true"] {
+  background: var(--control-hover);
+}
+.canvas-menu {
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  padding: 8px;
+  gap: 8px;
+  font-size: 13px;
+  z-index: 100;
+}
+.canvas-menu-controls,
+.canvas-menu-list,
+.canvas-edit-form,
+.canvas-server-list,
+.canvas-server-footer {
+  /* Keep fixed controls and scrolling rows on the same, centered content edges.
+     Classic scrollbars reserve both gutters; overlay scrollbars reserve neither. */
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  padding-inline: 4px;
+}
+.canvas-menu-controls {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 8px;
+  overflow: hidden;
+}
+.canvas-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 4px;
+  min-height: 28px;
+  flex-shrink: 0;
+}
+.canvas-menu-header small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-left: 6px;
+}
+.canvas-menu button {
+  cursor: pointer;
+}
+.canvas-menu button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.canvas-menu-header button {
+  color: var(--text-secondary);
+  border: 0;
+  background: transparent;
+  padding: 3px 6px;
+  border-radius: 5px;
+}
+.canvas-search,
+.canvas-edit-form input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
+  background: #f7f6f3;
+  color: var(--text-primary);
+  border-radius: 7px;
+  padding: 9px 10px;
+  font: inherit;
+}
+.canvas-search-create {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  background: #f7f6f3;
+  border-radius: 7px;
+  flex-shrink: 0;
+}
+.canvas-search-create .canvas-search {
+  flex: 1;
+  padding: 6px;
+}
+.canvas-search-create button {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 6px 8px;
+}
+.canvas-menu-list {
+  list-style: none;
+  margin: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  max-height: 352px;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.canvas-menu-row {
+  display: flex;
+  align-items: center;
+  border-radius: 7px;
+  margin-bottom: 2px;
+  min-height: 40px;
+}
+.canvas-menu-row[data-current] {
+  background: var(--control-hover);
+  color: var(--text-primary);
+}
+.canvas-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  flex: 1;
+  min-width: 0;
+  padding: 10px 8px;
+  border-radius: 7px;
+}
+.canvas-option svg {
+  flex-shrink: 0;
+}
+.canvas-option-label {
+  flex: 1;
+  min-width: 0;
+}
+.canvas-option-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-option-label small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.canvas-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+}
+.canvas-more:hover,
+.canvas-more:focus-visible,
+.canvas-more[aria-expanded="true"] {
+  background: var(--control-hover);
+  color: var(--text-primary);
+}
+.canvas-option:hover,
+.canvas-menu-header button:hover {
+  background: var(--control-hover);
+  color: var(--text-primary);
+}
+.canvas-row-menu {
+  width: 152px;
+  max-width: calc(100vw - 24px);
+  padding: 5px;
+  z-index: 101;
+}
+.canvas-row-menu button {
+  display: block;
+  width: 100%;
+}
+.canvas-row-menu .danger {
+  color: #a63e36;
+}
+.canvas-menu-empty,
+.canvas-menu-error {
+  margin: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.canvas-menu-error {
+  color: #a63e36;
+}
+.canvas-edit-form {
+  padding-block: 4px 8px;
+  overflow: auto;
+  min-height: 0;
+}
+.canvas-edit-form h2 {
+  font-size: 14px;
+  margin: 2px 0 8px;
+}
+.canvas-edit-form p {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.canvas-edit-title {
+  max-height: 4.8em;
+  overflow: auto;
+  scrollbar-width: thin;
+  padding-right: 10px;
+}
+.canvas-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+@media (pointer: coarse) {
+  .canvas-more {
+    flex-basis: 44px;
+    width: 44px;
+    height: 44px;
+  }
+  .canvas-menu input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .canvas-row-menu button,
+  .canvas-search-create button,
+  .canvas-option,
+  .canvas-edit-actions button,
+  .canvas-menu-header button {
+    min-height: 44px;
+  }
+}
+
+.canvas-server-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--card-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+}
+.canvas-server-trigger > svg {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+.canvas-server-label {
+  flex: 1;
+  min-width: 0;
+}
+.canvas-server-label > span,
+.canvas-server-label > small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.canvas-server-label > small {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.canvas-server-menu {
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+  z-index: 102;
+}
+.canvas-server-list {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.canvas-server-footer {
+  flex-shrink: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--card-border);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.canvas-server-footer p {
+  margin: 4px 8px 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+.canvas-server-footer [role="alert"] {
+  color: #a63e36;
+}
+.canvas-server-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.canvas-server-trigger:hover,
+.canvas-server-trigger[aria-expanded="true"],
+.canvas-server-menu [aria-checked="true"] {
+  background: var(--control-hover);
+  color: var(--text-primary);
+}
+@media (pointer: coarse) {
+  .canvas-server-menu button {
+    min-height: 44px;
+  }
+}

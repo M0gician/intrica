@@ -1,0 +1,196 @@
+.ui-button {
+  --button-background: var(--control-soft);
+  --button-hover: var(--control-hover);
+  --button-text: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--button-background);
+  color: var(--button-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.ui-button:hover:not(:disabled) {
+  background: var(--button-hover);
+}
+
+.ui-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ui-button[data-variant="primary"] {
+  --button-background: var(--control-strong);
+  --button-hover: var(--control-strong-hover);
+  --button-text: #fff;
+}
+
+.ui-button[data-variant="quiet"] {
+  --button-background: transparent;
+  --button-text: var(--text-secondary);
+}
+
+.ui-button[data-variant="menu"] {
+  --button-background: transparent;
+  border: 0;
+  border-radius: 8px;
+  justify-content: flex-start;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.ui-menu {
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-panel);
+}
+
+.ui-button[data-variant="danger"] {
+  --button-background: #a43f34;
+  --button-hover: #87352d;
+  --button-text: #fff;
+}
+
+.ui-button[data-size="small"] {
+  min-height: 26px;
+  padding: 3px 9px;
+  font-size: 12px;
+}
+
+.ui-button[data-size="icon"] {
+  width: 32px;
+  height: 32px;
+  padding: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.ui-button > svg {
+  flex-shrink: 0;
+}
+
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 14px;
+  min-width: 0;
+}
+
+.ui-input,
+.ui-select,
+.ui-textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  background: #f9f8f4;
+  color: inherit;
+  font: inherit;
+}
+
+.ui-input[type="checkbox"] {
+  width: auto;
+}
+
+.ui-select:not([multiple]):not([size]),
+.ui-select:not([multiple])[size="1"] {
+  appearance: base-select;
+  padding-inline-end: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%235f646c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px 16px;
+  align-items: center;
+  border-radius: 10px;
+}
+.ui-select::picker-icon {
+  display: none;
+}
+.ui-select::picker(select) {
+  appearance: base-select;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 6px;
+  margin-block: 6px;
+  box-shadow: var(--shadow-panel);
+  max-height: min(360px, 50dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.ui-select option {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 34px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.ui-select option:is(:hover, :focus-visible) {
+  background: var(--control-hover);
+  outline: none;
+}
+.ui-select option:checked {
+  font-weight: 500;
+}
+.ui-select option::checkmark {
+  order: 1;
+  margin-inline-start: auto;
+  content: "✓";
+}
+.ui-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+:is(.ui-button, .ui-input, .ui-select, .ui-textarea):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .ui-select:not([multiple]):not([size]),
+  .ui-select:not([multiple])[size="1"] {
+    appearance: auto;
+    background-image: none;
+    padding-inline-end: 10px;
+  }
+}
+
+@media (pointer: coarse) {
+  .ui-button[data-size="icon"] {
+    width: 44px;
+    height: 44px;
+  }
+  .ui-button,
+  .ui-input:not([type="checkbox"]),
+  .ui-select {
+    min-height: 44px;
+  }
+  .ui-input,
+  .ui-select,
+  .ui-textarea {
+    font-size: 16px;
+  }
+}

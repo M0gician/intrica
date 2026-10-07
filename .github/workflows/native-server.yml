@@ -1,0 +1,57 @@
+name: Native server
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Source ref to package
+        required: true
+        default: main
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Package native Linux server
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Install isolation runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.18.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.20.0
+          dest: ${{ runner.temp }}/pnpm
+
+      - run: pnpm install --store-dir "$RUNNER_TOOL_CACHE/intrica-pnpm-store" --frozen-lockfile --filter @intrica/server... --filter @intrica/web...
+      - name: Build self-contained server
+        run: node scripts/package-server.mjs release-server
+      - name: Verify installed server
+        run: node scripts/test-server-package.mjs release-server/Intrica-*-server-linux-x64.tar.gz
+      - name: Include installer
+        run: |
+          bash -n scripts/install-server.sh
+          cp scripts/install-server.sh release-server/install-server.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: intrica-native-server
+          path: release-server/*
+          if-no-files-found: error

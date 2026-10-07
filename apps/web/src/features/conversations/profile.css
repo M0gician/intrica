@@ -1,0 +1,187 @@
+.agent-settings label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+.agent-settings textarea,
+.agent-compose textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #fafaf9;
+  color: var(--text-primary);
+}
+.agent-profile {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.agent-avatar-edit {
+  position: relative;
+  display: block;
+  flex: 0 0 68px;
+  width: 68px;
+  height: 80px;
+  border: 4px solid white;
+  box-shadow: 0 1px 4px #43351e1a;
+  cursor: pointer;
+}
+.agent-avatar-edit .agent-portrait {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.agent-avatar-edit > .avatar-caption {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  text-align: center;
+  background: #34312ce0;
+  color: white;
+  font-size: 10px;
+  padding: 3px;
+  opacity: 0;
+}
+.agent-avatar-edit:hover > .avatar-caption,
+.agent-avatar-edit:focus-within > .avatar-caption {
+  opacity: 1;
+}
+.agent-avatar-edit:focus-within {
+  outline: 2px solid var(--primary);
+}
+.agent-profile-info {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.agent-profile-info > small {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: #787164;
+}
+.panel-body .agent-profile-info input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 22px;
+  line-height: 1.3;
+  font-weight: 600;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  padding: 2px 0;
+  color: var(--text-primary);
+}
+.panel-body .agent-profile-info input[type="text"]:hover {
+  border-bottom-color: var(--card-border);
+}
+.panel-body .agent-profile-info input[type="text"]:focus {
+  outline: 0;
+  border-bottom-color: var(--primary);
+}
+.agent-profile-info > .agent-profile-mode {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.agent-settings-disclosure {
+  border: 1px solid #e6e1d7;
+  border-radius: 10px;
+  background: #faf9f5;
+}
+.agent-settings-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  padding: 12px 14px;
+  font-size: 12px;
+  list-style: none;
+}
+.agent-settings-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.agent-settings-disclosure > summary::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-right: 1px solid #8d8980;
+  border-bottom: 1px solid #8d8980;
+  transform: rotate(-45deg);
+}
+.agent-settings-disclosure[open] > summary::before {
+  transform: rotate(45deg);
+}
+.agent-settings-disclosure > summary > .agent-save-state {
+  margin-left: auto;
+  color: #746e63;
+  font-size: 10px;
+}
+.agent-settings {
+  display: grid;
+  gap: 18px;
+  padding: 0 14px 16px;
+}
+.agent-settings .agent-persona-field {
+  font-size: 12px;
+  gap: 8px;
+}
+.agent-settings .agent-persona-field textarea {
+  min-height: 96px;
+  border: 1px solid #ded9cf;
+  border-radius: 6px;
+  background: #fffefa;
+  padding: 10px 12px;
+}
+.agent-settings .agent-persona-field textarea:focus {
+  outline: 1px solid var(--primary);
+}
+.agent-save-retry {
+  justify-self: start;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.agent-avatar-tools {
+  position: relative;
+  flex-shrink: 0;
+}
+.agent-regenerate-portrait {
+  position: absolute;
+  bottom: -5px;
+  right: -7px;
+  display: flex;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--card-border);
+  border-radius: 50%;
+  background: #fffefa;
+  color: var(--text-secondary);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+.agent-regenerate-portrait:hover {
+  color: var(--primary);
+}
+.agent-manager-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}

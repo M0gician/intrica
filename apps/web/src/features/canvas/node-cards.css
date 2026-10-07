@@ -1,0 +1,445 @@
+.node-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 5px;
+  box-shadow: var(--shadow-card);
+  outline: none;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    opacity 200ms ease;
+}
+.canvas-world.dragging .node-card {
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    opacity 120ms ease;
+}
+
+.node-card:focus-visible {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+.node-card.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1.5px var(--primary);
+  transform: none;
+}
+
+.node-card.tier-latest {
+  background: var(--latest-bg);
+  border-color: var(--latest-border);
+}
+
+.node-card.tier-history {
+  background: #f5f4f1;
+  border-color: #d8d5cd;
+  color: var(--text-secondary);
+}
+
+.node-card.candidate {
+  border: 1.5px dashed var(--candidate);
+  background: var(--candidate-soft);
+  transition:
+    border-color 240ms ease,
+    border-style 240ms ease,
+    opacity 200ms ease;
+}
+
+.node-card.candidate-outline {
+  background: transparent;
+  box-shadow: none;
+}
+
+.node-card.deleting {
+  opacity: 0;
+  transform: scale(0.92);
+}
+
+.node-card.drop-target {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.node-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 8px;
+  cursor: grab;
+  font-weight: 600;
+  font-size: 14px;
+  touch-action: none;
+}
+
+.node-card-header:active {
+  cursor: grabbing;
+}
+
+.node-type-icon {
+  display: inline-flex;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.node-card-title {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.tier-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 400;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.tier-badge-latest {
+  color: #8a5a00;
+  background: #f8e7c3;
+}
+
+.tier-badge-candidate {
+  color: var(--candidate);
+  background: #eae4fa;
+}
+
+.node-card-body {
+  flex: 1;
+  padding: 9px 14px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow: hidden;
+}
+
+.node-card-summary {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+}
+
+.node-card-image {
+  display: block;
+  max-width: 100%;
+  max-height: 96px;
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+
+.node-card-more {
+  border: none;
+  background: none;
+  padding: 2px 0;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.node-card-folder {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.node-card-child-preview {
+  list-style: none;
+  padding: 0;
+  margin: 2px 0 4px;
+  display: grid;
+  gap: 4px;
+}
+
+.node-card-child-preview li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: rgba(59, 71, 196, 0.06);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.node-status {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.node-status-running {
+  color: var(--primary);
+}
+
+.cross-scope-badge {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.drop-target-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -26px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--primary);
+  pointer-events: none;
+}
+
+.node-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: #fff;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-panel);
+  z-index: 40;
+}
+.node-card-header {
+  background: #fffefa;
+  border-bottom: 1px solid #eee9de;
+  cursor: grab;
+}
+.node-card-header:hover {
+  background: #f7f4ed;
+}
+.canvas-world.dragging .node-card.node-dragging {
+  z-index: 100;
+  pointer-events: none;
+  box-shadow: 0 14px 36px #25233335;
+  transition: none;
+}
+.agent-portrait {
+  width: 58px;
+  height: 66px;
+  flex-shrink: 0;
+}
+.agent-card {
+  border-top: 3px solid #80776e;
+}
+.node-card.agent-card {
+  border-top: 0;
+  background: #fff;
+}
+.agent-card .node-card-body {
+  padding: 8px;
+  overflow: hidden;
+  height: 100%;
+}
+.agent-photo-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  cursor: grab;
+  gap: 5px;
+}
+.agent-photo-card > .agent-portrait {
+  width: 100%;
+  height: calc(100% - 91px);
+  min-height: 100px;
+  object-fit: cover;
+  border-radius: 5px;
+  flex-shrink: 1;
+}
+.agent-card-identity > strong {
+  font-size: 15px;
+  font-weight: 600;
+  padding: 0 3px;
+}
+.agent-photo-card .agent-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 3px 5px;
+  background: #f3f0e9;
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+.agent-photo-card > p {
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0;
+  padding: 0 3px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.agent-status {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  max-width: calc(100% - 16px);
+  background: #fffef4ed;
+  border: 1px solid #fff;
+  border-radius: 20px;
+  padding: 4px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1.2;
+}
+
+.agent-status-dot {
+  display: block;
+  width: 7px;
+  height: 7px;
+  margin: 0;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #8d8980;
+}
+.state-working .agent-status-dot {
+  background: #3b82f6;
+  animation: agent-working 1.2s ease-in-out infinite alternate;
+}
+.state-complete .agent-status-dot {
+  background: #2f9e62;
+}
+.state-error .agent-status-dot {
+  background: #d04444;
+}
+.state-waiting .agent-status-dot {
+  background: #e18a2d;
+}
+.state-new .agent-status-dot {
+  background: #e18a2d;
+}
+.node-connect-port {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: crosshair;
+  z-index: 5;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+.node-connect-port.is-near,
+.node-connect-port:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.node-connect-port span {
+  display: block;
+  width: 7px;
+  height: 7px;
+  margin: auto;
+  border: 1.5px solid #8b8a91;
+  border-radius: 50%;
+  background: #fffefa;
+  box-shadow: 0 0 0 3px #fffefa99;
+}
+.node-connect-port:hover span,
+.node-connect-port:focus-visible span {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  box-shadow: 0 0 0 4px #e7e9f999;
+}
+.node-connect-port:focus-visible {
+  outline: 2px solid var(--primary);
+  border-radius: 50%;
+}
+.node-card.link-target {
+  outline: 3px solid #3d8a77;
+  background: #eaf6f1;
+}
+.node-card.has-children {
+  border-top: 3px solid #baa77f;
+}
+.node-card.has-children .node-card-child-preview {
+  background: #f5f1e8;
+  border-radius: 3px;
+  padding: 5px;
+}
+.node-actions {
+  transition: opacity 140ms ease;
+}
+.node-actions.is-leaving {
+  opacity: 0;
+}
+
+.agent-card-identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.agent-card-identity > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-card:hover .resource-open-hint,
+.node-card:focus-within .resource-open-hint,
+.node-card.selected .resource-open-hint {
+  opacity: 1;
+}
+.agent-card-layout {
+  display: flex;
+  height: 100%;
+  gap: 8px;
+}
+.agent-card-layout > .agent-photo-card {
+  flex: 1;
+  min-width: 0;
+}
+.agent-team-faces {
+  display: grid;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: 64px;
+  flex: none;
+  gap: 4px;
+  border: 0;
+  border-left: 1px solid var(--card-border);
+  padding: 0 0 0 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.node-card .agent-team-faces > span {
+  min-height: 0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.agent-team-faces .agent-portrait {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+}

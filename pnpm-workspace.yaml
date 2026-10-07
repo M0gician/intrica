@@ -1,0 +1,25 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "tests/*"
+overrides:
+  "@electron/rebuild>@electron/node-gyp": "10.2.0-electron.1"
+allowBuilds:
+  "@embedded-postgres/darwin-arm64": true
+  "@embedded-postgres/darwin-x64": true
+  "@embedded-postgres/linux-x64": true
+  "@embedded-postgres/linux-arm64": true
+  "@embedded-postgres/windows-x64": true
+  electron-winstaller: false
+  "@google/genai": false
+  electron: true
+  esbuild: true
+  node-pty: true
+  protobufjs: false
+minimumReleaseAgeExclude:
+  - "@earendil-works/pi-ai@0.85.0"
+  - "@earendil-works/pi-telemetry@0.85.0"
+  - "@vitest/mocker@5.0.0"
+  - "@vitest/spy@5.0.0"
+  - fastify@5.12.3
+  - vitest@5.0.0

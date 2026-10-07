@@ -1,0 +1,106 @@
+.tool-call-details {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.tool-call-details-summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+.tool-call-name {
+  color: var(--text-primary);
+}
+.tool-call-state {
+  margin-inline-start: 8px;
+}
+.tool-call-heading {
+  font-size: 11px;
+  font-weight: 500;
+  margin: 12px 0 4px;
+}
+.tool-call-body pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+  font-size: 11px;
+}
+.tool-result-image {
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  object-fit: contain;
+}
+.tool-target-path {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.tool-summary-facts {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0;
+}
+.tool-summary-facts dt,
+.tool-summary-note,
+.tool-summary-kind {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.tool-summary-facts dd {
+  margin: 3px 0 0;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+.tool-summary-list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+}
+.tool-summary-list li {
+  padding: 9px 0;
+}
+.tool-summary-list li + li {
+  border-top: 1px solid var(--card-border);
+}
+.tool-summary-list p {
+  margin: 4px 0 0;
+}
+.tool-summary-list code {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.tool-summary-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.tool-summary-row strong {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.tool-call-body .tool-node-link {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--card-border);
+  text-underline-offset: 3px;
+}
+.tool-call-body .tool-node-link:hover {
+  text-decoration-color: currentColor;
+}
+.tool-call-body :is(button, pre):focus-visible,
+.tool-call-details summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}

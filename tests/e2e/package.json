@@ -1,0 +1,23 @@
+{
+  "name": "@intrica/tests-e2e",
+  "license": "MIT",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@intrica/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.4.1",
+    "@types/pg": "8.23.1",
+    "pg": "8.23.0",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,217 @@
+.resource-reference button {
+  text-align: left;
+  overflow-wrap: anywhere;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  cursor: pointer;
+}
+.resource-reference {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: #f5f4f8;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.browser-location a {
+  font-size: 12px;
+  color: var(--primary);
+}
+.terminal-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #faf9f7;
+}
+.terminal-host {
+  flex: 1;
+  min-height: 0;
+  padding: 10px;
+  overflow: hidden;
+}
+.terminal-host .xterm {
+  height: 100%;
+}
+.terminal-host .xterm-viewport {
+  overscroll-behavior: contain;
+}
+
+.native-browser-host {
+  flex: 1;
+  min-height: 180px;
+  position: relative;
+}
+.browser-progress {
+  height: 2px;
+  background: var(--primary);
+  opacity: 0.5;
+}
+
+.browser-page-link {
+  display: flex;
+  align-items: center;
+  cursor: grab;
+}
+.detail-local-image {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  background: #f5f4f1;
+  margin: 8px 0 14px;
+}
+.resource-overview {
+  padding: 24px 20px;
+}
+.resource-overview-mark {
+  color: #7c6948;
+  margin: 8px 0 20px;
+}
+.resource-overview-location {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.bookmark-address label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.bookmark-address-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--card-border);
+  border-radius: 7px;
+  padding: 8px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font: inherit;
+}
+.bookmark-address-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.bookmark-address-action {
+  border: 1px solid var(--card-border);
+  border-radius: 7px;
+  padding: 5px 10px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.bookmark-address p[role="alert"] {
+  color: #b84949;
+  font-size: 12px;
+}
+.resource-primary-action {
+  display: block;
+  margin: 16px 0 24px;
+  padding: 8px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 7px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.image-inspector .detail-title {
+  padding: 4px 0;
+}
+.image-viewer {
+  width: 100%;
+  min-width: 0;
+}
+.image-viewer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 4px 0 10px;
+}
+.image-viewer-scale {
+  min-width: 40px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.image-native-size {
+  background: transparent;
+  border: 0;
+  padding: 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.image-native-size:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.image-original-link {
+  margin-left: auto;
+  color: var(--primary);
+  text-decoration: none;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.image-preview-stage {
+  height: clamp(220px, 52dvh, 580px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: repeating-conic-gradient(#f1efe8 0% 25%, #fffefa 0% 50%) 0 / 16px 16px;
+  cursor: grab;
+}
+.image-preview-stage:active {
+  cursor: grabbing;
+}
+.image-preview-stage:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.image-preview-plane {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.image-preview-plane .inspector-image {
+  flex: 0 0 auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  user-select: none;
+}
+.image-dimensions {
+  text-align: center;
+  margin: 6px 0 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.image-source {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.web-resource-url {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.web-resource-page > a {
+  margin: 4px 0 14px;
+  color: var(--primary);
+}
+.web-resource-page > small {
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.todo-inspector .todo-list.markdown-lite {
+  font-size: 13px;
+}

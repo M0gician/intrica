@@ -1,0 +1,33 @@
+# Run from a persistent deployment directory with INTRICA_ACCESS_TOKEN in .env.
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: intrica
+      POSTGRES_PASSWORD: intrica
+      POSTGRES_DB: intrica
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U intrica -d intrica"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql
+  intrica:
+    image: ${INTRICA_IMAGE:?set INTRICA_IMAGE to the release image digest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgres://intrica:intrica@postgres:5432/intrica
+      DATA_DIR: /data
+      INTRICA_ACCESS_TOKEN: ${INTRICA_ACCESS_TOKEN:?set INTRICA_ACCESS_TOKEN}
+    volumes:
+      - intrica-data:/data
+    restart: unless-stopped
+    stop_grace_period: 60s
+volumes:
+  pgdata:
+  intrica-data:

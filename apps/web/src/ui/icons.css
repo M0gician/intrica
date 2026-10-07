@@ -1,0 +1,61 @@
+.icon-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.icon-button:hover:not(:disabled),
+.icon-button:focus-visible:not(:disabled),
+.icon-button.active {
+  background: var(--control-hover);
+  color: var(--text-primary);
+}
+.icon-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.icon-button:disabled {
+  color: #b9bcc2;
+  cursor: not-allowed;
+}
+
+.icon-button .icon-caption {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #23262d;
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-panel .icon-caption {
+  top: calc(100% + 7px);
+  bottom: auto;
+  z-index: 20;
+}
+
+.icon-button:hover:not(:disabled) .icon-caption,
+.icon-button:focus-visible:not(:disabled) .icon-caption {
+  opacity: 1;
+}

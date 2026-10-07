@@ -1,0 +1,219 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to package and publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 24.18.0
+  PNPM_VERSION: 11.20.0
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.tag || github.ref }}
+
+  package:
+    needs: verify
+    name: Package ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      INTRICA_REQUIRE_TRUSTED_MAC: ${{ secrets.MACOS_CERTIFICATE != '' && '1' || '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            runner: macos-15
+          - name: Linux x64
+            runner: ubuntu-22.04
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Install Linux runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap libfuse2 xvfb libgtk-3-0 libnss3 libgbm1 libasound2
+
+      - name: Verify release version
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          expected="v$(python3 -c 'import json; print(json.load(open("apps/desktop/package.json"))["version"])')"
+          test "$RELEASE_TAG" = "$expected"
+          test "$RELEASE_TAG" = "v$(python3 -c 'import json; print(json.load(open("apps/server/package.json"))["version"])')"
+          git rev-parse --verify "refs/tags/$RELEASE_TAG"
+          test -s "docs/releases/$RELEASE_TAG.md"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          dest: ${{ runner.temp }}/pnpm
+
+      - name: Install dependencies
+        run: pnpm install --store-dir "$RUNNER_TOOL_CACHE/intrica-pnpm-store" --frozen-lockfile
+
+      - name: Build distributable
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          pnpm --filter @intrica/desktop run prepare:app
+          # electron-builder treats an empty CSC_LINK as a certificate file path.
+          if [ -z "$CSC_LINK" ]; then unset CSC_LINK CSC_KEY_PASSWORD; fi
+          pnpm --filter @intrica/desktop exec electron-builder --publish never
+
+      - name: Verify installed Linux app
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        env:
+          INTRICA_TEST_EXECUTABLE: ${{ runner.temp }}/intrica-deb/opt/Intrica/intrica
+        run: |
+          dpkg-deb -x apps/desktop/release/*.deb "$RUNNER_TEMP/intrica-deb"
+          xvfb-run --auto-servernum node --test --test-reporter=tap --test-concurrency=1 apps/desktop/standalone.test.mjs apps/desktop/remote.test.mjs
+          INTRICA_MATRIX_MODES=desktop INTRICA_MATRIX_REPORT_DIR=tests/e2e/test-results/installed-matrix xvfb-run --auto-servernum node --test --test-concurrency=1 tests/e2e/client-matrix.test.mjs
+          appimage=$(realpath apps/desktop/release/*.AppImage)
+          APPIMAGE_EXTRACT_AND_RUN=1 INTRICA_TEST_EXECUTABLE="$appimage" xvfb-run --auto-servernum node --test --test-reporter=tap apps/desktop/standalone.test.mjs
+
+      - name: Verify installed macOS app
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          INTRICA_TEST_EXECUTABLE: ${{ runner.temp }}/Intrica.app/Contents/MacOS/Intrica
+        run: |
+          mkdir -p "$RUNNER_TEMP/intrica-dmg"
+          hdiutil attach "apps/desktop/release/Intrica-${RELEASE_TAG#v}-mac-arm64.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/intrica-dmg"
+          ditto "$RUNNER_TEMP/intrica-dmg/Intrica.app" "$RUNNER_TEMP/Intrica.app"
+          hdiutil detach "$RUNNER_TEMP/intrica-dmg"
+          codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/Intrica.app"
+          if [ "$INTRICA_REQUIRE_TRUSTED_MAC" = "1" ]; then
+            xcrun stapler validate "$RUNNER_TEMP/Intrica.app"
+            spctl --assess --type execute --verbose=4 "$RUNNER_TEMP/Intrica.app"
+          else
+            codesign --display --verbose=4 "$RUNNER_TEMP/Intrica.app" 2>&1 | grep -q 'Signature=adhoc'
+            echo "macOS: complete ad-hoc signature verified; first launch requires Open Anyway. This build is not notarized." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          node --test --test-reporter=tap --test-concurrency=1 apps/desktop/standalone.test.mjs apps/desktop/remote.test.mjs
+          INTRICA_MATRIX_MODES=desktop INTRICA_MATRIX_REPORT_DIR=tests/e2e/test-results/installed-matrix node --test --test-concurrency=1 tests/e2e/client-matrix.test.mjs
+
+      - name: Upload package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: intrica-${{ matrix.name }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.blockmap
+          if-no-files-found: error
+
+  native:
+    needs: verify
+    uses: ./.github/workflows/native-server.yml
+    with:
+      ref: ${{ inputs.tag || github.ref }}
+
+  server:
+    name: Package server image
+    needs: verify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          persist-credentials: false
+      - name: Build, verify and push server image
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: bash scripts/release-container.sh
+
+  publish:
+    name: Publish GitHub release
+    permissions:
+      contents: write
+    needs: [package, server, native]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout release notes
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: intrica-*
+          path: release-assets
+          merge-multiple: true
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          dest: ${{ runner.temp }}/pnpm
+      - name: Build release utilities
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts --filter intrica...
+          pnpm --filter @intrica/releases build
+
+      - name: Create update metadata and deployment file
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          SERVER_IMAGE: ${{ needs.server.outputs.image }}
+        run: |
+          cp compose.release.yaml release-assets/compose.release.yaml
+          cp scripts/install.sh release-assets/install.sh
+          node scripts/release-manifest.mjs release-assets/intrica-update.json "$RELEASE_TAG" "$SERVER_IMAGE"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        shell: bash
+        run: node scripts/publish-release.mjs release-assets "$RELEASE_TAG" "docs/releases/$RELEASE_TAG.md"
