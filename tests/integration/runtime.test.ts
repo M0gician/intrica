@@ -922,8 +922,10 @@ describe("production graph and execution", () => {
     });
   });
   it("confines shell access even when a granted ancestor contains the Server data directory", async () => {
-    const area = join(dir, "scope"),
-      data = join(area, "runtime");
+    const area = await mkdtemp(
+      join(process.platform === "linux" ? "/tmp" : tmpdir(), "intrica-host-scope-"),
+    );
+    const data = join(area, "runtime");
     await mkdir(join(data, "secrets"), { recursive: true });
     await writeFile(join(data, "secrets", "key"), "private");
     await writeFile(join(area, "allowed"), "allowed");
@@ -934,7 +936,10 @@ describe("production graph and execution", () => {
     try {
       const sandbox = await sandboxCommand(
         "/bin/bash",
-        ["-c", `cat allowed; cat runtime/secrets/key; cat '${socketProbe}'; echo done`],
+        [
+          "-c",
+          `cat allowed; cat runtime/secrets/key; cat '${socketProbe}'; printf written > result; cat result; echo done`,
+        ],
         [
           { path: area, directory: true, write: true },
           { path: socketDirectory, directory: true, write: false },
@@ -956,9 +961,12 @@ describe("production graph and execution", () => {
       );
       expect(output.output).toContain("allowed");
       expect(output.output).not.toContain("private");
+      expect(output.exitCode).toBe(0);
+      expect(await readFile(join(area, "result"), "utf8")).toBe("written");
       expect(output.output).toContain("done");
     } finally {
       await rm(socketProbe, { force: true });
+      await rm(area, { recursive: true, force: true });
     }
   });
   it("survives a real Worker SIGKILL with isolated attempts and a single proposal", async () => {
