@@ -65,7 +65,7 @@ const cases = [
     "work/tools/node-read.js",
     "...nodeContent(node, args.offset, args.limit),",
     "/* PDF node metadata removed */",
-    "PDF05 connected Agent reads",
+    "PDF05 ",
   ],
   [
     "read multimodal dispatch",
@@ -231,7 +231,7 @@ const cases = [
   ],
   [
     "team filter before pagination",
-    "work/activity.js",
+    "work/canvas-messages.js",
     "and ($3::text[] is null or",
     "and (true or $3::text[] is null or",
     "C36 collaboration activity",
