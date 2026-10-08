@@ -338,6 +338,8 @@ async function start() {
     previewRevision++;
     publish();
   };
+  // Publish after Electron finishes the native focus transition.
+  window.webContents.on("focus", () => setImmediate(refreshPreviews));
   function place() {
     if (!view || window.isDestroyed()) return;
     const visible =
@@ -369,10 +371,9 @@ async function start() {
         nodeIntegration: false,
       },
     });
-    // Refresh visible nodes after navigation or when returning to the canvas.
-    // Snapshot loads themselves never emit these events, avoiding refresh loops
-    // on sites that rotate cookies on every request.
-    for (const event of ["did-stop-loading", "did-navigate-in-page", "blur"])
+    // Snapshot loads do not emit these events on the visible view, avoiding
+    // refresh loops on sites that rotate cookies on every request.
+    for (const event of ["did-stop-loading", "did-navigate-in-page"])
       view.webContents.on(event, refreshPreviews);
     for (const eventName of ["will-navigate", "will-redirect"]) {
       view.webContents.on(eventName, (event, url) => {

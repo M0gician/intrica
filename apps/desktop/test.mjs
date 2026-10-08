@@ -271,12 +271,22 @@ test("native browser supports scripts, forms, navigation and sidebar lifecycle w
     await expect(browser).toHaveTitle("Signed in:shared");
     await expect(accountImage).toHaveAttribute("alt", "Signed in:shared 的网页快照");
     assert.notEqual(await accountImage.getAttribute("src"), signedOutImage);
+    const previewRevision = await ui.evaluate(
+      async () => (await window.intricaDesktop.browser.command("state")).previewRevision,
+    );
     const signedIn = await ui.evaluate(
       (url) => window.intricaDesktop.browser.preview(url),
       `${fixtureOrigin}/account`,
     );
     assert.equal(signedIn.title, "Signed in:shared");
     assert.notEqual(signedIn.dataUrl, signedOutImage);
+    assert.equal(
+      await ui.evaluate(
+        async () => (await window.intricaDesktop.browser.command("state")).previewRevision,
+      ),
+      previewRevision,
+      "capturing a snapshot must not trigger another refresh",
+    );
     assert.equal(authScriptLoads, 1, "sidebar and snapshot reuse the same HTTP cache");
     assert.deepEqual(
       await app.evaluate(async ({ session }, url) => {
@@ -298,22 +308,21 @@ test("native browser supports scripts, forms, navigation and sidebar lifecycle w
     );
     assert.equal(signedOut.title, "Signed out:shared");
     assert.notEqual(signedOut.dataUrl, signedIn.dataUrl);
-    // SPA login can change cookies without navigating the visible browser page.
-    // Playwright dispatches mouse events to renderers without changing native focus.
+    // Background login must be visible when the canvas regains focus.
     await app.evaluate(({ BrowserWindow }) => {
       const window = BrowserWindow.getAllWindows().find((w) =>
         w.webContents.getURL().startsWith("intrica:"),
       );
-      window.focus();
-      window.contentView.children
-        .find((v) => v.webContents !== window.webContents)
-        .webContents.focus();
+      window.webContents.focus();
+      window.hide();
     });
     await browser.evaluate(() => fetch("/login"));
     await app.evaluate(({ BrowserWindow }) => {
-      BrowserWindow.getAllWindows()
-        .find((w) => w.webContents.getURL().startsWith("intrica:"))
-        .webContents.focus();
+      const window = BrowserWindow.getAllWindows().find((w) =>
+        w.webContents.getURL().startsWith("intrica:"),
+      );
+      window.show();
+      window.webContents.focus();
     });
     await ui.getByLabel("网页地址").click();
     await expect(accountImage).toHaveAttribute("alt", "Signed in:shared 的网页快照");
