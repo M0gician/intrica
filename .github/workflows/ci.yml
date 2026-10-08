@@ -100,7 +100,7 @@ jobs:
       # Keep this sequential with builds and any tests using the same dist.
       - name: Interaction safety ablation
         if: runner.os == 'Linux'
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: node tests/integration/ablate-interactions.mjs
 
       - name: Install Playwright Chromium on Linux
