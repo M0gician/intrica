@@ -1,15 +1,16 @@
 # CI and releases
 
-Linux jobs use isolated GitHub-hosted Ubuntu 22.04 x64 runners. macOS jobs
-use a self-hosted Apple Silicon runner with the labels `self-hosted`,
-`macOS`, `ARM64` and `intrica`. GitHub-hosted macOS compute is not used.
-If the self-hosted runner is offline, macOS jobs wait for it.
+Pushes to `main`, release verification and maintainer-dispatched checks
+use self-hosted Linux x64 and macOS arm64 runners. Both require the
+`self-hosted` and `intrica` labels, plus `Linux` and `X64` or `macOS` and
+`ARM64`. Jobs wait when the matching runner is offline. GitHub-hosted
+macOS compute is not used.
 
-Pull requests run Linux checks with read-only permissions and no release
-secrets. Pushes to `main`, release verification and maintainer-dispatched
-checks also run on macOS. Maintainers must review any selected source ref
-before dispatching it to the persistent runner. Actions are pinned to
-commit hashes; checkout does not persist credentials.
+Pull requests run Linux checks on isolated GitHub-hosted Ubuntu 22.04
+runners with read-only permissions and no release secrets. Secret scanning
+also runs on hosted Linux. Maintainers must review any selected source ref
+before dispatching it to a persistent runner. Actions are pinned to commit
+hashes; checkout does not persist credentials.
 
 ## Verification
 
@@ -24,6 +25,10 @@ so it needs no source checkout at runtime. Verify that bundle as part of
 installed-package acceptance.
 
 ## Publication
+
+Linux packaging, native-server checks, container publication and published
+update acceptance use GitHub-hosted Ubuntu 22.04 runners. macOS packaging
+and published-update acceptance use the self-hosted Apple Silicon runner.
 
 A release tag must match Desktop and Server versions and have release notes.
 CI verifies fresh installers, native service packages and the container.
@@ -44,10 +49,15 @@ approvals through replacement.
 ## Repository prerequisites
 
 Use the Linux and secret-scan jobs as required pull-request checks; macOS
-is verified after merge and before release. Keep the self-hosted macOS
-runner online for CI, packaging and published-update acceptance. Its
-account must be dedicated to builds, without personal credentials or data.
-Require maintainer review before running contributor workflow changes.
+is verified after merge and before release. Keep the self-hosted runners
+online. Their accounts must be dedicated to builds, without personal
+credentials or data. Use neutral installation and workspace paths, and
+prevent Linux jobs from accessing personal home directories. Require
+maintainer review before running contributor workflow changes.
+
+The self-hosted Linux runner uses Ubuntu 22.04 x64. Administrators install
+Bubblewrap, libfuse2, Xvfb and Playwright's Chromium system dependencies.
+CI installs JavaScript dependencies and browser binaries without sudo.
 
 Configure private vulnerability reporting, immutable releases and public
 GHCR visibility before distribution. Making the source

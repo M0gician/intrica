@@ -45,12 +45,15 @@ jobs:
 
   verify:
     name: ${{ matrix.name }}
-    runs-on: ${{ matrix.name == 'macOS' && fromJSON('["self-hosted", "macOS", "ARM64", "intrica"]') || fromJSON('["ubuntu-22.04"]') }}
+    runs-on: >-
+      ${{ matrix.name == 'macOS' && fromJSON('["self-hosted", "macOS", "ARM64", "intrica"]')
+        || github.event_name == 'pull_request' && fromJSON('["ubuntu-22.04"]')
+        || fromJSON('["self-hosted", "Linux", "X64", "intrica"]') }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        # Contributor code must not run on the persistent macOS runner.
+        # Contributor code must not run on persistent runners.
         name: ${{ fromJSON(github.event_name == 'pull_request' && '["Linux"]' || '["Linux", "macOS"]') }}
 
     steps:
@@ -61,7 +64,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Linux runtime dependencies
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap libfuse2
@@ -103,12 +106,11 @@ jobs:
         timeout-minutes: 20
         run: node tests/integration/ablate-interactions.mjs
 
-      - name: Install Playwright Chromium on Linux
-        if: runner.os == 'Linux'
-        run: pnpm --filter @intrica/tests-e2e exec playwright install --with-deps chromium
+      - name: Install browser system dependencies
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: pnpm --filter @intrica/tests-e2e exec playwright install-deps chromium
 
-      - name: Install Playwright Chromium on macOS
-        if: runner.os == 'macOS'
+      - name: Install Playwright Chromium
         run: pnpm --filter @intrica/tests-e2e exec playwright install chromium
 
       - name: Browser E2E

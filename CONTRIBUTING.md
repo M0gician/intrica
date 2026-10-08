@@ -37,10 +37,10 @@ State unverified platforms and installation paths. Use an imperative commit
 title near 50 characters and wrap the explanatory body at 72 characters.
 Match recent titles; the repository does not use subsystem prefixes.
 
-Pull requests run on isolated GitHub-hosted Linux runners. macOS checks
-use a self-hosted runner after merge and during maintainer-controlled
-release work. Do not route pull-request code to self-hosted runners or
-give it release credentials. Publication is a separate maintainer operation.
+Pull requests run on isolated GitHub-hosted Linux runners. Linux and macOS
+verification use self-hosted runners after merge and during maintainer
+checks. Do not route pull-request code to self-hosted runners or give it
+release credentials. Publication is a separate maintainer operation.
 
 ## License
 
