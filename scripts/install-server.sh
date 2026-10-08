@@ -2,15 +2,25 @@
 set -euo pipefail
 umask 077
 
-release=${1:?Usage: bash install-server.sh vX.Y.Z [--port PORT] [--bind IP] [--archive FILE --sha256 DIGEST --size BYTES]}
+release=${1:?Usage: bash install-server.sh vX.Y.Z [--sandbox|--no-sandbox] [--port PORT] [--bind IP] [--archive FILE --sha256 DIGEST --size BYTES]}
 shift
 port=
 bind=
 archive=
 archive_digest=
 archive_size=
+sandbox=
+expected_sandbox=
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --sandbox|--no-sandbox)
+      if [[ -n "$sandbox" ]]; then echo 'Choose one sandbox mode.' >&2; exit 1; fi
+      if [[ "$1" == --sandbox ]]; then sandbox=required; else sandbox=disabled; fi
+      shift ;;
+    --expected-sandbox)
+      expected_sandbox=${2:?Missing expected sandbox mode}
+      case "$expected_sandbox" in required|disabled|unconfigured) ;; *) echo 'Invalid expected sandbox mode.' >&2; exit 1 ;; esac
+      shift 2 ;;
     --port) port=${2:?Missing port}; shift 2 ;;
     --bind) bind=${2:?Missing bind address}; shift 2 ;;
     --archive) archive=${2:?Missing archive}; shift 2 ;;
@@ -20,7 +30,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 if [[ ! "$release" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-  echo 'Expected a pinned release tag such as v0.2.5.' >&2
+  echo 'Expected a pinned stable release tag: vMAJOR.MINOR.PATCH.' >&2
   exit 1
 fi
 if [[ -n "$port" && (! "$port" =~ ^[0-9]+$ || ${#port} -gt 5) ]]; then
@@ -41,13 +51,9 @@ if [[ "$(uname -s)-$(uname -m)" != Linux-x86_64 || $(id -u) == 0 ]]; then
   echo 'Run as your regular development user on Linux x64 with systemd, not as root.' >&2
   exit 1
 fi
-for command in systemctl loginctl sha256sum tar flock bwrap; do
+for command in systemctl loginctl sha256sum tar flock; do
   command -v "$command" >/dev/null || { echo "Required command: $command" >&2; exit 1; }
 done
-if [[ ! -x /usr/bin/bwrap ]] || ! /usr/bin/bwrap --unshare-all --die-with-parent --new-session --ro-bind / / --proc /proc --dev /dev /bin/true >/dev/null 2>&1; then
-  echo 'Working /usr/bin/bwrap with unprivileged namespaces is required. Ask your administrator to install/configure Bubblewrap; no sudo will be run.' >&2
-  exit 1
-fi
 if [[ -z "$archive" ]]; then
   command -v curl >/dev/null || { echo 'Required command: curl (or pass a verified --archive)' >&2; exit 1; }
 fi
@@ -139,14 +145,15 @@ node="$temporary/app/bin/node"
 "$node" --version
 
 echo '[3/5] Configuring your user service…'
-"$node" --input-type=module - "$config_dir/server.json" "$temporary/server.json" "$port" "$bind" "$temporary/app/release.json" "${release#v}" "$base/current" <<'JS'
+"$node" --input-type=module - "$config_dir/server.json" "$temporary/server.json" "$port" "$bind" "$temporary/app/release.json" "${release#v}" "$base/current" "$sandbox" "$expected_sandbox" <<'JS'
 import { randomBytes } from 'node:crypto';
 import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { isIP } from 'node:net';
 import { join } from 'node:path';
-const [file, output, port, host, releaseFile, version, current] = process.argv.slice(2);
-if (JSON.parse(readFileSync(releaseFile)).version !== version) throw new Error('Package version mismatch');
+const [file, output, port, host, releaseFile, version, current, sandbox, expectedSandbox] = process.argv.slice(2);
+const release = JSON.parse(readFileSync(releaseFile));
+if (release.version !== version) throw new Error('Package version mismatch');
 // The SSH plan can be stale after its local download. Recheck under install.lock,
 // before stopping the service, including when this installer is invoked directly.
 const parseVersion = (value) => {
@@ -170,19 +177,35 @@ if (installed) {
   if (compareVersions(parseVersion(previous), candidate) > 0)
     throw new Error('Downgrades are refused: database migrations may not be reversible.');
 }
-let config;
+let config, configured = true;
 try { config = JSON.parse(readFileSync(file)); }
 catch (error) {
   if (error.code !== 'ENOENT') throw new Error('Cannot read server configuration. Its private contents were not logged.');
+  configured = false;
   config = { host:'127.0.0.1', port:3001, accessToken:randomBytes(32).toString('hex'), databasePassword:randomBytes(32).toString('hex'),
     stateDir:join(homedir(), '.local/share/intrica-server/state'), serverName:`Intrica on ${hostname()}` };
 }
+if (expectedSandbox && expectedSandbox !== (configured ? (config.sandbox ?? 'required') : 'unconfigured'))
+  throw new Error('Sandbox configuration changed since preflight. Inspect the host and confirm a new plan.');
 if (port) config.port = Number(port);
 if (host) config.host = host;
+config.sandbox = sandbox || (config.sandbox ?? 'required');
+if (!['required','disabled'].includes(config.sandbox)) throw new Error('Invalid sandbox mode');
+if (config.sandbox === 'disabled' && (!Array.isArray(release.sandboxModes) || !release.sandboxModes.includes('disabled')))
+  throw new Error('This server package does not support no-sandbox mode. Select a package that declares this capability.');
 if (!isIP(config.host) || !Number.isInteger(config.port) || config.port < 1 || config.port > 65535 ||
     !config.accessToken || !config.databasePassword || !config.stateDir) throw new Error('Invalid server configuration');
 writeFileSync(output, `${JSON.stringify(config, null, 2)}\n`, {mode:0o600});
 JS
+sandbox=$("$node" --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.argv[1])).sandbox);' "$temporary/server.json")
+if [[ "$sandbox" == required ]]; then
+  if [[ ! -x /usr/bin/bwrap ]] || ! /usr/bin/bwrap --unshare-all --die-with-parent --new-session --ro-bind / / --proc /proc --dev /dev /bin/true >/dev/null 2>&1; then
+    echo 'Working /usr/bin/bwrap with unprivileged namespaces is required. Configure Bubblewrap or explicitly select --no-sandbox. No service changes were applied.' >&2
+    exit 1
+  fi
+else
+  echo 'No-sandbox mode: tools run with the service account permissions. Working directories do not restrict file or network access.' >&2
+fi
 target="$base/releases/${release}-${digest:7:12}"
 if [[ ! -d "$target" ]]; then mv "$temporary/app" "$target"; fi
 node="$target/bin/node"

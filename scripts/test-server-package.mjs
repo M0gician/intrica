@@ -256,8 +256,20 @@ try {
   await verifyPendingApproval(call, journey, pending);
   await journey.start();
   await verifyJourney(call, journey, [pending.request.id]);
+  await journey.close();
+  journey = undefined;
+  await stop();
+  const saved = JSON.parse(await readFile(config, "utf8"));
+  await writeFile(config, JSON.stringify({ ...saved, sandbox: "disabled" }), { mode: 0o600 });
+  await start();
+  assert.equal((await call("settings/diagnostics")).isolation, null);
+  assert.equal((await call("settings/diagnostics")).sandboxStatus, "disabled");
+  assert.ok((await call("bootstrap")).nodes.some((node) => node.id === canvas.id));
+  journey = await prepareJourney(call);
+  await journey.start();
+  await verifyJourney(call, journey);
   console.log(
-    "Native package verified: bundled database, auth, API, host terminal, persistence, and shutdown.",
+    "Native package verified: bundled database, auth, API, host terminal, persistence, shutdown, and sandboxed/no-sandbox tool execution.",
   );
 } finally {
   await journey?.close().catch(() => {});

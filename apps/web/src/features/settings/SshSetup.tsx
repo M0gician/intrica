@@ -21,6 +21,7 @@ export function SshSetup({
   const { t } = useTranslation("ui");
   const ssh = window.intricaDesktop!.ssh!;
   const [release, setRelease] = useState("");
+  const [noSandbox, setNoSandbox] = useState(false);
   const [inspection, setInspection] = useState<SshInspection | null>(null);
   const [plan, setPlan] = useState<SshPlan | null>(null);
   const [operation, setOperation] = useState<"inspect" | "plan" | "apply" | null>(null);
@@ -28,7 +29,9 @@ export function SshSetup({
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState("");
   const busy = operation !== null;
-  const dirty = !completed && (Boolean(release) || plan !== null);
+  const dirty =
+    !completed &&
+    (Boolean(release) || plan !== null || noSandbox !== (inspection?.sandbox === "disabled"));
   useEffect(() => register(dirty, undefined, busy), [register, dirty, busy]);
   useEffect(() => () => register(false), [register]);
   useEffect(() => {
@@ -37,7 +40,10 @@ export function SshSetup({
     void ssh
       .inspect(initialTarget)
       .then((value) => {
-        if (current) setInspection(value);
+        if (current) {
+          setInspection(value);
+          setNoSandbox(value.sandbox === "disabled");
+        }
       })
       .catch((error) => {
         if (current) setError(settingsError(error));
@@ -55,10 +61,18 @@ export function SshSetup({
     setError("");
     try {
       if (kind === "inspect") {
-        setInspection(await ssh.inspect(initialTarget));
+        const value = await ssh.inspect(initialTarget);
+        setInspection(value);
+        setNoSandbox(value.sandbox === "disabled");
         setPlan(null);
       } else if (kind === "plan") {
-        setPlan(await ssh.plan({ target: initialTarget, release }));
+        setPlan(
+          await ssh.plan({
+            target: initialTarget,
+            release,
+            sandbox: noSandbox ? "disabled" : "required",
+          }),
+        );
       } else if (plan && confirmed) {
         await ssh.apply({ id: plan.id, confirm: true });
         await actions.refresh?.();
@@ -108,6 +122,8 @@ export function SshSetup({
               <dl>
                 <dt>{t("当前版本")}</dt>
                 <dd>{inspection.version ?? t("未安装")}</dd>
+                <dt>{t("主机沙箱支持")}</dt>
+                <dd>{t(inspection.sandboxAvailable ? "可用" : "不可用")}</dd>
                 {inspection.installation && (
                   <>
                     <dt>{t("安装目录")}</dt>
@@ -129,10 +145,10 @@ export function SshSetup({
         {inspection?.supported && (
           <>
             <Field>
-              {t("目标稳定版本（例如 v0.2.5）")}
+              {t("目标稳定版本")}
               <Input
                 value={release}
-                placeholder="v0.2.5"
+                placeholder="vX.Y.Z"
                 onChange={(event) => {
                   setRelease(event.target.value);
                   setPlan(null);
@@ -140,6 +156,30 @@ export function SshSetup({
                 }}
               />
             </Field>
+            {inspection.sandboxAvailable === false && (
+              <p role="status">
+                {t("此主机的工具沙箱不可用。请配置 Bubblewrap，或明确选择无沙箱模式。")}
+              </p>
+            )}
+            <Field className="settings-check">
+              <Input
+                type="checkbox"
+                checked={noSandbox}
+                onChange={(event) => {
+                  setNoSandbox(event.target.checked);
+                  setPlan(null);
+                  setConfirmed(false);
+                }}
+              />
+              {t("无沙箱模式")}
+            </Field>
+            {noSandbox && (
+              <p role="alert">
+                {t(
+                  "工具命令将使用服务账号的文件和网络权限，工作目录不限制访问范围。请使用无 sudo 权限且不存放个人凭据的专用账号。",
+                )}
+              </p>
+            )}
             <p>
               <a
                 href="https://github.com/M0gician/intrica/releases"
@@ -151,7 +191,10 @@ export function SshSetup({
             </p>
             <Button
               variant={plan ? "default" : "primary"}
-              disabled={!/^v\d+\.\d+\.\d+$/.test(release)}
+              disabled={
+                !/^v\d+\.\d+\.\d+$/.test(release) ||
+                (!noSandbox && inspection.sandboxAvailable === false)
+              }
               onClick={() => void run("plan")}
             >
               {t(operation === "plan" ? "正在生成部署计划…" : "生成部署计划")}
@@ -172,6 +215,8 @@ export function SshSetup({
               </dd>
               <dt>{t("安装目录")}</dt>
               <dd>{plan.installation}</dd>
+              <dt>{t("工具执行模式")}</dt>
+              <dd>{t(plan.sandbox === "disabled" ? "无沙箱模式" : "要求沙箱隔离")}</dd>
             </dl>
             <p>
               {t(
@@ -198,7 +243,7 @@ export function SshSetup({
                 checked={confirmed}
                 onChange={(event) => setConfirmed(event.target.checked)}
               />
-              {t("我已核对执行服务器和版本，同意部署并保存连接")}
+              {t("我已核对服务器、版本和工具执行权限，同意部署并保存连接")}
             </Field>
             <Button variant="primary" disabled={!confirmed} onClick={() => void run("apply")}>
               {t("部署并保存连接")}

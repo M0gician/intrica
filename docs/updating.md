@@ -45,6 +45,12 @@ update. Use the same account and installation directory. Downgrades and
 changed confirmation targets are rejected. A failed health check preserves
 data and recovery files; it does not automatically run an older binary.
 
+Native updates preserve the saved tool sandbox mode. Select `--no-sandbox`
+or `--sandbox` explicitly to change it, and use the same choice for planning
+and applying. No-sandbox mode requires declared support in both the public
+manifest and archive; it runs tools with the service account's permissions. See
+[the mode's requirements](self-hosting.md#explicit-no-sandbox-mode).
+
 For a container, set the existing deployment's `INTRICA_IMAGE` to the new
 release's immutable digest, then run:
 

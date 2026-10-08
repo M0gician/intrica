@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, readFile, writeFile } from "node:fs/promises";
@@ -21,6 +22,19 @@ for (const name of releaseNames(desktop.version)) {
   for await (const chunk of createReadStream(path)) hash.update(chunk);
   assets.push({ name, size: stat.size, sha256: hash.digest("hex") });
 }
+const native = JSON.parse(
+  execFileSync(
+    "tar",
+    [
+      "-xOzf",
+      join(directory, `Intrica-${server.version}-server-linux-x64.tar.gz`),
+      "./release.json",
+    ],
+    { encoding: "utf8", maxBuffer: 64 * 1024 },
+  ),
+);
+if (native.version !== server.version || !Array.isArray(native.sandboxModes))
+  throw new Error("Native server package must declare its version and sandbox modes");
 const manifest = parseManifest({
   format: 2,
   version: desktop.version,
@@ -28,6 +42,7 @@ const manifest = parseManifest({
   apiVersion: "v2",
   schemaVersion: 10,
   serverImage: image,
+  serverSandboxModes: native.sandboxModes,
   assets,
 });
 const bytes = `${JSON.stringify(manifest, null, 2)}\n`;

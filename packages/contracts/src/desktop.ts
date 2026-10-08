@@ -32,10 +32,12 @@ export type DesktopServerProfile = {
 };
 export type ManualSshTarget = { hostname: string; username: string; port: number };
 export type SshTarget = string | ManualSshTarget;
+export type ToolSandboxMode = "required" | "disabled";
 export type ServerDiagnostics = {
   hostname: string;
   platform: string;
   isolation: string | null;
+  sandboxStatus: "enabled" | "disabled" | "unavailable";
   checkedAt: string;
   agents: number;
   queued: number;
@@ -50,6 +52,8 @@ export type SshInspection = {
   version?: string | null;
   healthy?: boolean;
   installation?: string;
+  sandbox?: ToolSandboxMode;
+  sandboxAvailable?: boolean;
   error?: string;
 };
 export type SshPlan = {
@@ -63,13 +67,19 @@ export type SshPlan = {
   currentVersion: string | null;
   service: string;
   healthy: boolean;
+  sandbox: ToolSandboxMode;
+  currentSandbox: ToolSandboxMode | null;
   asset: { name: string; size: number; sha256: string };
 };
 export type DesktopSsh = {
   aliases: () => Promise<string[]>;
   connect: (target: SshTarget) => Promise<DesktopServerProfile>;
   inspect: (target: SshTarget) => Promise<SshInspection>;
-  plan: (input: { target: SshTarget; release: string }) => Promise<SshPlan>;
+  plan: (input: {
+    target: SshTarget;
+    release: string;
+    sandbox?: ToolSandboxMode;
+  }) => Promise<SshPlan>;
   apply: (input: { id: string; confirm: true }) => Promise<DesktopServerProfile>;
   restart: (input: {
     target: SshTarget;

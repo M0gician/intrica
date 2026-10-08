@@ -13,12 +13,16 @@ node scripts/deploy-server.mjs SSH_ALIAS vX.Y.Z
 ```
 
 The host must be Linux x64, use a non-root account, support a systemd user
-session with linger, and provide working Bubblewrap namespaces. The helper
-does not configure sudo, firewall rules or SSH host trust.
+session with linger. Inspection reports Bubblewrap availability and the
+installed sandbox mode. Planning requires working isolation unless the
+selected mode is explicitly `disabled`; a new installation defaults to
+`required`. The helper does not configure sudo, namespaces, firewall rules
+or SSH host trust.
 
 Preflight reports installation and service state without returning secrets.
 Desktop retains a single expiring plan. Applying it requires explicit
-confirmation and rechecks SSH identity, installation state and artifact hash.
+confirmation and rechecks SSH identity, installation state, selected and
+installed sandbox modes, and artifact hash.
 Changed or expired plans require a new inspection.
 
 ## Downloads and activation
@@ -31,11 +35,22 @@ a validated temporary staging directory.
 The installer takes a user-level lock. It validates the archive, version and
 existing private configuration before stopping the service. Existing
 credentials, state directory and settings remain unless the user explicitly
-changes the listener. New services bind loopback.
+changes the listener or sandbox mode. New services bind loopback.
 
-An identical healthy package is a no-op. Downgrades are rejected during
-planning and again under the remote install lock. Missing installed version
-metadata fails rather than guessing.
+Native archives declare their supported `sandboxModes` in `release.json`.
+Publication copies this declaration to `serverSandboxModes` in the public
+manifest. Planning rejects no-sandbox mode without declared release support;
+the installer verifies support again against the downloaded archive.
+Under its lock, the installer rechecks the installed mode against the
+confirmed plan and checks required isolation before stopping the active
+service. It saves the selected mode in the private configuration. Service
+startup enforces the saved mode before opening the database. Disabled mode bypasses
+the sandbox probe and process sandbox for tools; it retains application
+authorization and uses the service account's OS permissions.
+
+An identical healthy package with the same mode and listener is a no-op.
+Downgrades are rejected during planning and again under the remote install
+lock. Missing installed version metadata fails rather than guessing.
 
 ## Transport and data
 

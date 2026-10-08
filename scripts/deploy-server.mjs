@@ -11,10 +11,13 @@ import { downloadAsset, readRelease, selectAsset } from "@intrica/releases";
 const versionPattern = /^v(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/;
 const aliasPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const stagingPattern = /^\/tmp\/intrica-deploy\.[A-Za-z0-9]{6,20}$/;
-export const usage = `Usage: node scripts/deploy-server.mjs SSH_ALIAS vX.Y.Z [--install|--update] [--apply] [--port PORT] [--bind IP]
+export const usage = `Usage: node scripts/deploy-server.mjs SSH_ALIAS vX.Y.Z [--install|--update] [--apply] [--sandbox|--no-sandbox] [--port PORT] [--bind IP]
 Without --apply, only inspect the selected SSH host and verified release metadata.
 Requires remote Linux x64, non-root, systemd user session,
-enabled linger, and Bubblewrap. No sudo, firewall changes, or token transfer.`;
+and enabled linger. Sandbox mode requires working Bubblewrap.
+--no-sandbox runs tools with the service account's permissions.
+Updates preserve the installed sandbox mode unless explicitly changed.
+No sudo, firewall changes, or token transfer.`;
 
 export function parseOptions(args) {
   const [alias, release, ...flags] = args;
@@ -27,7 +30,10 @@ export function parseOptions(args) {
     if (seen.has(flag)) throw new Error(`Duplicate option: ${flag}`);
     seen.add(flag);
     if (flag === "--apply") options.apply = true;
-    else if (flag === "--install" || flag === "--update") {
+    else if (flag === "--sandbox" || flag === "--no-sandbox") {
+      if (options.sandbox) throw new Error("Choose either --sandbox or --no-sandbox.");
+      options.sandbox = flag === "--sandbox" ? "required" : "disabled";
+    } else if (flag === "--install" || flag === "--update") {
       if (options.mode !== "auto") throw new Error("Choose either --install or --update.");
       options.mode = flag.slice(2);
     } else if (flag === "--port") {
@@ -75,10 +81,14 @@ export function sshArguments(alias, { configuration = false, command } = {}) {
 export const preflightScript = `set -eu
 test "$(uname -s)-$(uname -m)" = Linux-x86_64 || { echo 'Only Linux x64 native servers are supported.' >&2; exit 1; }
 test "$(id -u)" != 0 || { echo 'Use a regular user, not root.' >&2; exit 1; }
-for program in bash systemctl loginctl sha256sum tar flock bwrap; do
+for program in bash systemctl loginctl sha256sum tar flock; do
   command -v "$program" >/dev/null || { echo "Missing prerequisite: $program. Ask your administrator to install it; no sudo will be run." >&2; exit 1; }
 done
-test -x /usr/bin/bwrap && /usr/bin/bwrap --unshare-all --die-with-parent --new-session --ro-bind / / --proc /proc --dev /dev /bin/true >/dev/null 2>&1 || { echo 'Working /usr/bin/bwrap and unprivileged namespaces are required. Ask your administrator to configure Bubblewrap; no sudo will be run.' >&2; exit 1; }
+if test -x /usr/bin/bwrap && /usr/bin/bwrap --unshare-all --die-with-parent --new-session --ro-bind / / --proc /proc --dev /dev /bin/true >/dev/null 2>&1; then
+  printf 'sandboxAvailable=yes\\n'
+else
+  printf 'sandboxAvailable=no\\n'
+fi
 systemctl --user show-environment >/dev/null || { echo 'A working systemd user session is required.' >&2; exit 1; }
 test "$(loginctl show-user "$(id -un)" -p Linger --value)" = yes || { echo 'Ask your administrator to run: loginctl enable-linger USER. No sudo will be run.' >&2; exit 1; }
 base="$HOME/.local/share/intrica-server"
@@ -86,6 +96,20 @@ printf 'platform=linux\narchitecture=x64\ninstallation=%s\nconfig=%s\n' "$base" 
 printf 'service=%s\n' "$(systemctl --user is-active intrica-server.service 2>/dev/null || true)"
 if test -f "$HOME/.config/intrica/server.json"; then printf 'configured=yes\n'; else printf 'configured=no\n'; fi
 if test -L "$base/current"; then printf 'current=%s\n' "$(readlink "$base/current")"; else printf 'current=\n'; fi
+sandbox=required
+if test -f "$HOME/.config/intrica/server.json"; then
+  test -x "$base/current/bin/node" || { echo 'Installed runtime is missing; inspect the existing service configuration before deployment.' >&2; exit 1; }
+  sandbox=$("$base/current/bin/node" --input-type=module - "$HOME/.config/intrica/server.json" <<'JS'
+import {readFileSync} from 'node:fs';
+try {
+  const mode = JSON.parse(readFileSync(process.argv[2])).sandbox ?? 'required';
+  if (!['required','disabled'].includes(mode)) throw new Error();
+  process.stdout.write(mode);
+} catch { console.error('Cannot read the installed sandbox mode. Inspect the private service configuration.'); process.exit(1); }
+JS
+  )
+fi
+printf 'sandbox=%s\\n' "$sandbox"
 printf 'release='
 if test -f "$base/current/release.json"; then tr -d '\\r\\n' < "$base/current/release.json"; fi
 printf '\n'
@@ -128,6 +152,8 @@ export function parsePreflight(output) {
     !result.config?.startsWith("/") ||
     !["yes", "no"].includes(result.configured) ||
     !["yes", "no"].includes(result.healthy) ||
+    !["yes", "no"].includes(result.sandboxAvailable) ||
+    !["required", "disabled"].includes(result.sandbox) ||
     !["active", "inactive", "failed", "unknown", ""].includes(result.service)
   )
     throw new Error("Incomplete SSH preflight response.");
@@ -143,7 +169,17 @@ export function parsePreflight(output) {
   return result;
 }
 
-export function planDeployment(options, host, asset) {
+export function planDeployment(options, host, metadata) {
+  const asset = selectAsset(metadata, "server-linux-x64.tar.gz");
+  const sandbox = options.sandbox ?? host.sandbox;
+  if (sandbox === "disabled" && !metadata.serverSandboxModes?.includes("disabled"))
+    throw new Error(
+      "This release does not declare no-sandbox support. Select a release that supports this mode.",
+    );
+  if (sandbox === "required" && host.sandboxAvailable !== "yes")
+    throw new Error(
+      "Sandbox unavailable. Configure Bubblewrap or explicitly choose --no-sandbox to run tools with the service account's permissions.",
+    );
   if (options.mode === "install" && (host.version || host.configured === "yes"))
     throw new Error("Server configuration already exists; use --update or automatic mode.");
   if (options.mode === "update" && (!host.version || host.configured !== "yes"))
@@ -161,6 +197,7 @@ export function planDeployment(options, host, asset) {
     host.configured === "yes" &&
     host.service === "active" &&
     host.healthy === "yes" &&
+    sandbox === host.sandbox &&
     !options.port &&
     !options.bind;
   return {
@@ -174,6 +211,8 @@ export function planDeployment(options, host, asset) {
     currentVersion: host.version ?? null,
     service: host.service || "unknown",
     healthy: host.healthy === "yes",
+    sandbox,
+    currentSandbox: host.configured === "yes" ? host.sandbox : null,
     preserve: ["access token", "database password", "state directory", "existing settings"],
     listen: {
       bind: options.bind ?? "preserve existing; otherwise 127.0.0.1",
@@ -246,11 +285,16 @@ export async function deployServer(
 ) {
   if (!["auto", "install", "update"].includes(options.mode) || typeof options.apply !== "boolean")
     throw new Error("Invalid deployment mode.");
+  if (options.sandbox !== undefined && !["required", "disabled"].includes(options.sandbox))
+    throw new Error("Invalid sandbox mode.");
   options = parseOptions([
     options.alias,
     options.release,
     ...(options.mode === "auto" ? [] : [`--${options.mode}`]),
     ...(options.apply ? ["--apply"] : []),
+    ...(options.sandbox === undefined
+      ? []
+      : [options.sandbox === "disabled" ? "--no-sandbox" : "--sandbox"]),
     ...(options.port === undefined ? [] : ["--port", options.port]),
     ...(options.bind === undefined ? [] : ["--bind", options.bind]),
   ]);
@@ -272,14 +316,22 @@ export async function deployServer(
     }),
   );
   const metadata = await readRelease(options.release.slice(1), fetchImpl);
-  const asset = selectAsset(metadata, "server-linux-x64.tar.gz");
-  const plan = planDeployment(options, host, asset);
+  const plan = planDeployment(options, host, metadata);
+  const { asset } = plan;
   plan.sshTarget = `${user}@${hostname}:${configuration.match(/^port (.+)$/m)?.[1] ?? "22"}`;
   if (
     expectedPlan &&
-    ["alias", "sshTarget", "release", "installation", "config", "currentVersion", "action"].some(
-      (key) => plan[key] !== expectedPlan[key],
-    )
+    [
+      "alias",
+      "sshTarget",
+      "release",
+      "installation",
+      "config",
+      "currentVersion",
+      "action",
+      "sandbox",
+      "currentSandbox",
+    ].some((key) => plan[key] !== expectedPlan[key])
   )
     throw new Error("Deployment target changed since preflight. Run preflight again.");
   if (expectedPlan && plan.asset.sha256 !== expectedPlan.asset.sha256)
@@ -318,6 +370,9 @@ export async function deployServer(
       asset.sha256,
       "--size",
       String(asset.size),
+      plan.sandbox === "disabled" ? "--no-sandbox" : "--sandbox",
+      "--expected-sandbox",
+      plan.currentSandbox ?? "unconfigured",
     ];
     if (options.port) parameters.push("--port", options.port);
     if (options.bind) parameters.push("--bind", options.bind);

@@ -28,7 +28,7 @@ function Fixture() {
     disconnect: async()=>setActiveId(null),
     remove: async profile => setProfiles(previous=>previous.filter(item=>item.id!==profile.id)),
     refresh: async()=>window.calls.push({name:"refresh"}),
-    inspect: async()=>({hostname:"research",platform:"linux",isolation:"bwrap",checkedAt:"2026-10-03T00:00:00Z",agents:0,queued:0,pendingApprovals:0,unknownTools:0}),
+    inspect: async()=>({hostname:"research",platform:"linux",sandboxStatus:window.sandboxStatus??"enabled",checkedAt:"2026-10-03T00:00:00Z",agents:0,queued:0,pendingApprovals:0,unknownTools:0}),
     forgetToken: async profile => {
       window.calls.push({name:"forgetToken",id:profile.id});
       setProfiles(previous=>previous.map(item=>item.id===profile.id?{...item,hasToken:false}:item));
@@ -80,7 +80,14 @@ test("native connection dialogs preserve credentials drafts and require an inspe
           aliases: async () => ["research"],
           inspect: async (alias) => {
             window.calls.push({ name: "inspect", alias });
-            return { alias, supported: true, version: null, service: "inactive" };
+            return {
+              alias,
+              supported: true,
+              version: null,
+              service: "inactive",
+              sandbox: "required",
+              sandboxAvailable: true,
+            };
           },
           plan: async (input) => {
             window.calls.push({ name: "plan", input });
@@ -96,6 +103,8 @@ test("native connection dialogs preserve credentials drafts and require an inspe
               currentVersion: null,
               service: "inactive",
               healthy: false,
+              sandbox: input.sandbox,
+              currentSandbox: null,
               asset: { name: "server.tar.gz", size: 42, sha256: "a".repeat(64) },
             };
           },
@@ -112,6 +121,18 @@ test("native connection dialogs preserve credentials drafts and require an inspe
     await page.getByRole("button", { name: "检查此服务器", exact: true }).click();
     await expect(page.locator(".connection-details")).toContainText("research · linux");
     await expect(page.locator(".connection-details")).toContainText("0 / 0 / 0 / 0");
+    await expect(page.locator(".connection-details")).toContainText("沙箱已启用");
+    for (const [status, label] of [
+      ["disabled", "无沙箱模式"],
+      ["unavailable", "沙箱不可用"],
+    ]) {
+      await page.evaluate((value) => {
+        window.sandboxStatus = value;
+      }, status);
+      await page.getByRole("button", { name: "管理连接：Research server", exact: true }).click();
+      await page.getByRole("button", { name: "检查此服务器", exact: true }).click();
+      await expect(page.locator(".connection-details")).toContainText(label);
+    }
     await expect(
       page.getByRole("switch", { name: "连接服务器：Research server", exact: true }),
     ).toBeChecked();
@@ -141,7 +162,7 @@ test("native connection dialogs preserve credentials drafts and require an inspe
     await page.getByRole("radio", { name: "research", exact: true }).check();
     await page.getByRole("button", { name: "部署 Intrica…", exact: true }).click();
     const deployment = page.getByRole("dialog", { name: "通过 SSH 部署", exact: true });
-    const release = deployment.getByLabel("目标稳定版本（例如 v0.2.5）");
+    const release = deployment.getByLabel("目标稳定版本");
     await release.fill("v0.2.5");
     await page.keyboard.press("Escape");
     const draft = page.getByRole("alertdialog", { name: "有未保存的修改", exact: true });
@@ -169,7 +190,12 @@ test("native connection dialogs preserve credentials drafts and require an inspe
       await page.evaluate(() => window.calls.filter((item) => item.name === "apply").length),
       0,
     );
-    await deployment.getByRole("checkbox").check();
+    await deployment
+      .getByRole("checkbox", {
+        name: "我已核对服务器、版本和工具执行权限，同意部署并保存连接",
+        exact: true,
+      })
+      .check();
     await apply.click();
     await expect(
       deployment.getByText("部署已验证，SSH 连接已保存。返回列表即可连接。"),

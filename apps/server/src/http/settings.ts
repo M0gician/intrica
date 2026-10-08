@@ -19,6 +19,12 @@ export function registerSettings(app: AppInstance, k: Kernel) {
       hostname: hostname(),
       platform: platform(),
       isolation,
+      sandboxStatus:
+        process.env.INTRICA_SANDBOX === "disabled"
+          ? "disabled"
+          : isolation
+            ? "enabled"
+            : "unavailable",
       checkedAt: new Date().toISOString(),
       ...summary,
     };

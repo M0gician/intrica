@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1
+
+- Explicit no-sandbox mode for native server installation and SSH deployment.
+- Persisted execution mode, startup enforcement and plan confirmation checks.
+- Server connection details distinguish enabled, disabled and unavailable sandboxes.
+- Release capability validation before downloading a no-sandbox deployment.
+- English and Chinese installation instructions for both execution modes.
+
+See [release notes](docs/releases/v0.3.1.md) and [self hosting](docs/self-hosting.md).
+
 ## 0.3.0
 
 - Visual workspaces with connected notes, files, images, PDFs and web sources.

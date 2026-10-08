@@ -45,7 +45,22 @@ export function ConnectionDetails({
               {check.diagnostics.version?.version ?? "—"}
             </dd>
             <dt>{t("沙箱", { ns: "ui" })}</dt>
-            <dd>{check.diagnostics.isolation ?? t("unavailable")}</dd>
+            <dd>
+              {t(
+                check.diagnostics.sandboxStatus === "disabled"
+                  ? "无沙箱模式"
+                  : check.diagnostics.sandboxStatus === "enabled"
+                    ? "沙箱已启用"
+                    : "沙箱不可用",
+                { ns: "ui" },
+              )}
+            </dd>
+            {check.ssh?.supported && (
+              <>
+                <dt>{t("主机沙箱支持", { ns: "ui" })}</dt>
+                <dd>{t(check.ssh.sandboxAvailable ? "可用" : "不可用", { ns: "ui" })}</dd>
+              </>
+            )}
             <dt>{t("运行中 / 排队 / 待审批 / 未知结果", { ns: "ui" })}</dt>
             <dd>
               {check.diagnostics.agents} / {check.diagnostics.queued} /{" "}

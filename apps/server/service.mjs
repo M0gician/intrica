@@ -8,7 +8,9 @@ const directory = dirname(fileURLToPath(import.meta.url));
 const configPath =
   process.env.INTRICA_SERVICE_CONFIG ?? join(homedir(), ".config/intrica/server.json");
 const config = JSON.parse(await readFile(configPath, "utf8"));
+const sandbox = config.sandbox ?? "required";
 if (
+  !["required", "disabled"].includes(sandbox) ||
   !config.accessToken ||
   !config.databasePassword ||
   !config.stateDir ||
@@ -20,9 +22,19 @@ if (
   throw new Error(`Invalid server configuration: ${configPath}`);
 const release = JSON.parse(await readFile(join(directory, "release.json"), "utf8"));
 process.env.INTRICA_SERVICE_CONFIG = configPath;
+process.env.INTRICA_SANDBOX = sandbox;
 process.env.INTRICA_COMMIT = release.commit;
 process.env.INTRICA_WORKSPACE_DIR ??= homedir();
 process.env.PATH = `${dirname(process.execPath)}:${process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`;
+const { isolationAvailable } = await import("./dist/adapters/host/sandbox.js");
+if (sandbox === "required" && !(await isolationAvailable()))
+  throw new Error(
+    "Configured sandbox is unavailable. Restore OS isolation before starting this service.",
+  );
+if (sandbox === "disabled")
+  console.warn(
+    "Tool sandbox disabled: commands use the service account's file and network permissions.",
+  );
 
 let backend;
 let startup;

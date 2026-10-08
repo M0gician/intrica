@@ -11,6 +11,7 @@ export type ReleaseManifest = {
   apiVersion: string;
   schemaVersion: number;
   serverImage: string;
+  serverSandboxModes?: ("required" | "disabled")[];
   assets: ReleaseAsset[];
 };
 export type ReleaseInfo = Omit<ReleaseManifest, "format"> & { url: string };
@@ -69,6 +70,14 @@ export function parseManifest(value: unknown): ReleaseManifest {
       new Set(data.assets.map((asset) => asset.name)).size !== names.length
     )
       throw new Error("Invalid manifest");
+    if (
+      data.serverSandboxModes !== undefined &&
+      (!Array.isArray(data.serverSandboxModes) ||
+        !data.serverSandboxModes.includes("required") ||
+        data.serverSandboxModes.some((mode) => mode !== "required" && mode !== "disabled") ||
+        new Set(data.serverSandboxModes).size !== data.serverSandboxModes.length)
+    )
+      throw new Error("Invalid server sandbox modes");
     for (const asset of data.assets) validateAsset(asset, data.version);
     return {
       format: 2,
@@ -77,6 +86,9 @@ export function parseManifest(value: unknown): ReleaseManifest {
       apiVersion: data.apiVersion,
       schemaVersion: data.schemaVersion,
       serverImage: data.serverImage,
+      ...(data.serverSandboxModes === undefined
+        ? {}
+        : { serverSandboxModes: [...data.serverSandboxModes] }),
       assets: data.assets.map(({ name, size, sha256 }) => ({ name, size, sha256 })),
     };
   } catch {

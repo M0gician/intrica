@@ -105,7 +105,7 @@ test("SSH onboarding confirms a shared-engine deployment and activates its priva
         if (command === "ssh" && args.includes("-G"))
           return "user example\nhostname empty-linux-machine\nport 22\n";
         if (options.input === engine.preflightScript)
-          return "platform=linux\narchitecture=x64\ninstallation=/home/example/.local/share/intrica-server\nconfig=/home/example/.config/intrica/server.json\nconfigured=no\ncurrent=\nrelease=\nservice=inactive\nhealthy=no\n";
+          return "platform=linux\narchitecture=x64\ninstallation=/home/example/.local/share/intrica-server\nconfig=/home/example/.config/intrica/server.json\nconfigured=no\ncurrent=\nrelease=\nservice=inactive\nhealthy=no\nsandbox=required\nsandboxAvailable=no\n";
         if (options.input?.startsWith("umask 077\nmktemp")) return "/tmp/intrica-deploy.ABC1234567";
         if (options.inputFile) {
           assert.deepEqual(await readFile(options.inputFile), archive);
@@ -185,7 +185,13 @@ test("SSH onboarding confirms a shared-engine deployment and activates its priva
     await page.getByRole("radio", { name: "empty-machine", exact: true }).check();
     await page.getByRole("button", { name: "部署 Intrica…", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "通过 SSH 部署", exact: true });
-    await dialog.getByLabel("目标稳定版本（例如 v0.2.5）").fill("v0.2.5");
+    await dialog.getByLabel("目标稳定版本").fill("v0.2.5");
+    await expect(
+      dialog.getByText("此主机的工具沙箱不可用。请配置 Bubblewrap，或明确选择无沙箱模式。"),
+    ).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "生成部署计划", exact: true })).toBeDisabled();
+    await dialog.getByRole("checkbox", { name: "无沙箱模式", exact: true }).check();
+    await expect(dialog.getByRole("alert")).toContainText("服务账号");
     await dialog.getByRole("button", { name: "生成部署计划", exact: true }).click();
     await expect(dialog.getByText("example@empty-linux-machine:22 (empty-machine)")).toBeVisible();
     assert.equal(installed, false);
@@ -195,7 +201,24 @@ test("SSH onboarding confirms a shared-engine deployment and activates its priva
     );
     const deploy = dialog.getByRole("button", { name: "部署并保存连接", exact: true });
     await expect(deploy).toBeDisabled();
-    await dialog.getByRole("checkbox").check();
+    await dialog
+      .getByRole("checkbox", {
+        name: "我已核对服务器、版本和工具执行权限，同意部署并保存连接",
+        exact: true,
+      })
+      .check();
+    await dialog.getByRole("checkbox", { name: "无沙箱模式", exact: true }).uncheck();
+    await expect(deploy).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "生成部署计划", exact: true })).toBeDisabled();
+    await dialog.getByRole("checkbox", { name: "无沙箱模式", exact: true }).check();
+    await dialog.getByRole("button", { name: "生成部署计划", exact: true }).click();
+    await expect(deploy).toBeDisabled();
+    await dialog
+      .getByRole("checkbox", {
+        name: "我已核对服务器、版本和工具执行权限，同意部署并保存连接",
+        exact: true,
+      })
+      .check();
     await deploy.click();
     await expect(dialog.getByText("部署已验证，SSH 连接已保存。返回列表即可连接。")).toBeVisible();
     assert.equal(installed, true);

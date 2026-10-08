@@ -33,7 +33,7 @@ try {
   const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   await writeFile(
     join(bundle, "release.json"),
-    `${JSON.stringify({ version, commit, node: process.version })}\n`,
+    `${JSON.stringify({ version, commit, node: process.version, sandboxModes: ["required", "disabled"] })}\n`,
   );
   await writeFile(
     join(bundle, "bin/intrica-server"),

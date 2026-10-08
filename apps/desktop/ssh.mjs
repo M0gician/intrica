@@ -246,6 +246,8 @@ export function createSshManager({
             version: host.version ?? null,
             healthy: host.healthy === "yes",
             installation: host.installation,
+            sandbox: host.sandbox,
+            sandboxAvailable: host.sandboxAvailable === "yes",
           };
         } catch (error) {
           return { alias, supported: false, error: error.message };
@@ -255,7 +257,7 @@ export function createSshManager({
       exclusive(async () => {
         const alias = define(input?.target);
         const plan = await engine.deployServer(
-          { alias, release: input.release, mode: "auto", apply: false },
+          { alias, release: input.release, mode: "auto", apply: false, sandbox: input.sandbox },
           { run, log: () => {} },
         );
         plans.clear();
@@ -276,7 +278,13 @@ export function createSshManager({
         const { plan } = entry;
         define(entry.target);
         await engine.deployServer(
-          { alias: plan.alias, release: plan.release, mode: "auto", apply: true },
+          {
+            alias: plan.alias,
+            release: plan.release,
+            mode: "auto",
+            apply: true,
+            sandbox: plan.sandbox,
+          },
           { run, expectedPlan: plan, log: () => {} },
         );
         const endpoint = await target(plan.alias);

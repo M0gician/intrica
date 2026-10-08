@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { parseManifest, selectAsset } from "@intrica/releases";
+import { parseManifest } from "@intrica/releases";
 import { releaseManifest } from "../tests/fixtures/releases.mjs";
 import {
   deployServer,
@@ -28,6 +28,8 @@ const host = {
   release: "",
   service: "inactive",
   healthy: "no",
+  sandbox: "required",
+  sandboxAvailable: "yes",
 };
 const options = parseOptions(["chosen-alias", release]);
 const preflight = (value = host) =>
@@ -41,6 +43,7 @@ function fakeRuntime({
   installError = false,
   staging = "/tmp/intrica-deploy.ABCDE12345",
   root = false,
+  manifest = metadata,
 } = {}) {
   const calls = [];
   const logs = [];
@@ -51,7 +54,7 @@ function fakeRuntime({
     network,
     fetchImpl: async (url) => {
       network.push(url);
-      if (url.endsWith("/intrica-update.json")) return Response.json(metadata);
+      if (url.endsWith("/intrica-update.json")) return Response.json(manifest);
       return new Response(corrupt ? Buffer.alloc(archive.length) : archive);
     },
     log: (message) => logs.push(message),
@@ -85,6 +88,7 @@ test("CLI defaults to a plan for exactly one validated SSH alias and pinned stab
   assert.throws(() => parseOptions(["valid", release, "--bind", "127.0.0.1;id"]));
   assert.throws(() => parseOptions(["valid", release, "--apply", "--apply"]));
   assert.throws(() => parseOptions(["valid", release, "--install", "--update"]));
+  assert.throws(() => parseOptions(["valid", release, "--sandbox", "--no-sandbox"]));
   assert.equal(parseOptions(["valid", release, "--bind", "::1", "--port", "03001"]).port, "3001");
 });
 
@@ -104,6 +108,8 @@ test("programmatic deployment API revalidates options before invoking SSH", asyn
     deployServer({ ...options, bind: "127.0.0.1'; id; #" }, runtime),
     /Bind address/,
   );
+  assert.equal(runtime.calls.length, 0);
+  await assert.rejects(deployServer({ ...options, sandbox: "auto" }, runtime), /Invalid sandbox/);
   assert.equal(runtime.calls.length, 0);
 });
 
@@ -140,13 +146,19 @@ test("preflight is read-only and reports only non-secret installation/service fi
 });
 
 test("plan refuses downgrade or mode mismatch and no-ops only for exact healthy active package", () => {
-  const asset = selectAsset(parseManifest(metadata), "server-linux-x64.tar.gz");
-  assert.throws(() => planDeployment({ ...options, mode: "update" }, host, asset), /No complete/);
+  const manifest = parseManifest(metadata);
   assert.throws(
-    () => planDeployment({ ...options, mode: "install" }, { ...host, configured: "yes" }, asset),
+    () => planDeployment({ ...options, mode: "update" }, host, manifest),
+    /No complete/,
+  );
+  assert.throws(
+    () => planDeployment({ ...options, mode: "install" }, { ...host, configured: "yes" }, manifest),
     /already exists/,
   );
-  assert.throws(() => planDeployment(options, { ...host, version: "0.3.0" }, asset), /Downgrades/);
+  assert.throws(
+    () => planDeployment(options, { ...host, version: "0.3.0" }, manifest),
+    /Downgrades/,
+  );
   const installed = {
     ...host,
     configured: "yes",
@@ -155,14 +167,28 @@ test("plan refuses downgrade or mode mismatch and no-ops only for exact healthy 
     healthy: "yes",
     current: `${host.installation}/releases/${release}-${digest.slice(0, 12)}`,
   };
-  assert.equal(planDeployment(options, installed, asset).action, "no-op");
+  assert.equal(planDeployment(options, installed, manifest).action, "no-op");
   for (const mutation of [
     { service: "failed" },
     { healthy: "no" },
     { current: "/preview-same-version" },
   ])
-    assert.equal(planDeployment(options, { ...installed, ...mutation }, asset).action, "update");
-  assert.equal(planDeployment({ ...options, port: "3002" }, installed, asset).action, "update");
+    assert.equal(planDeployment(options, { ...installed, ...mutation }, manifest).action, "update");
+  assert.equal(planDeployment({ ...options, port: "3002" }, installed, manifest).action, "update");
+});
+
+test("no-sandbox deployment needs advertised release support before download or remote writes", async () => {
+  for (const modes of [undefined, ["required"]]) {
+    for (const apply of [false, true]) {
+      const runtime = fakeRuntime({ manifest: { ...metadata, serverSandboxModes: modes } });
+      await assert.rejects(
+        deployServer({ ...options, apply, sandbox: "disabled" }, runtime),
+        /does not declare no-sandbox support/,
+      );
+      assert.equal(runtime.calls.length, 2);
+      assert.ok(runtime.network.every((url) => url.endsWith("/intrica-update.json")));
+    }
+  }
 });
 
 test("default plan never downloads, creates staging, or restarts the selected host", async () => {
@@ -234,6 +260,8 @@ test("confirmed Desktop plan refuses changed SSH identity, installation state or
     { ...preflight, sshTarget: "somebody@other-host:22" },
     { ...preflight, installation: "/home/other/.local/share/intrica-server" },
     { ...preflight, asset: { ...preflight.asset, sha256: "0".repeat(64) } },
+    { ...preflight, sandbox: "disabled" },
+    { ...preflight, currentSandbox: "disabled" },
   ]) {
     const runtime = fakeRuntime();
     await assert.rejects(
@@ -242,4 +270,35 @@ test("confirmed Desktop plan refuses changed SSH identity, installation state or
     );
     assert.ok(runtime.network.every((url) => url.endsWith("/intrica-update.json")));
   }
+});
+
+test("unavailable isolation requires explicit no-sandbox selection and the confirmed mode reaches installation", async () => {
+  const remote = { ...host, sandboxAvailable: "no" };
+  const blocked = fakeRuntime({ remote });
+  await assert.rejects(deployServer(options, blocked), /explicitly choose --no-sandbox/);
+  assert.ok(blocked.calls.every((call) => !call.inputFile));
+
+  const input = parseOptions(["chosen-alias", release, "--no-sandbox"]);
+  const planned = await deployServer(input, fakeRuntime({ remote }));
+  assert.equal(planned.sandbox, "disabled");
+  const applied = fakeRuntime({ remote });
+  await deployServer({ ...input, apply: true }, { ...applied, expectedPlan: planned });
+  const installer = applied.calls.find((call) => call.input?.startsWith("#!/usr/bin/env bash"));
+  assert.match(installer.args.at(-1), /'--no-sandbox'/);
+
+  const changed = fakeRuntime({ remote });
+  await assert.rejects(
+    deployServer(
+      { ...input, sandbox: "required", apply: true },
+      { ...changed, expectedPlan: planned },
+    ),
+    /Sandbox unavailable/,
+  );
+  assert.ok(changed.calls.every((call) => !call.inputFile));
+
+  const installed = { ...remote, configured: "yes", sandbox: "disabled", version: "0.2.5" };
+  assert.equal(
+    (await deployServer(options, fakeRuntime({ remote: installed }))).sandbox,
+    "disabled",
+  );
 });

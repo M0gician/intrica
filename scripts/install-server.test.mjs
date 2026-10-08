@@ -29,6 +29,8 @@ async function fixture(
     platform = "Linux",
     lock = true,
     sandbox = true,
+    sandboxModes = ["required", "disabled"],
+    installedSandbox = "required",
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "intrica-installer-test-"));
@@ -83,7 +85,7 @@ exec ${quote(process.execPath)} "$@"
   );
   await writeFile(
     join(packageRoot, "release.json"),
-    JSON.stringify({ version: "0.2.6", commit: "fixture" }),
+    JSON.stringify({ version: "0.2.6", commit: "fixture", sandboxModes }),
   );
   const archive = join(directory, "server.tar.gz");
   await exec("tar", ["-czf", archive, "-C", packageRoot, "."]);
@@ -96,6 +98,7 @@ exec ${quote(process.execPath)} "$@"
     databasePassword: "secret-database-never-log",
     stateDir: join(fakeHome, "custom-state"),
     extraSetting: "preserved",
+    sandbox: installedSandbox,
   };
   const oldTarget = join(base, "releases/v0.2.5-previous");
   // The production runtime requires this absolute executable. Only this path
@@ -161,6 +164,7 @@ test("fresh verified install is loopback/private, has recovery marker, never pri
   const config = JSON.parse(await readFile(item.config, "utf8"));
   assert.equal(config.host, "127.0.0.1");
   assert.equal(config.port, 3001);
+  assert.equal(config.sandbox, "required");
   assert.ok(config.accessToken.length >= 32);
   assert.doesNotMatch(result.stdout + result.stderr, new RegExp(config.accessToken));
   assert.equal((await stat(item.config)).mode & 0o777, 0o600);
@@ -280,4 +284,61 @@ test("missing linger, unsupported OS and concurrent installer are blocked before
     assert.doesNotMatch(await item.serviceLog(), /stop |enable /);
     assert.equal(await readlink(join(item.base, "current")), item.oldTarget);
   }
+});
+
+test("no-sandbox installation is explicit and updates retain its mode and private state", async (t) => {
+  const fresh = await fixture(t, { sandbox: false });
+  const refused = await fresh.run();
+  assert.notEqual(refused.code, 0);
+  assert.doesNotMatch(await fresh.serviceLog(), /stop |enable /);
+  const installed = await fresh.run({ extra: ["--no-sandbox"] });
+  assert.equal(installed.code, 0, installed.stderr);
+  assert.equal(JSON.parse(await readFile(fresh.config, "utf8")).sandbox, "disabled");
+  assert.match(installed.stderr, /service account permissions/);
+
+  const update = await fixture(t, { existing: true, sandbox: false, installedSandbox: "disabled" });
+  const upgraded = await update.run();
+  assert.equal(upgraded.code, 0, upgraded.stderr);
+  assert.deepEqual(JSON.parse(await readFile(update.config, "utf8")), update.oldConfig);
+  assert.equal(
+    await readFile(join(update.oldConfig.stateDir, "must-survive"), "utf8"),
+    "database fixture",
+  );
+});
+
+test("sandbox changes require a supporting package and cannot weaken a rejected installation", async (t) => {
+  const unsupported = await fixture(t, { existing: true, sandboxModes: ["required"] });
+  const unavailable = await unsupported.run({ extra: ["--no-sandbox"] });
+  assert.notEqual(unavailable.code, 0);
+  assert.match(unavailable.stderr, /does not support no-sandbox mode/);
+  assert.doesNotMatch(await unsupported.serviceLog(), /stop |enable /);
+  assert.deepEqual(JSON.parse(await readFile(unsupported.config, "utf8")), unsupported.oldConfig);
+
+  const changed = await fixture(t, { existing: true });
+  const stale = await changed.run({ extra: ["--no-sandbox", "--expected-sandbox", "disabled"] });
+  assert.notEqual(stale.code, 0);
+  assert.match(stale.stderr, /Sandbox configuration changed since preflight/);
+  assert.doesNotMatch(await changed.serviceLog(), /stop |enable /);
+  assert.deepEqual(JSON.parse(await readFile(changed.config, "utf8")), changed.oldConfig);
+
+  const disabled = await fixture(t, {
+    existing: true,
+    sandbox: false,
+    installedSandbox: "disabled",
+  });
+  const required = await disabled.run({ extra: ["--sandbox"] });
+  assert.notEqual(required.code, 0);
+  assert.doesNotMatch(await disabled.serviceLog(), /stop |enable /);
+  assert.equal(JSON.parse(await readFile(disabled.config, "utf8")).sandbox, "disabled");
+  const conflicting = await disabled.run({ extra: ["--sandbox", "--no-sandbox"] });
+  assert.notEqual(conflicting.code, 0);
+  assert.match(conflicting.stderr, /Choose one sandbox mode/);
+
+  const enabled = await fixture(t, { existing: true, installedSandbox: "disabled" });
+  const restored = await enabled.run({ extra: ["--sandbox"] });
+  assert.equal(restored.code, 0, restored.stderr);
+  assert.deepEqual(JSON.parse(await readFile(enabled.config, "utf8")), {
+    ...enabled.oldConfig,
+    sandbox: "required",
+  });
 });

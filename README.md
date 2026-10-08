@@ -12,16 +12,16 @@ Intrica runs on your machine or a server you control.
 
 ## Installation
 
-The current release is [v0.3.0](https://github.com/M0gician/intrica/releases/tag/v0.3.0).
+The current release is [v0.3.1](https://github.com/M0gician/intrica/releases/tag/v0.3.1).
 Downloads, update checks and container pulls require no GitHub account,
 personal access token or GitHub CLI. Desktop includes Node.js, PostgreSQL
 and the Web interface; you do not need to install these separately.
 
 | Platform | Download | Installation |
 | --- | --- | --- |
-| macOS, Apple Silicon | [DMG](https://github.com/M0gician/intrica/releases/download/v0.3.0/Intrica-0.3.0-mac-arm64.dmg) · [ZIP](https://github.com/M0gician/intrica/releases/download/v0.3.0/Intrica-0.3.0-mac-arm64.zip) | Copy `Intrica.app` to Applications |
-| Linux x64, Debian/Ubuntu | [DEB](https://github.com/M0gician/intrica/releases/download/v0.3.0/Intrica-0.3.0-linux-amd64.deb) | Install with `apt` |
-| Linux x64, other glibc distributions | [AppImage](https://github.com/M0gician/intrica/releases/download/v0.3.0/Intrica-0.3.0-linux-x86_64.AppImage) | Make executable and run |
+| macOS, Apple Silicon | [DMG](https://github.com/M0gician/intrica/releases/download/v0.3.1/Intrica-0.3.1-mac-arm64.dmg) · [ZIP](https://github.com/M0gician/intrica/releases/download/v0.3.1/Intrica-0.3.1-mac-arm64.zip) | Copy `Intrica.app` to Applications |
+| Linux x64, Debian/Ubuntu | [DEB](https://github.com/M0gician/intrica/releases/download/v0.3.1/Intrica-0.3.1-linux-amd64.deb) | Install with `apt` |
+| Linux x64, other glibc distributions | [AppImage](https://github.com/M0gician/intrica/releases/download/v0.3.1/Intrica-0.3.1-linux-x86_64.AppImage) | Make executable and run |
 
 Linux release checks run on Ubuntu 22.04 x64. Windows, Intel Mac, Linux
 arm64 and Alpine/musl packages are not provided. For a headless Linux x64
@@ -31,7 +31,7 @@ host, see [server installation](#server-installation).
 
 1. Download the DMG, open it, and drag `Intrica.app` to Applications.
    Alternatively, extract the ZIP and move `Intrica.app` to Applications.
-2. Open Intrica from Applications. **v0.3.0 uses an ad-hoc signature and is
+2. Open Intrica from Applications. **v0.3.1 uses an ad-hoc signature and is
    not notarized by Apple.** If macOS blocks it, dismiss the message, open
    **System Settings → Privacy & Security**, choose **Open Anyway**, and
    confirm that you want to open Intrica.
@@ -46,21 +46,21 @@ workspace before an upgrade. See [updates and backups](#updates-and-backups).
 On Debian or Ubuntu, run this in the directory containing the download:
 
 ```sh
-sudo apt install ./Intrica-0.3.0-linux-amd64.deb
+sudo apt install ./Intrica-0.3.1-linux-amd64.deb
 intrica
 ```
 
 For AppImage, a graphical desktop session is required:
 
 ```sh
-chmod +x Intrica-0.3.0-linux-x86_64.AppImage
-./Intrica-0.3.0-linux-x86_64.AppImage
+chmod +x Intrica-0.3.1-linux-x86_64.AppImage
+./Intrica-0.3.1-linux-x86_64.AppImage
 ```
 
 If FUSE 2 is unavailable, use AppImage's extraction mode:
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 ./Intrica-0.3.0-linux-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./Intrica-0.3.1-linux-x86_64.AppImage
 ```
 
 Run the desktop app as your regular user. Use the native server or container
@@ -68,15 +68,15 @@ on a machine without a graphical desktop.
 
 ### Verify a manual download
 
-Download [SHA256SUMS](https://github.com/M0gician/intrica/releases/download/v0.3.0/SHA256SUMS)
+Download [SHA256SUMS](https://github.com/M0gician/intrica/releases/download/v0.3.1/SHA256SUMS)
 from the same release. Calculate your file's SHA-256 and compare it with the
 entry for that exact filename. Examples:
 
 ```sh
 # macOS
-shasum -a 256 Intrica-0.3.0-mac-arm64.dmg
+shasum -a 256 Intrica-0.3.1-mac-arm64.dmg
 # Linux
-sha256sum Intrica-0.3.0-linux-amd64.deb
+sha256sum Intrica-0.3.1-linux-amd64.deb
 ```
 
 Do not install a file whose checksum differs. Download it again from the
@@ -89,14 +89,14 @@ With Bash and curl installed, download the version-pinned script:
 
 ```sh
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.3.0/install.sh \
+  https://github.com/M0gician/intrica/releases/download/v0.3.1/install.sh \
   -o install.sh
 ```
 
 Review the downloaded script, quit Intrica, then run:
 
 ```sh
-bash install.sh v0.3.0
+bash install.sh v0.3.1
 ```
 
 The script verifies the package checksum. It installs the app in
@@ -138,8 +138,9 @@ it is separate from a model API key and from GitHub credentials.
 
 The native Linux x64 package includes Node.js, PostgreSQL and the Web client.
 The host needs Bash, curl, `tar`, `sha256sum`, `flock`, systemd user services,
-enabled linger, and working `/usr/bin/bwrap` with unprivileged namespaces.
-An administrator must arrange these prerequisites. For example, on Ubuntu
+and enabled linger. The default tool sandbox also needs working
+`/usr/bin/bwrap` with unprivileged namespaces. An administrator must arrange
+these prerequisites. For example, on Ubuntu
 22.04 the administrator can install `bubblewrap` and `curl`, and run
 `sudo loginctl enable-linger SERVER_USER` for the intended service account.
 The installer does not change firewall or namespace policy and refuses root.
@@ -153,22 +154,37 @@ loginctl show-user "$(id -un)" -p Linger --value
   --ro-bind / / --proc /proc --dev /dev /bin/true
 ```
 
-The linger check must print `yes`; the other checks must succeed. Then
-download and review the installer:
+The linger check must print `yes`; the session check must succeed. The
+Bubblewrap check must succeed for sandbox mode. Then download and review
+the installer:
 
 ```sh
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.3.0/install-server.sh \
+  https://github.com/M0gician/intrica/releases/download/v0.3.1/install-server.sh \
   -o install-server.sh
 ```
 
 Run it as the same non-root user, without `sudo`:
 
 ```sh
-bash install-server.sh v0.3.0
+bash install-server.sh v0.3.1
 systemctl --user status intrica-server
 curl --fail http://127.0.0.1:3001/api/v2/ready
 ```
+
+If the host cannot create user namespaces, explicitly opt into **no-sandbox
+mode** instead of the default installation command:
+
+```sh
+bash install-server.sh v0.3.1 --no-sandbox
+```
+
+Use a dedicated service account without sudo access or personal credentials.
+Application permission checks remain, but shell and MCP commands can use all
+files and network resources available to that account. A working directory
+does not confine them. No kernel setting is changed. Updates preserve this
+choice; `--sandbox` restores the default sandbox after the host passes its
+isolation check. See [execution modes](docs/self-hosting.md#explicit-no-sandbox-mode).
 
 New installations listen on `127.0.0.1:3001` and run after logout and reboot.
 The configuration and access token are in `~/.config/intrica/server.json`;
@@ -189,8 +205,9 @@ Desktop can perform the native installation above:
    from SSH config, or choose **Add a server manually…** and enter the
    host, non-root username and SSH port.
 3. For a new installation, choose **Deploy Intrica… → Check SSH host**,
-   enter `v0.3.0`, and choose **Prepare deployment plan**.
-4. Check the target account, host, version and data location. Confirm the
+   enter `v0.3.1`, and choose **Prepare deployment plan**. If needed, select
+   **No-sandbox mode** and read its permissions warning before planning.
+4. Check the target account, host, version, execution mode and data location. Confirm the
    plan and choose **Deploy and save connection**.
 5. Return to the server list and turn on that connection. For a service
    already installed under the same account, use **Add** instead of deploying.
@@ -219,18 +236,18 @@ persistent deployment directory, download the published Compose file:
 mkdir intrica-deployment
 cd intrica-deployment
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.3.0/compose.release.yaml \
+  https://github.com/M0gician/intrica/releases/download/v0.3.1/compose.release.yaml \
   -o compose.release.yaml
 openssl rand -hex 32
 ```
 
-Create `.env` in that directory using your editor. Replace the placeholder
-with the random value just generated; keep it private. The image below is
-the exact v0.3.0 digest from
-[intrica-update.json](https://github.com/M0gician/intrica/releases/download/v0.3.0/intrica-update.json):
+Create `.env` in that directory using your editor. Copy the full `serverImage`
+value from [intrica-update.json](https://github.com/M0gician/intrica/releases/download/v0.3.1/intrica-update.json)
+into `INTRICA_IMAGE`, replacing the digest placeholder below. Replace the
+token placeholder with the random value just generated; keep it private:
 
 ```ini
-INTRICA_IMAGE=ghcr.io/m0gician/intrica@sha256:75dc1139534bb1cfe742d42c2b6786eb4f58ed1b6048a951414026134818b4be
+INTRICA_IMAGE=ghcr.io/m0gician/intrica@sha256:RELEASE_DIGEST
 INTRICA_ACCESS_TOKEN=REPLACE_WITH_YOUR_RANDOM_VALUE
 ```
 
@@ -255,7 +272,7 @@ Keep `.env`, the deployment directory and both volumes (`pgdata` and
 Install Git, Node.js **24.18.0** and pnpm **11.20.0**, then:
 
 ```sh
-git clone --branch v0.3.0 --depth 1 https://github.com/M0gician/intrica.git
+git clone --branch v0.3.1 --depth 1 https://github.com/M0gician/intrica.git
 cd intrica
 pnpm install --frozen-lockfile
 pnpm --filter @intrica/desktop run prepare:app
@@ -308,7 +325,8 @@ migration. See [updates and recovery](docs/updating.md) before upgrading.
   checksum and download again if the package is damaged.
 - **AppImage reports a FUSE error:** use the extraction-mode command above.
 - **SSH fails:** check the host key, key authentication, username and port;
-  also check the service account's systemd session, linger and Bubblewrap.
+  also check the service account's systemd session and linger. If Bubblewrap
+  is unavailable, configure it or explicitly select no-sandbox mode.
 - **The server asks for a token:** use its Intrica access token. Model API
   keys and GitHub tokens cannot authenticate to Intrica.
 - **Downloads time out:** check GitHub/CDN access. See the proxy settings in

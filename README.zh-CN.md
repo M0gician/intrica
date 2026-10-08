@@ -10,20 +10,20 @@
 
 ## 安装
 
-当前版本为 [v0.3.0](https://github.com/M0gician/intrica/releases/tag/v0.3.0)。下载安装包、检查更新和拉取容器镜像均无需 GitHub 账号、个人访问令牌或 GitHub CLI。桌面版自带 Node.js、PostgreSQL 和 Web 界面，无需单独安装这些组件。
+当前版本为 [v0.3.1](https://github.com/M0gician/intrica/releases/tag/v0.3.1)。下载安装包、检查更新和拉取容器镜像均无需 GitHub 账号、个人访问令牌或 GitHub CLI。桌面版自带 Node.js、PostgreSQL 和 Web 界面，无需单独安装这些组件。
 
 | 平台 | 下载 | 安装方式 |
 | --- | --- | --- |
-| macOS，Apple Silicon | [DMG](https://github.com/M0gician/intrica/releases/download/v0.3.0/Intrica-0.3.0-mac-arm64.dmg) · [ZIP](https://github.com/M0gician/intrica/releases/download/v0.3.0/Intrica-0.3.0-mac-arm64.zip) | 将 `Intrica.app` 复制到“应用程序” |
-| Linux x64，Debian/Ubuntu | [DEB](https://github.com/M0gician/intrica/releases/download/v0.3.0/Intrica-0.3.0-linux-amd64.deb) | 使用 `apt` 安装 |
-| Linux x64，其他 glibc 发行版 | [AppImage](https://github.com/M0gician/intrica/releases/download/v0.3.0/Intrica-0.3.0-linux-x86_64.AppImage) | 添加执行权限后运行 |
+| macOS，Apple Silicon | [DMG](https://github.com/M0gician/intrica/releases/download/v0.3.1/Intrica-0.3.1-mac-arm64.dmg) · [ZIP](https://github.com/M0gician/intrica/releases/download/v0.3.1/Intrica-0.3.1-mac-arm64.zip) | 将 `Intrica.app` 复制到“应用程序” |
+| Linux x64，Debian/Ubuntu | [DEB](https://github.com/M0gician/intrica/releases/download/v0.3.1/Intrica-0.3.1-linux-amd64.deb) | 使用 `apt` 安装 |
+| Linux x64，其他 glibc 发行版 | [AppImage](https://github.com/M0gician/intrica/releases/download/v0.3.1/Intrica-0.3.1-linux-x86_64.AppImage) | 添加执行权限后运行 |
 
 Linux 发布检查使用 Ubuntu 22.04 x64。不提供 Windows、Intel Mac、Linux arm64 或 Alpine/musl 安装包。没有图形界面的 Linux x64 主机请使用[服务器安装方式](#服务器安装)。
 
 ### macOS
 
 1. 下载并打开 DMG，将 `Intrica.app` 拖入“应用程序”。也可以解压 ZIP，再将 `Intrica.app` 移入“应用程序”。
-2. 从“应用程序”打开 Intrica。**v0.3.0 使用临时签名（ad-hoc signing），未经 Apple 公证。** 如果 macOS 拦截启动，关闭提示，打开“系统设置 → 隐私与安全性”，选择“仍要打开”，再确认打开 Intrica。
+2. 从“应用程序”打开 Intrica。**v0.3.1 使用临时签名（ad-hoc signing），未经 Apple 公证。** 如果 macOS 拦截启动，关闭提示，打开“系统设置 → 隐私与安全性”，选择“仍要打开”，再确认打开 Intrica。
 3. 如果没有“仍要打开”选项，请向设备管理员核实安全策略。不要全局关闭 Gatekeeper。
 
 替换已有应用前，先退出 Intrica；升级前备份工作区，见[更新与备份](#更新与备份)。
@@ -33,34 +33,34 @@ Linux 发布检查使用 Ubuntu 22.04 x64。不提供 Windows、Intel Mac、Linu
 在 Debian 或 Ubuntu 上，进入安装包所在目录后运行：
 
 ```sh
-sudo apt install ./Intrica-0.3.0-linux-amd64.deb
+sudo apt install ./Intrica-0.3.1-linux-amd64.deb
 intrica
 ```
 
 AppImage 需要图形桌面会话：
 
 ```sh
-chmod +x Intrica-0.3.0-linux-x86_64.AppImage
-./Intrica-0.3.0-linux-x86_64.AppImage
+chmod +x Intrica-0.3.1-linux-x86_64.AppImage
+./Intrica-0.3.1-linux-x86_64.AppImage
 ```
 
 如果没有可用的 FUSE 2，使用 AppImage 的解压运行模式：
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 ./Intrica-0.3.0-linux-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./Intrica-0.3.1-linux-x86_64.AppImage
 ```
 
 以普通用户运行桌面应用。没有图形桌面的主机使用原生服务器包或容器。
 
 ### 校验手动下载的文件
 
-从同一版本下载 [SHA256SUMS](https://github.com/M0gician/intrica/releases/download/v0.3.0/SHA256SUMS)。计算安装包的 SHA-256，与清单中相同文件名对应的值比较。例如：
+从同一版本下载 [SHA256SUMS](https://github.com/M0gician/intrica/releases/download/v0.3.1/SHA256SUMS)。计算安装包的 SHA-256，与清单中相同文件名对应的值比较。例如：
 
 ```sh
 # macOS
-shasum -a 256 Intrica-0.3.0-mac-arm64.dmg
+shasum -a 256 Intrica-0.3.1-mac-arm64.dmg
 # Linux
-sha256sum Intrica-0.3.0-linux-amd64.deb
+sha256sum Intrica-0.3.1-linux-amd64.deb
 ```
 
 校验值不一致时不要安装，应从发布页重新下载。校验值用于核对文件内容，不能代替对发布者的信任判断。
@@ -71,14 +71,14 @@ sha256sum Intrica-0.3.0-linux-amd64.deb
 
 ```sh
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.3.0/install.sh \
+  https://github.com/M0gician/intrica/releases/download/v0.3.1/install.sh \
   -o install.sh
 ```
 
 阅读下载的脚本并退出 Intrica，然后运行：
 
 ```sh
-bash install.sh v0.3.0
+bash install.sh v0.3.1
 ```
 
 脚本会校验安装包。macOS 安装到 `/Applications/Intrica.app`；Debian/Ubuntu 使用 `apt-get` 安装；其他 Linux x64 系统将 AppImage 安装为 `~/.local/bin/intrica`。脚本只在安装需要时申请管理员权限。macOS 首次启动仍需按上述步骤批准。
@@ -99,7 +99,7 @@ Agent 会话、模型会话和协作消息均支持右侧历史导航、预览�
 
 ### Linux 原生服务
 
-Linux x64 原生包自带 Node.js、PostgreSQL 和 Web 界面。主机需要 Bash、curl、`tar`、`sha256sum`、`flock`、systemd 用户服务、已启用的 linger，以及支持非特权用户命名空间的 `/usr/bin/bwrap`。这些条件由管理员配置。例如，Ubuntu 22.04 管理员可安装 `bubblewrap` 和 `curl`，并为服务账号执行 `sudo loginctl enable-linger SERVER_USER`，将 `SERVER_USER` 替换为实际用户名。安装脚本不会修改防火墙或命名空间策略，也不允许以 root 运行。
+Linux x64 原生包自带 Node.js、PostgreSQL 和 Web 界面。主机需要 Bash、curl、`tar`、`sha256sum`、`flock`、systemd 用户服务和已启用的 linger。默认工具沙箱还需要支持非特权用户命名空间的 `/usr/bin/bwrap`。这些条件由管理员配置。例如，Ubuntu 22.04 管理员可安装 `bubblewrap` 和 `curl`，并为服务账号执行 `sudo loginctl enable-linger SERVER_USER`，将 `SERVER_USER` 替换为实际用户名。安装脚本不会修改防火墙或命名空间策略，也不允许以 root 运行。
 
 直接以服务账号登录主机，检查用户会话和隔离功能：
 
@@ -110,21 +110,29 @@ loginctl show-user "$(id -un)" -p Linger --value
   --ro-bind / / --proc /proc --dev /dev /bin/true
 ```
 
-linger 检查应输出 `yes`，另外两项应成功。然后下载并阅读安装脚本：
+linger 检查应输出 `yes`，用户会话检查应成功。使用沙箱模式时，Bubblewrap 检查也必须成功。然后下载并阅读安装脚本：
 
 ```sh
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.3.0/install-server.sh \
+  https://github.com/M0gician/intrica/releases/download/v0.3.1/install-server.sh \
   -o install-server.sh
 ```
 
 仍以该非 root 用户运行，不要加 `sudo`：
 
 ```sh
-bash install-server.sh v0.3.0
+bash install-server.sh v0.3.1
 systemctl --user status intrica-server
 curl --fail http://127.0.0.1:3001/api/v2/ready
 ```
+
+如果主机不允许创建用户命名空间，可以明确选择**无沙箱模式**，用以下命令替代默认安装命令：
+
+```sh
+bash install-server.sh v0.3.1 --no-sandbox
+```
+
+请使用无 sudo 权限且不存放个人凭据的专用服务账号。应用权限检查仍然生效，但 shell 和 MCP 命令能够访问该账号可用的全部文件和网络资源，工作目录不会限制其访问范围。此操作不修改内核设置。升级保留所选模式；主机通过隔离检查后，可用 `--sandbox` 恢复默认沙箱。详见[执行模式说明](docs/self-hosting.md#explicit-no-sandbox-mode)。
 
 首次安装默认监听 `127.0.0.1:3001`，退出 SSH 会话后继续运行，并随主机启动。配置和访问令牌保存在 `~/.config/intrica/server.json`，默认数据目录为 `~/.local/share/intrica-server/state`。手动连接时，私下读取配置中的 `accessToken`；不要公开配置文件，也不要将数据库密码填入连接表单。服务日志可用 `journalctl --user -u intrica-server -n 80` 查看。
 
@@ -134,8 +142,8 @@ curl --fail http://127.0.0.1:3001/api/v2/ready
 
 1. 配置 SSH 密钥认证，并与管理员提供的指纹核对主机密钥。Intrica 使用严格的主机密钥检查和非交互 SSH；加密密钥应先加载到 SSH agent，不支持弹出 SSH 密码输入框。
 2. 打开“设置 → 服务器连接 → 添加服务器”，选择 SSH 配置别名，或选择“手动添加服务器…”并填写主机、非 root 用户名和 SSH 端口。
-3. 首次部署选择“部署 Intrica… → 检查 SSH 主机”，填写 `v0.3.0`，再选择“生成部署计划”。
-4. 核对账号、主机、版本和数据位置，勾选确认项，再选择“部署并保存连接”。
+3. 首次部署选择“部署 Intrica… → 检查 SSH 主机”，填写 `v0.3.1`，再选择“生成部署计划”。如需无沙箱模式，在生成计划前勾选该选项并阅读权限提示。
+4. 核对账号、主机、版本、执行模式和数据位置，勾选确认项，再选择“部署并保存连接”。
 5. 返回服务器列表，打开该连接的开关。同一账号下已经安装服务时，直接选择“添加”，无需重新部署。
 
 桌面版管理 SSH 隧道，并通过 SSH 获取服务访问令牌，无需 GitHub 令牌。浏览器用户可以在本地电脑建立隧道，将 `intrica-host` 替换为自己的 SSH 配置别名：
@@ -154,15 +162,15 @@ ssh -N -L 127.0.0.1:3301:127.0.0.1:3001 intrica-host
 mkdir intrica-deployment
 cd intrica-deployment
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.3.0/compose.release.yaml \
+  https://github.com/M0gician/intrica/releases/download/v0.3.1/compose.release.yaml \
   -o compose.release.yaml
 openssl rand -hex 32
 ```
 
-用编辑器在该目录创建 `.env`，将占位值替换为刚生成的随机值并妥善保管。以下镜像摘要与 v0.3.0 的 [intrica-update.json](https://github.com/M0gician/intrica/releases/download/v0.3.0/intrica-update.json) 一致：
+用编辑器在该目录创建 `.env`。从 [intrica-update.json](https://github.com/M0gician/intrica/releases/download/v0.3.1/intrica-update.json) 复制完整的 `serverImage` 值到 `INTRICA_IMAGE`，替换下方镜像摘要占位值。将令牌占位值替换为刚生成的随机值并妥善保管：
 
 ```ini
-INTRICA_IMAGE=ghcr.io/m0gician/intrica@sha256:75dc1139534bb1cfe742d42c2b6786eb4f58ed1b6048a951414026134818b4be
+INTRICA_IMAGE=ghcr.io/m0gician/intrica@sha256:RELEASE_DIGEST
 INTRICA_ACCESS_TOKEN=REPLACE_WITH_YOUR_RANDOM_VALUE
 ```
 
@@ -181,7 +189,7 @@ docker compose -f compose.release.yaml ps
 安装 Git、Node.js **24.18.0** 和 pnpm **11.20.0**，然后运行：
 
 ```sh
-git clone --branch v0.3.0 --depth 1 https://github.com/M0gician/intrica.git
+git clone --branch v0.3.1 --depth 1 https://github.com/M0gician/intrica.git
 cd intrica
 pnpm install --frozen-lockfile
 pnpm --filter @intrica/desktop run prepare:app
@@ -218,7 +226,7 @@ schema 8 和 9 的数据库会迁移到 schema 10。受影响会话暂停，等�
 
 - **macOS 拦截启动：**按上述步骤批准；若提示文件损坏，先校验文件，再重新下载。
 - **AppImage 提示 FUSE 错误：**使用上述解压运行命令。
-- **SSH 连接失败：**检查主机密钥、密钥认证、用户名和端口，以及服务账号的 systemd 用户会话、linger 和 Bubblewrap。
+- **SSH 连接失败：**检查主机密钥、密钥认证、用户名和端口，以及服务账号的 systemd 用户会话和 linger。如果 Bubblewrap 不可用，请配置它或明确选择无沙箱模式。
 - **服务器要求令牌：**填写 Intrica 访问令牌。模型 API 密钥和 GitHub 令牌不能用于登录 Intrica。
 - **下载超时：**检查能否访问 GitHub 及其下载 CDN，代理配置见[更新指南](docs/updating.md#download-boundaries)。
 

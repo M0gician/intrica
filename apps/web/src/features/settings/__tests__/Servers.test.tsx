@@ -22,6 +22,7 @@ const actions = (): ServerActions => ({
     hostname: "remote-beta",
     platform: "linux",
     isolation: null,
+    sandboxStatus: "unavailable" as const,
     checkedAt: "2026-09-22T10:00:00Z",
     agents: 2,
     queued: 1,

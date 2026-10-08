@@ -7,9 +7,10 @@ Use HTTPS or an SSH tunnel across untrusted networks.
 ## Native Linux service
 
 The native package includes Node.js, PostgreSQL and the Web interface.
-It supports Linux x64 with a systemd user session, enabled linger, and
-working `/usr/bin/bwrap` with unprivileged namespaces. An administrator
-must arrange these prerequisites. The installer runs as a non-root user
+It supports Linux x64 with a systemd user session and enabled linger.
+The default sandbox mode also requires working `/usr/bin/bwrap` with
+unprivileged namespaces. An administrator must arrange these prerequisites.
+The installer runs as a non-root user
 and does not change firewall, sudo or namespace policy.
 
 Replace `vX.Y.Z` below with a published stable version:
@@ -41,6 +42,47 @@ journalctl --user -u intrica-server
 
 The private configuration is `~/.config/intrica/server.json`. Retrieve
 the Intrica access token privately; the installer does not print it.
+
+### Explicit no-sandbox mode
+
+Use this mode only on a trusted host with a dedicated service account that
+has no sudo access or personal credentials. File tools still check roles
+and path grants, but shell and MCP commands use the account's file and
+network permissions. A working directory does not confine those commands.
+
+Desktop's SSH inspection reports sandbox availability separately from
+other prerequisites. Select **No-sandbox mode**, generate a new plan, review
+its tool execution mode, then confirm deployment. The option is not selected
+automatically when Bubblewrap is unavailable.
+
+From a built source checkout, plan and apply with the same explicit mode:
+
+```sh
+node scripts/deploy-server.mjs SSH_ALIAS vX.Y.Z --no-sandbox
+node scripts/deploy-server.mjs SSH_ALIAS vX.Y.Z --no-sandbox --apply
+```
+
+The native installer also accepts `--no-sandbox`. Deployment planning checks
+the public manifest's `serverSandboxModes` before downloading the package.
+The selected archive must declare `disabled` in `release.json`'s `sandboxModes`;
+an unsupported package is rejected before the existing service or configuration is changed.
+Use the installer supplied with a release that supports this option.
+
+The choice is saved as `"sandbox": "disabled"` in `server.json`. Updates
+preserve it. Use `--sandbox` to require isolation again; the host must pass
+the sandbox check before the service changes. A service configured with
+`"sandbox": "required"` refuses startup when isolation is unavailable.
+Neither mode changes the host's namespace settings.
+
+In Settings → Server connections, choose **Inspect this server** to see
+whether its tool sandbox is enabled, explicitly disabled or unavailable.
+SSH inspection also reports the host's sandbox capability separately from
+the running service's mode.
+
+Required mode enables the default tool sandbox. Explicitly authorized
+`fullHost` commands can still run with host permissions; this setting does
+not remove that existing approval path. The mode controls native service
+tools, not Electron's browser sandbox or container isolation.
 
 ## Containers
 

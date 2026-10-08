@@ -136,10 +136,10 @@ test("expired/unconfirmed plans and hostile aliases never change a server", asyn
   assert.equal(f.calls.filter((call) => call.options?.apply).length, 0);
 });
 
-test("namespace preflight failures are actionable and block apply before any credential import", async () => {
+test("SSH preflight failures are actionable and block access before any credential import", async () => {
   const f = fixture();
   f.engine.runCommand = async () => {
-    throw new Error("Bubblewrap namespaces unavailable; ask administrator; no sudo.");
+    throw new Error("Host key verification failed.");
   };
   // A fresh manager captures only the one engine runner.
   const manager = createSshManager({
@@ -148,7 +148,7 @@ test("namespace preflight failures are actionable and block apply before any cre
   });
   const status = await manager.inspect("beta");
   assert.equal(status.supported, false);
-  assert.match(status.error, /namespaces/);
+  assert.match(status.error, /Host key/);
   await assert.rejects(manager.target("beta"), /Cannot privately read/);
   assert.ok(!JSON.stringify(status).includes("private-token"));
 });

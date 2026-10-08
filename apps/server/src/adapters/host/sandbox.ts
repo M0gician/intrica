@@ -244,6 +244,7 @@ export async function protections(dataDir: string) {
 
 let verified: Promise<"darwin" | "linux" | null> | undefined;
 export function isolationAvailable() {
+  if (process.env.INTRICA_SANDBOX === "disabled") return Promise.resolve(null);
   verified ??= (async () => {
     const platform = await platformSandbox();
     if (!platform) return null;

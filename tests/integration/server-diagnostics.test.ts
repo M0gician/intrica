@@ -68,6 +68,7 @@ it("server diagnosis is authenticated, read-only, secret-free and counts only li
     unknownTools: 0,
   });
   expect(response.json()).toHaveProperty("isolation");
+  expect(["enabled", "disabled", "unavailable"]).toContain(response.json().sandboxStatus);
   expect(response.body).not.toContain(token);
   expect(response.body).not.toContain(dir);
   expect(

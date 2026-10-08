@@ -11,6 +11,7 @@ export function releaseManifest(version, content) {
     apiVersion: "v2",
     schemaVersion: 10,
     serverImage: `ghcr.io/m0gician/intrica@sha256:${"a".repeat(64)}`,
+    serverSandboxModes: ["required", "disabled"],
     assets: releaseNames(version).map((name) => ({
       name,
       size: content.length,

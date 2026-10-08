@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -18,6 +19,17 @@ test("release inventory hashes real files and rejects a changed artifact before 
   const { version } = JSON.parse(await readFile(join(repository, "apps/desktop/package.json")));
   const manifest = releaseManifest(version, Buffer.from("artifact"));
   for (const asset of manifest.assets) await writeFile(join(dir, asset.name), "artifact");
+  const native = join(dir, "native");
+  await mkdir(native);
+  await writeFile(
+    join(native, "release.json"),
+    JSON.stringify({ version, sandboxModes: ["required", "disabled"] }),
+  );
+  const serverAsset = selectAsset(manifest, "server-linux-x64.tar.gz");
+  await exec("tar", ["-czf", join(dir, serverAsset.name), "-C", native, "./release.json"]);
+  const archive = await readFile(join(dir, serverAsset.name));
+  serverAsset.size = archive.length;
+  serverAsset.sha256 = createHash("sha256").update(archive).digest("hex");
   await exec(
     process.execPath,
     [
@@ -29,6 +41,7 @@ test("release inventory hashes real files and rejects a changed artifact before 
     { cwd: repository },
   );
   const generated = JSON.parse(await readFile(join(dir, "intrica-update.json")));
+  assert.deepEqual(generated.serverSandboxModes, ["required", "disabled"]);
   assert.equal(generated.assets.length, manifest.assets.length);
   assert.deepEqual(generated.assets, manifest.assets);
   const checksums = await readFile(join(dir, "SHA256SUMS"), "utf8");
@@ -110,6 +123,10 @@ test("public release transport binds discovery, rejects hostile redirects and in
     { ...valid, assets: [...valid.assets.slice(1), valid.assets[1]] },
     { ...valid, assets: valid.assets.map((a, i) => (i ? a : { ...a, size: 3 * 1024 ** 3 })) },
     { ...valid, assets: valid.assets.map((a, i) => (i ? a : { ...a, name: "../outside" })) },
+    { ...valid, serverSandboxModes: "disabled" },
+    { ...valid, serverSandboxModes: ["required", "auto"] },
+    { ...valid, serverSandboxModes: ["required", "required"] },
+    { ...valid, serverSandboxModes: [] },
   ]) {
     server.state.manifest = manifest;
     await assert.rejects(checkRelease("0.2.0", server.fetch), { code: "UPDATE_METADATA_INVALID" });
