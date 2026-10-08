@@ -99,12 +99,13 @@ test("复用 endpoint、切换协议保留密钥，拒绝 developer 的服务仍
   page,
   request,
 }) => {
-  const calls: Array<{ url: string; key: string; body: any }> = [];
+  const calls: Array<{ method: string | undefined; url: string; key: string; body: any }> = [];
   const server: Server = createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : null;
     calls.push({
+      method: req.method,
       url: req.url ?? "",
       key: String(req.headers.authorization ?? req.headers["x-api-key"] ?? ""),
       body,
@@ -161,19 +162,34 @@ test("复用 endpoint、切换协议保留密钥，拒绝 developer 的服务仍
       .click();
     await dialog.getByLabel("协议", { exact: true }).selectOption("anthropic-messages");
     await dialog.getByLabel("模型", { exact: true }).selectOption("reuse-12-b");
-    expect(calls.at(-1)?.key).toBe("reuse-private-key");
+    expect(calls.findLast((call) => call.method === "GET")).toMatchObject({
+      url: "/v1/models",
+      key: "reuse-private-key",
+    });
     await dialog.getByLabel("协议", { exact: true }).selectOption("openai-completions");
     await dialog.getByRole("slider", { name: "推理强度", exact: true }).press("End");
     await dialog.getByRole("button", { name: "测试模型", exact: true }).click();
     await page.getByRole("button", { name: "发送测试请求", exact: true }).click();
     await expect(dialog.getByRole("status")).toHaveText("连接成功");
-    expect(calls.at(-1)?.key).toBe("Bearer reuse-private-key");
-    expect(calls.at(-1)?.body).toMatchObject({
-      model: "reuse-12-b",
-      reasoning_effort: "high",
-      messages: expect.arrayContaining([expect.objectContaining({ role: "system" })]),
+    const refresh = dialog.getByRole("button", { name: "刷新模型", exact: true });
+    await expect(refresh).toBeEnabled();
+    const discovery = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/v2/workspace/models/discover",
+    );
+    await refresh.click();
+    expect((await discovery).ok()).toBe(true);
+    expect(calls.at(-1)).toMatchObject({ method: "GET", url: "/v1/models" });
+    expect(
+      calls.findLast((call) => call.method === "POST" && call.url === "/v1/chat/completions"),
+    ).toMatchObject({
+      key: "Bearer reuse-private-key",
+      body: {
+        model: "reuse-12-b",
+        reasoning_effort: "high",
+        messages: expect.arrayContaining([expect.objectContaining({ role: "system" })]),
+      },
     });
-    await page.screenshot({ path: "/tmp/intrica12-reuse-endpoint.png" });
+    await page.screenshot({ path: test.info().outputPath("endpoint-protocol.png") });
     await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(dialog.locator("form")).toHaveCount(0);
     const state = await (await request.get(`${api}/api/v2/workspace/models`, { headers })).json();

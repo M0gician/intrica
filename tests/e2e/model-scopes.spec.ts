@@ -84,7 +84,7 @@ test("画布菜单脱离裁剪，多画布滚动及统一输入始终可达", as
   await expect(page.getByLabel("切换画布", { exact: true })).toContainText("从完整菜单创建");
   await page.getByLabel("切换画布", { exact: true }).click();
   await expect(menu.locator('[aria-current="page"]')).toBeInViewport({ ratio: 0.9 });
-  await page.screenshot({ path: "/tmp/intrica11-canvas-menu.png" });
+  await page.screenshot({ path: test.info().outputPath("canvas-menu.png") });
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
 });
@@ -181,7 +181,7 @@ test("Agent 与模型会话独立选择模型及推理强度，并保留服务�
   expect(requests.at(-1).model).toBe("quick-11");
   saved = await (await request.get(`${api}/api/v2/workspace/models`, { headers })).json();
   expect(saved.selectedId).toBe(initial.selectedId);
-  await page.screenshot({ path: "/tmp/intrica11-scoped-model.png" });
+  await page.screenshot({ path: test.info().outputPath("scoped-model.png") });
   await request.delete(
     `${api}/api/v2/workspace/models/${research.id}?expectedRevision=${research.revision}`,
     { headers },

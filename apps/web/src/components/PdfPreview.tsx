@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { type SessionConnection, useSessionConnection } from "../api/connection";
 import { tr, useTranslation } from "../i18n";
 import { Button } from "../ui/button";
+import { IconChevronLeft, IconChevronRight, IconFit, IconMinus, IconPlus } from "./icons";
 import "./pdf-preview.css";
 
 type PdfSource = { nodeId: string; path?: never } | { path: string; nodeId?: never };
@@ -151,10 +152,13 @@ function PdfDocument({
         <div className="pdf-preview-group pdf-preview-pages">
           <Button
             type="button"
+            size="icon"
+            aria-label={tr("上一页")}
+            title={tr("上一页")}
             disabled={loading || page <= 1}
             onClick={() => changePosition(page - 1)}
           >
-            {tr("上一页")}
+            <IconChevronLeft />
           </Button>
           <span aria-live="polite">
             {visible
@@ -163,10 +167,13 @@ function PdfDocument({
           </span>
           <Button
             type="button"
+            size="icon"
+            aria-label={tr("下一页")}
+            title={tr("下一页")}
             disabled={loading || !visible || page >= visible.pageCount}
             onClick={() => changePosition(page + 1)}
           >
-            {tr("下一页")}
+            <IconChevronRight />
           </Button>
         </div>
         <form
@@ -194,23 +201,33 @@ function PdfDocument({
           <div className="pdf-preview-group pdf-preview-zoom">
             <Button
               type="button"
+              size="icon"
               aria-label={tr("缩小 PDF")}
+              title={tr("缩小 PDF")}
               disabled={zoom <= 0.5}
               onClick={() => setZoom(Math.max(0.5, zoom - 0.25))}
             >
-              −
+              <IconMinus />
             </Button>
             <span>{Math.round(zoom * 100)}%</span>
             <Button
               type="button"
+              size="icon"
               aria-label={tr("放大 PDF")}
+              title={tr("放大 PDF")}
               disabled={zoom >= 3}
               onClick={() => setZoom(Math.min(3, zoom + 0.25))}
             >
-              +
+              <IconPlus />
             </Button>
-            <Button type="button" onClick={() => setZoom(1)}>
-              {tr("适应宽度")}
+            <Button
+              type="button"
+              size="icon"
+              aria-label={tr("适应宽度")}
+              title={tr("适应宽度")}
+              onClick={() => setZoom(1)}
+            >
+              <IconFit />
             </Button>
           </div>
         )}

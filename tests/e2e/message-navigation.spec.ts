@@ -206,6 +206,7 @@ test("conversation rail separates previews, history, bookmarks and pointer scrub
     const tick = ticks[4]!.getBoundingClientRect();
     const popup = document.querySelector(".message-preview")!.getBoundingClientRect();
     const transcript = element.closest(".agent-timeline")!;
+    const scrollport = transcript.querySelector<HTMLElement>(".agent-timeline-scroll")!;
     const content = transcript.querySelector(".agent-timeline-content")!;
     return {
       right: markers.map((marker) => marker.right),
@@ -215,7 +216,10 @@ test("conversation rail separates previews, history, bookmarks and pointer scrub
       popupCenterOffset: popup.top + popup.height / 2 - tick.top - tick.height / 2,
       popupGap: tick.left - popup.right,
       railRightGap:
-        transcript.getBoundingClientRect().right - element.getBoundingClientRect().right,
+        scrollport.getBoundingClientRect().left +
+        scrollport.clientLeft +
+        scrollport.clientWidth -
+        element.getBoundingClientRect().right,
       paddingLeft: getComputedStyle(content).paddingLeft,
       paddingRight: getComputedStyle(content).paddingRight,
     };
@@ -231,23 +235,28 @@ test("conversation rail separates previews, history, bookmarks and pointer scrub
   expect(geometry.railRightGap).toBe(12);
   expect(geometry.paddingLeft).toBe("20px");
   expect(geometry.paddingRight).toBe("64px");
-  const scrollbar = await page.addStyleTag({
-    content: ".agent-timeline-scroll::-webkit-scrollbar { width: 16px; }",
-  });
-  await expect
-    .poll(() =>
-      rail.evaluate((element) => {
-        const shell = element.closest(".agent-timeline")!;
-        const body = shell.querySelector<HTMLElement>(".agent-timeline-scroll")!;
-        return (
-          shell.getBoundingClientRect().right -
-          element.getBoundingClientRect().right -
-          (body.offsetWidth - body.clientWidth)
-        );
-      }),
-    )
-    .toBe(12);
-  await scrollbar.evaluate((element) => element.parentNode!.removeChild(element));
+  for (const gutter of [0, 16]) {
+    const scrollbar = await page.addStyleTag({
+      content: `.agent-timeline-scroll::-webkit-scrollbar { width: ${gutter}px; }`,
+    });
+    await expect
+      .poll(() =>
+        rail.evaluate((element) => {
+          const shell = element.closest(".agent-timeline")!;
+          const body = shell.querySelector<HTMLElement>(".agent-timeline-scroll")!;
+          return {
+            gutter: body.offsetWidth - body.clientWidth,
+            gap:
+              body.getBoundingClientRect().left +
+              body.clientLeft +
+              body.clientWidth -
+              element.getBoundingClientRect().right,
+          };
+        }),
+      )
+      .toEqual({ gutter, gap: 12 });
+    await scrollbar.evaluate((element) => element.parentNode!.removeChild(element));
+  }
   let releaseHistory!: () => void;
   let historyReady!: () => void;
   const heldHistory = new Promise<void>((resolve) => {
@@ -272,13 +281,18 @@ test("conversation rail separates previews, history, bookmarks and pointer scrub
   await staleResponse;
   await expect(page.locator('.agent-event[data-message-seq="6"]')).toBeInViewport();
   await expect(page.locator('.agent-event[data-message-seq="501"]')).toHaveCount(0);
+  await rail.locator('[data-anchor-key="6"]').hover();
+  await expect(preview).toContainText("Question 2:");
   const loadedFeeds = feeds;
   const loadedPreviews = previews.length;
-  await rail.locator('[data-anchor-key="6"]').hover();
   const start = (await rail.locator('[data-anchor-key="6"]').boundingBox())!;
+  const middle = (await rail.locator('[data-anchor-key="26"]').boundingBox())!;
   const end = (await rail.locator('[data-anchor-key="51"]').boundingBox())!;
   await page.mouse.move(start.x + 15, start.y + 3);
   await page.mouse.down();
+  await page.mouse.move(middle.x + 15, middle.y + 3, { steps: 5 });
+  // Stay beyond the 150 ms preview delay while the pointer is held down.
+  await page.waitForTimeout(200);
   await page.mouse.move(end.x + 15, end.y + 3, { steps: 10 });
   expect(previews).toHaveLength(loadedPreviews);
   await page.mouse.up();

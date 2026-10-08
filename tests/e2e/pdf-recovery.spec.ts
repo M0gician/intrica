@@ -203,6 +203,17 @@ test("PDF generation limits lead to an Agent draft; failed rendering recovers to
     .poll(() => preview.getByRole("img").evaluate((image: HTMLImageElement) => image.naturalWidth))
     .toBeGreaterThan(0);
   await capture("pdf-real-page-two");
+  await preview.getByRole("button", { name: "上一页", exact: true }).click();
+  await expect(preview).toContainText("第 1 / 2 页");
+  await preview.getByRole("button", { name: "下一页", exact: true }).click();
+  await expect(preview).toContainText("第 2 / 2 页");
+  await preview.getByRole("button", { name: "放大 PDF", exact: true }).click();
+  await expect(preview.locator(".pdf-preview-zoom")).toContainText("125%");
+  await preview.getByRole("button", { name: "缩小 PDF", exact: true }).click();
+  await expect(preview.locator(".pdf-preview-zoom")).toContainText("100%");
+  await preview.getByRole("button", { name: "放大 PDF", exact: true }).click();
+  await preview.getByRole("button", { name: "适应宽度", exact: true }).click();
+  await expect(preview.locator(".pdf-preview-zoom")).toContainText("100%");
 
   await page.getByRole("button", { name: "交给 Agent 阅读 PDF", exact: true }).click();
   const composer = page.getByRole("textbox", { name: "模型问题", exact: true });

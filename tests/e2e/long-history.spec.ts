@@ -117,7 +117,10 @@ test("长历史按页卸载、旧检查点直达、窄画布顶栏与输入区�
     }),
   );
   expect(mounted.dom).toBeGreaterThan(bounded.dom * 10);
-  writeFileSync("/tmp/intrica-canvas-ablation.json", JSON.stringify({ bounded, mounted }, null, 2));
+  writeFileSync(
+    test.info().outputPath("canvas-ablation.json"),
+    JSON.stringify({ bounded, mounted }, null, 2),
+  );
   await page.getByRole("button", { name: "模型会话", exact: true }).click();
   const toolbar = page.locator(".workspace-tool:not([hidden]) .agent-composer-toolbar");
   const box = (await toolbar.boundingBox())!;
@@ -127,5 +130,5 @@ test("长历史按页卸载、旧检查点直达、窄画布顶栏与输入区�
   expect(Math.abs(model.x - ring.x - ring.width)).toBeLessThan(5);
   expect(box.x + box.width - send.x - send.width).toBeLessThan(5);
   expect(await toolbar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  await page.screenshot({ path: "/tmp/intrica-long-history-fixed.png" });
+  await page.screenshot({ path: test.info().outputPath("long-history.png") });
 });

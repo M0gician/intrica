@@ -177,6 +177,22 @@ export function IconChevronDown({ size = 14 }: IconProps) {
   );
 }
 
+export function IconChevronLeft({ size = 16 }: IconProps) {
+  return (
+    <IconBase size={size}>
+      <path d="m10 3.5-4.5 4.5L10 12.5" />
+    </IconBase>
+  );
+}
+
+export function IconChevronRight({ size = 16 }: IconProps) {
+  return (
+    <IconBase size={size}>
+      <path d="m6 3.5 4.5 4.5L6 12.5" />
+    </IconBase>
+  );
+}
+
 /** 更多：三个点。 */
 export function IconMore({ size = 16 }: IconProps) {
   return (
