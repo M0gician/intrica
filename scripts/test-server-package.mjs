@@ -255,7 +255,7 @@ try {
   await verifyNativePdf(after.schemaVersion, canvas.id, call, upgrade ? "upgraded" : "restarted");
   await verifyPendingApproval(call, journey, pending);
   await journey.start();
-  await verifyJourney(call, journey);
+  await verifyJourney(call, journey, [pending.request.id]);
   console.log(
     "Native package verified: bundled database, auth, API, host terminal, persistence, and shutdown.",
   );

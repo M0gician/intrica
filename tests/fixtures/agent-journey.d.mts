@@ -15,6 +15,7 @@ export function prepareJourney(
 export function verifyJourney(
   call: Call,
   journey: Awaited<ReturnType<typeof prepareJourney>>,
+  existingRequestIds?: string[],
 ): Promise<any[]>;
 export function seedPendingApproval(
   call: Call,

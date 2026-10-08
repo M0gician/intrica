@@ -396,7 +396,7 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
   }
 }
 
-export async function verifyJourney(call, journey) {
+export async function verifyJourney(call, journey, existingRequestIds = []) {
   try {
     await until(async () => {
       const feed = await call(`canvas-agents/${journey.manager.id}`);
@@ -446,7 +446,11 @@ export async function verifyJourney(call, journey) {
   const plan = (await call(`nodes/${journey.todo.id}/content`)).node;
   assert.ok(plan.text.includes("- [x] report one") && plan.text.includes("1. [x] report two"));
   assert.ok(plan.text.includes("- [ ] example only"), "A code example is not a ToDo item");
-  assert.equal(managerFeed.requests.length, 0, "Normal team delivery must not request permission");
+  assert.deepEqual(
+    managerFeed.requests.map((r) => r.id).sort(),
+    [...existingRequestIds].sort(),
+    "Normal team delivery must preserve approval history without creating requests",
+  );
   const members = snapshot.nodes.filter(
     (n) => n.parentId === journey.manager.id && n.title?.startsWith("Acceptance member"),
   );
@@ -579,6 +583,7 @@ export async function verifyPendingApproval(call, journey, saved) {
   const feed = await call(`canvas-agents/${saved.member.id}`);
   assert.equal(feed.requests.length, 1, "Approval must not be recreated after restart");
   assert.equal(feed.requests[0].id, saved.request.id);
+  assert.equal(feed.requests[0].status, "approved");
   assert.equal(
     feed.events.filter(
       (e) => e.kind === "assistant" && e.data.text === "APPROVAL_RESUMED_WITH_BUFFERED_INPUT",

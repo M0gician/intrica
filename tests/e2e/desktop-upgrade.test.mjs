@@ -183,7 +183,7 @@ test("desktop upgrade preserves the workspace and updates its bundled server", {
     }
     await verifyPendingApproval(call, journey, pending);
     await journey.start();
-    await verifyJourney(call, journey);
+    await verifyJourney(call, journey, [pending.request.id]);
     await journey.close();
     journey = undefined;
     report.checks.push(

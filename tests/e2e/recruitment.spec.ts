@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { prepareJourney, verifyJourney } from "../fixtures/agent-journey.mjs";
+import {
+  prepareJourney,
+  seedPendingApproval,
+  verifyJourney,
+  verifyPendingApproval,
+} from "../fixtures/agent-journey.mjs";
 import { API_URL } from "./environment.mjs";
 
 test("实时招募可进入、布局不遮挡、按需委派完成，外层停止下属且导航不写图", async ({
@@ -82,8 +87,10 @@ test("自动分派在协作历史中保留身份，删除旧团队后可筛选�
   };
   const journey = await prepareJourney(call);
   try {
+    const pending = await seedPendingApproval(call, journey);
+    await verifyPendingApproval(call, journey, pending);
     await journey.start();
-    await verifyJourney(call, journey);
+    await verifyJourney(call, journey, [pending.request.id]);
     await page.goto("/");
     await page.getByLabel("切换画布").click();
     await page.getByRole("button", { name: journey.board.title, exact: true }).click();
