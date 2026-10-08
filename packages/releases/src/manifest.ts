@@ -63,7 +63,7 @@ export function parseManifest(value: unknown): ReleaseManifest {
       !/^v[1-9]\d*$/.test(data.apiVersion) ||
       !Number.isSafeInteger(data.schemaVersion) ||
       data.schemaVersion < 1 ||
-      !/^ghcr\.io\/m0gician\/intrica-server@sha256:[a-f0-9]{64}$/.test(data.serverImage) ||
+      !/^ghcr\.io\/m0gician\/intrica@sha256:[a-f0-9]{64}$/.test(data.serverImage) ||
       !Array.isArray(data.assets) ||
       data.assets.length !== names.length ||
       new Set(data.assets.map((asset) => asset.name)).size !== names.length

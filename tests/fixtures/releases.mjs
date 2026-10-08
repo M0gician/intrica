@@ -10,7 +10,7 @@ export function releaseManifest(version, content) {
     publishedAt: "2026-10-07T00:00:00.000Z",
     apiVersion: "v2",
     schemaVersion: 10,
-    serverImage: `ghcr.io/m0gician/intrica-server@sha256:${"a".repeat(64)}`,
+    serverImage: `ghcr.io/m0gician/intrica@sha256:${"a".repeat(64)}`,
     assets: releaseNames(version).map((name) => ({
       name,
       size: content.length,

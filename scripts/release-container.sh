@@ -9,7 +9,7 @@ docker_ci() {
   sudo -n env DOCKER_CONFIG="$DOCKER_CONFIG" HTTP_PROXY="${HTTP_PROXY:-}" HTTPS_PROXY="${HTTPS_PROXY:-}" NO_PROXY="${NO_PROXY:-}" docker "$@"
 }
 scope="intrica-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-image="ghcr.io/${GITHUB_REPOSITORY,,}-server"
+image="ghcr.io/${GITHUB_REPOSITORY,,}"
 tag="${RELEASE_TAG#v}"
 cleanup() {
   docker_ci rm -f "$scope-server" "$scope-postgres" >/dev/null 2>&1 || true

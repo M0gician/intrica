@@ -7,7 +7,7 @@
 - Shared Web/Electron settings, model discovery, editable shortcuts and SSH connections.
 - Right-side message navigation for Agent, workspace and collaboration history.
 - Public release checks, installer downloads and SSH deployment without GitHub personal tokens.
-- Complete release manifests, verified draft publication and isolated hosted CI.
+- Complete release manifests, verified draft publication and isolated CI runners.
 - MIT source license.
 
 See [release notes](docs/releases/v0.3.0.md), [self hosting](docs/self-hosting.md)

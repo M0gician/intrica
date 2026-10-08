@@ -46,7 +46,7 @@ test("版本页区分 Web 和远程后端，检查更新并提供固定镜像升
           publishedAt: "2026-09-19T00:00:00Z",
           apiVersion: "v2",
           schemaVersion: 5,
-          serverImage: `ghcr.io/m0gician/intrica-server@sha256:${"a".repeat(64)}`,
+          serverImage: `ghcr.io/m0gician/intrica@sha256:${"a".repeat(64)}`,
           assets: [],
         },
       },
@@ -62,7 +62,7 @@ test("版本页区分 Web 和远程后端，检查更新并提供固定镜像升
   await expect(dialog.getByRole("status")).toContainText("0.3.0");
   await dialog.getByText("更新步骤", { exact: true }).click();
   await expect(dialog.locator("pre").first()).toContainText(
-    "INTRICA_IMAGE=ghcr.io/m0gician/intrica-server@sha256:",
+    "INTRICA_IMAGE=ghcr.io/m0gician/intrica@sha256:",
   );
   await expect(dialog.getByRole("button", { name: "下载并校验更新", exact: true })).toHaveCount(0);
   await dialog.getByRole("button", { name: "通用", exact: true }).click();

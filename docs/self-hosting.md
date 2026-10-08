@@ -48,7 +48,7 @@ Download `compose.release.yaml` from the selected public release into
 a persistent deployment directory. Create a private `.env` containing:
 
 ```ini
-INTRICA_IMAGE=ghcr.io/m0gician/intrica-server@sha256:RELEASE_DIGEST
+INTRICA_IMAGE=ghcr.io/m0gician/intrica@sha256:RELEASE_DIGEST
 INTRICA_ACCESS_TOKEN=YOUR_RANDOM_PRIVATE_TOKEN
 ```
 
