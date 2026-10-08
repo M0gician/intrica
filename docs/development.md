@@ -1,8 +1,18 @@
 # Developing Intrica
 
-Use Node.js 24.18.0 and pnpm 11.20.0. Run `pnpm install --frozen-lockfile`,
-then `pnpm desktop` or `pnpm web`. Development instances use separate
-data from an installed personal app.
+Use Node.js 24.18.0 and pnpm 11.20.0. Run `pnpm install --frozen-lockfile`.
+For an isolated desktop development profile, run from the repository root:
+
+```sh
+pnpm --filter @intrica/desktop run prepare:app
+pnpm --filter @intrica/desktop exec electron . --user-data-dir="$(pwd)/.data/desktop-dev"
+```
+
+For a local browser workspace, use `HOST=127.0.0.1 pnpm web` and open
+`http://127.0.0.1:3001`. Its default data directory is `.data/web`.
+Plain `pnpm desktop` uses Electron's default profile; use an explicit
+`--user-data-dir` when working separately from an installed app. Do not
+run two instances against one data directory.
 
 ## Layout
 
