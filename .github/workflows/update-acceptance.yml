@@ -30,7 +30,7 @@ jobs:
           - name: Linux
             runner: ubuntu-22.04
           - name: macOS
-            runner: macos-15
+            runner: [self-hosted, macOS, ARM64, intrica]
     timeout-minutes: 20
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"

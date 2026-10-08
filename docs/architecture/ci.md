@@ -1,8 +1,15 @@
 # CI and releases
 
-CI runs on isolated GitHub-hosted Ubuntu 22.04 x64 and macOS 15 arm64
-runners. Pull requests run with read-only permissions and no release secrets.
-Actions are pinned to commit hashes; checkout does not persist credentials.
+Linux jobs use isolated GitHub-hosted Ubuntu 22.04 x64 runners. macOS jobs
+use a self-hosted Apple Silicon runner with the labels `self-hosted`,
+`macOS`, `ARM64` and `intrica`. GitHub-hosted macOS compute is not used.
+If the self-hosted runner is offline, macOS jobs wait for it.
+
+Pull requests run Linux checks with read-only permissions and no release
+secrets. Pushes to `main`, release verification and maintainer-dispatched
+checks also run on macOS. Maintainers must review any selected source ref
+before dispatching it to the persistent runner. Actions are pinned to
+commit hashes; checkout does not persist credentials.
 
 ## Verification
 
@@ -36,8 +43,14 @@ approvals through replacement.
 
 ## Repository prerequisites
 
-Configure required checks, private vulnerability reporting, immutable
-releases and public GHCR visibility before distribution. Making the source
+Use the Linux and secret-scan jobs as required pull-request checks; macOS
+is verified after merge and before release. Keep the self-hosted macOS
+runner online for CI, packaging and published-update acceptance. Its
+account must be dedicated to builds, without personal credentials or data.
+Require maintainer review before running contributor workflow changes.
+
+Configure private vulnerability reporting, immutable releases and public
+GHCR visibility before distribution. Making the source
 repository public does not itself make the container public. Do not grant
 untrusted pull-request code publishing permissions.
 

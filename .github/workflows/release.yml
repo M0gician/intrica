@@ -40,7 +40,7 @@ jobs:
       matrix:
         include:
           - name: macOS arm64
-            runner: macos-15
+            runner: [self-hosted, macOS, ARM64, intrica]
           - name: Linux x64
             runner: ubuntu-22.04
 

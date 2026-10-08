@@ -37,9 +37,10 @@ State unverified platforms and installation paths. Use an imperative commit
 title near 50 characters and wrap the explanatory body at 72 characters.
 Match recent titles; the repository does not use subsystem prefixes.
 
-Fork pull requests run on isolated GitHub-hosted runners. Publication is a
-separate maintainer operation. Do not add privileged pull-request workflows
-that execute contributor code with release credentials.
+Pull requests run on isolated GitHub-hosted Linux runners. macOS checks
+use a self-hosted runner after merge and during maintainer-controlled
+release work. Do not route pull-request code to self-hosted runners or
+give it release credentials. Publication is a separate maintainer operation.
 
 ## License
 

@@ -45,16 +45,13 @@ jobs:
 
   verify:
     name: ${{ matrix.name }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.name == 'macOS' && fromJSON('["self-hosted", "macOS", "ARM64", "intrica"]') || fromJSON('["ubuntu-22.04"]') }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Linux
-            runner: ubuntu-22.04
-          - name: macOS
-            runner: macos-15
+        # Contributor code must not run on the persistent macOS runner.
+        name: ${{ fromJSON(github.event_name == 'pull_request' && '["Linux"]' || '["Linux", "macOS"]') }}
 
     steps:
       - name: Checkout
