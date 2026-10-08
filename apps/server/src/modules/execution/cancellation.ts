@@ -1,6 +1,10 @@
 import { canvasEvent, type Tx } from "../../adapters/postgres/database.js";
 import { result } from "./tool-calls.js";
 
+// The upgrade reason is an execution barrier and survives a stop.
+export const cancellationReason =
+  "case when state='running' or reason='tool_contract_upgrade' then reason else '已停止' end";
+
 /** Cancel permissions before stopping a run, so a late decision cannot revive it. */
 export async function cancelApprovals(tx: Tx, runIds: string[]) {
   const rows = (
@@ -36,7 +40,7 @@ export async function cancelAgents(tx: Tx, agentIds: string[]) {
   );
   const rows = (
     await tx.query(
-      `update runs set cancel_requested_at=now(),state=case when state='running' then state else 'cancelled' end,updated_at=now()
+      `update runs set cancel_requested_at=now(),state=case when state='running' then state else 'cancelled' end,reason=${cancellationReason},updated_at=now()
     where subject_id in(select id from conversations where agent_id=any($1::text[])) and state in('queued','running','waiting') returning *`,
       [agentIds],
     )

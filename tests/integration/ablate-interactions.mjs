@@ -12,6 +12,34 @@ const output = join(import.meta.dirname, "test-results/ablation");
 await mkdir(output, { recursive: true });
 const cases = [
   [
+    "terminal cancellation reason",
+    "execution/cancellation.js",
+    "else '已停止' end",
+    "else reason end",
+    "queued and waiting cancellation retains",
+  ],
+  [
+    "upgrade pause preserved on cancellation",
+    "execution/cancellation.js",
+    " or reason='tool_contract_upgrade'",
+    "",
+    "stopping a paused conversation",
+  ],
+  [
+    "conversation cancellation admission barrier",
+    "execution/store.js",
+    "if (prior.cancel_requested_at)",
+    "if (false)",
+    "conversation input waits for cancellation",
+  ],
+  [
+    "conversation current-run ordering",
+    "work/conversation-reader.js",
+    "coalesce(reason='tool_contract_upgrade',false) desc",
+    "(reason='tool_contract_upgrade') desc nulls last",
+    "conversation views select the current run",
+  ],
+  [
     "conversation execution barrier",
     "execution/store.js",
     "return { paused, unknown };",
@@ -517,6 +545,7 @@ function run(pattern, name) {
       "scripts/ci-tests.mjs",
       "integration",
       "collaboration.test.ts",
+      "conversation-coordination.test.ts",
       "long-running-interactions.test.ts",
       "approvals.test.ts",
       "multi-level-interactions.test.ts",

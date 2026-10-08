@@ -896,7 +896,7 @@ describe("production graph and execution", () => {
     const view = await k.conversations.read.view(submitted.conversationId);
     expect(view.messages.some((m) => m.role === "tool")).toBe(true);
     expect(view.messages.some((m) => m.role === "assistant")).toBe(true);
-    expect(view.run.state).toBe("succeeded");
+    expect(view.run).toMatchObject({ state: "succeeded" });
     const next = await k.conversations.submit({
       canvasId: c,
       conversationId: submitted.conversationId,
@@ -1137,7 +1137,7 @@ describe("production graph and execution", () => {
     }
     const view = await k.conversations.read.view(submitted.conversationId);
     expect(view.messages.filter((m) => m.role === "assistant")).toHaveLength(2);
-    expect(view.run.state).toBe("succeeded");
+    expect(view.run).toMatchObject({ state: "succeeded" });
     const replies = view.messages.filter((m) => m.role === "assistant");
     expect(replies[0]!.content.text).toContain("你是 Intrica 工作区助手");
     expect(replies[1]!.content.text).toContain("You are the Intrica workspace assistant");

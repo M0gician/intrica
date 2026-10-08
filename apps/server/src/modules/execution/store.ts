@@ -7,7 +7,7 @@ import {
   lockCanvas,
   type Tx,
 } from "../../adapters/postgres/database.js";
-import { cancelApprovals } from "./cancellation.js";
+import { cancelApprovals, cancellationReason } from "./cancellation.js";
 import { DEFAULT_LIMITS, type ExecutionLimits } from "./limits.js";
 import { pendingInboxMessage } from "./messages.js";
 import { failureReason, publishRunNotice } from "./run-notices.js";
@@ -134,11 +134,12 @@ export class RunStore {
         )
       ).rows[0];
       if (prior) {
+        if (prior.cancel_requested_at)
+          throw new DomainError("INVALID_STATE", "运行正在停止，请在停止后重试");
         if (blocked) return prior;
         if (input.userInitiated)
           await tx.query("update runs set activation_count=0 where id=$1", [prior.cause_id]);
         if (
-          !prior.cancel_requested_at &&
           prior.state === "waiting" &&
           (prior.reason === "message" ||
             prior.reason === "approval" ||
@@ -344,7 +345,7 @@ export class RunStore {
         const current = await this.get(runId, tx);
         if (!["queued", "running", "waiting"].includes(current.state)) return current;
         await tx.query(
-          "update runs set cancel_requested_at=now(),state=case when state='running' then state else 'cancelled' end,updated_at=now() where id=$1",
+          `update runs set cancel_requested_at=now(),state=case when state='running' then state else 'cancelled' end,reason=${cancellationReason},updated_at=now() where id=$1`,
           [runId],
         );
         await cancelApprovals(tx, [runId]);

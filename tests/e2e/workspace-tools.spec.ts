@@ -148,16 +148,22 @@ test("真实终端输入输出、切换工具后保留进程、调宽与关闭",
   await expect(page.getByRole("button", { name: "结束终端进程" })).toBeDisabled();
 });
 
-test("流式会话先显示用户问题，输出期间可停止，真实工具事件可见", async ({ page }) => {
+test("流式会话先显示用户问题，输出期间可停止，真实工具事件可见", async ({ page, request }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "打开侧栏" }).click();
   await page.getByRole("button", { name: "模型会话", exact: true }).click();
   await page.getByLabel("模型问题").fill("概括当前证据");
+  const submission = page.waitForRequest(
+    (request) => new URL(request.url()).pathname === "/api/v2/agent/chat",
+  );
   await page.getByLabel("模型问题").press("Enter");
+  const { sessionId } = (await submission).postDataJSON();
   await expect(page.locator(".chat-user")).toContainText("概括当前证据");
   await expect(page.getByRole("button", { name: "停止", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "停止", exact: true }).click();
   await expect(page.locator(".chat-assistant")).toContainText("已停止");
+  const stopped = await request.get(`${apiUrl}/api/v2/conversations/${sessionId}`);
+  expect((await stopped.json()).run.state).toBe("cancelled");
   await page.getByLabel("模型问题").fill("重新概括");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByRole("button", { name: "运行", exact: true })).toBeVisible({

@@ -43,10 +43,8 @@ export function AgentPanel({
     sessionKey,
     sessionId,
     setSessionId,
-    runId,
     waitingReason,
-    stopRequested,
-    abort,
+    stop,
     ask,
     storage,
     transport,
@@ -146,16 +144,7 @@ export function AgentPanel({
               waitingReason || (turns.at(-1) && ["error", "stopped"].includes(turns.at(-1)!.state)),
             )}
             busy={sending || unknown.length > 0}
-            onStop={() => {
-              stopRequested.current = true;
-              if (runId)
-                void transport
-                  .json("POST", `/api/v2/runs/${encodeURIComponent(runId)}/cancel`)
-                  .then(() => {
-                    abort.current?.abort();
-                    activity.invalidate({ canvasId, conversationId: sessionId });
-                  });
-            }}
+            onStop={stop}
           />
         </div>
       </form>

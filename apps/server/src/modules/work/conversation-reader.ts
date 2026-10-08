@@ -151,19 +151,33 @@ export class ConversationReader {
     }
     return records;
   }
+  private async currentRun(conversationId: string) {
+    return (
+      (
+        await this.db.pool.query(
+          `select id,state,reason,last_event_seq,superseded_by_run_id from runs where subject_id=$1
+           order by coalesce(reason='tool_contract_upgrade',false) desc,
+             (state in('queued','running','waiting')) desc,created_at desc,id desc limit 1`,
+          [conversationId],
+        )
+      ).rows[0] ?? null
+    );
+  }
   async view(conversationId: string) {
     const row = (
       await this.db.pool.query("select id,context from conversations where id=$1", [conversationId])
     ).rows[0];
     if (!row) return { messages: [], run: null, context: null };
     const messages = await this.history(conversationId);
-    const run =
-      (
-        await this.db.pool.query(
-          "select id,state,reason,last_event_seq from runs where subject_id=$1 order by (reason='tool_contract_upgrade') desc nulls last,(state in('queued','running','waiting')) desc,created_at desc,id desc limit 1",
-          [conversationId],
-        )
-      ).rows[0] ?? null;
+    const current = await this.currentRun(conversationId);
+    const run = current
+      ? {
+          id: current.id,
+          state: current.state,
+          reason: current.reason,
+          last_event_seq: current.last_event_seq,
+        }
+      : null;
     const unknownTools = await this.unknownTools(conversationId);
     return { messages, run, context: publicContext(row.context), unknownTools };
   }
@@ -188,13 +202,7 @@ export class ConversationReader {
         [c.id, records[0]?.seq ?? 0, records.at(-1)?.seq ?? c.message_seq],
       )
     ).rows[0];
-    const runs = (
-      await this.db.pool.query(
-        "select id,state,reason,last_event_seq,superseded_by_run_id from runs where subject_id=$1 order by (reason='tool_contract_upgrade') desc nulls last,(state in('queued','running','waiting')) desc,created_at desc,id desc limit 1",
-        [c.id],
-      )
-    ).rows;
-    const run = runs[0];
+    const run = await this.currentRun(c.id);
     const events = records.map((r) => ({
       conversationId: c.id,
       seq: Number(r.seq),

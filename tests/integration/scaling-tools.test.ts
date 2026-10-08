@@ -363,7 +363,7 @@ it("detaches without restarting, notifies periodically, and returns results into
   }
   const final = await k.conversations.read.view(submitted.conversationId);
   expect(calls).toBe(1);
-  expect(final.run.state).toBe("succeeded");
+  expect(final.run).toMatchObject({ state: "succeeded" });
   expect(
     final.messages.filter(
       (m) => m.role === "tool_update" && m.content.text.includes("completed-retained"),
@@ -499,7 +499,9 @@ it("resumes a persisted async call even when its pending receipt was not checkpo
     ],
   );
   expect(calls).toBe(1);
-  expect((await k.conversations.read.view(submitted.conversationId)).run.state).toBe("succeeded");
+  expect((await k.conversations.read.view(submitted.conversationId)).run).toMatchObject({
+    state: "succeeded",
+  });
 });
 it("hire derives management from the enterable spatial child", async () => {
   const c = await canvas();

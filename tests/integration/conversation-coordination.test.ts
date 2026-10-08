@@ -137,6 +137,141 @@ const runs = async (member: Node) =>
     )
   ).rows;
 
+it("conversation views select the current run after cancellation or failure", async () => {
+  for (const state of ["cancelled", "failed"] as const) {
+    const member = await agent();
+    const first = await start(member);
+    if (state === "cancelled") await k.runs.cancel(first.id);
+    await k.runs.fail(first, new Error("timeout"));
+    expect(await k.runs.get(first.id)).toMatchObject({ state, reason: expect.any(String) });
+
+    const next = await submit(member, "Continue with a new task.");
+    expect(next.run.id).not.toBe(first.id);
+    const assertCurrent = async (state: string, reason: string | null = null) => {
+      const headers = { authorization: `Bearer ${token}` };
+      const view = await app.inject({
+        method: "GET",
+        url: `/api/v2/conversations/${first.subject_id}`,
+        headers,
+      });
+      expect(view.statusCode).toBe(200);
+      expect(view.json().run).toMatchObject({ id: next.run.id, state, reason });
+      const feed = await app.inject({
+        method: "GET",
+        url: `/api/v2/canvas-agents/${member.id}`,
+        headers,
+      });
+      expect(feed.statusCode).toBe(200);
+      expect(feed.json()).toMatchObject({
+        runId: next.run.id,
+        runState: state,
+        runReason: reason,
+        running: state === "queued" || state === "running",
+        interrupted: false,
+      });
+    };
+    await assertCurrent("queued");
+    const lease = (await k.runs.claim("coordination-test"))!;
+    expect(lease.id).toBe(next.run.id);
+    await assertCurrent("running");
+    await k.runs.finish(lease, "waiting", undefined, "message");
+    await assertCurrent("waiting", "message");
+    expect((await submit(member, "Continue now.")).run.id).toBe(lease.id);
+    await assertCurrent("queued");
+    const resumed = (await k.runs.claim("coordination-test"))!;
+    expect(resumed.id).toBe(next.run.id);
+    await k.runs.finish(resumed, "succeeded");
+    await assertCurrent("succeeded");
+  }
+});
+
+it("conversation input waits for cancellation to settle before admission", async () => {
+  for (const agentId of [undefined, (await agent()).id]) {
+    const first = await k.conversations.submit({
+      canvasId: board,
+      ...(agentId ? { agentId } : {}),
+      message: "Original task",
+      key: key(),
+    });
+    const lease = (await k.runs.claim("coordination-test"))!;
+    expect(lease.id).toBe(first.run.id);
+    const headers = { authorization: `Bearer ${token}` };
+    const cancelled = await app.inject({
+      method: "POST",
+      url: `/api/v2/runs/${lease.id}/cancel`,
+      headers,
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(await k.runs.get(lease.id)).toMatchObject({
+      state: "running",
+      cancel_requested_at: expect.any(Date),
+    });
+    const inputKey = key();
+    const post = () =>
+      app.inject({
+        method: "POST",
+        url: agentId ? `/api/v2/canvas-agents/${agentId}/run` : "/api/v2/agent/steer",
+        headers,
+        payload: {
+          ...(!agentId ? { sessionId: first.conversationId } : {}),
+          message: "New task after stopping",
+          idempotencyKey: inputKey,
+        },
+      });
+    const rejected = await post();
+    expect(rejected.statusCode).toBe(422);
+    expect(rejected.json().error.code).toBe("INVALID_STATE");
+    const admitted = () =>
+      k.db.pool.query(
+        "select run_id from messages where conversation_id=$1 and client_message_id=$2",
+        [first.conversationId, inputKey],
+      );
+    expect((await admitted()).rows).toHaveLength(0);
+    await k.runs.fail(lease, new Error("cancelled"));
+    const accepted = await post();
+    expect(accepted.statusCode).toBe(agentId ? 202 : 200);
+    expect((await post()).json()).toEqual(accepted.json());
+    const next = (await k.runs.claim("coordination-test"))!;
+    expect(next.id).not.toBe(lease.id);
+    expect((await admitted()).rows).toEqual([{ run_id: next.id }]);
+    await k.runs.finish(next, "succeeded");
+  }
+});
+
+it("queued and waiting cancellation retains a terminal reason", async () => {
+  for (const state of ["queued", "waiting"]) {
+    for (const team of [false, true]) {
+      const member = await agent();
+      const submitted = await submit(member);
+      if (state === "waiting") {
+        const lease = (await k.runs.claim("coordination-test"))!;
+        expect(lease.id).toBe(submitted.run.id);
+        await k.runs.finish(lease, "waiting", undefined, "message");
+      }
+      const headers = { authorization: `Bearer ${token}` };
+      const response = await app.inject({
+        method: "POST",
+        url: team
+          ? `/api/v2/canvas-agents/${member.id}/stop`
+          : `/api/v2/runs/${submitted.run.id}/cancel`,
+        headers,
+      });
+      expect(response.statusCode).toBe(200);
+      const view = await app.inject({
+        method: "GET",
+        url: `/api/v2/conversations/${submitted.conversationId}`,
+        headers,
+      });
+      expect(view.statusCode).toBe(200);
+      expect(view.json().run).toMatchObject({
+        id: submitted.run.id,
+        state: "cancelled",
+        reason: "已停止",
+      });
+    }
+  }
+});
+
 it("delivers a real provider failure through the worker to the manager exactly once", async () => {
   const manager = await agent(board, "admin"),
     member = await agent(manager.id);

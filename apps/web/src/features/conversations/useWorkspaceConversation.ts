@@ -37,7 +37,7 @@ export function useWorkspaceConversation(
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState(false);
-  const stopRequested = useRef(false);
+  const pendingStop = useRef<symbol | null>(null);
   const [mock, setMock] = useState(false);
   const canvasId = useViewValue((view) => view.baseScopeId);
   const selection = useViewValue((view) => (active ? view.selection : emptySelection));
@@ -66,6 +66,9 @@ export function useWorkspaceConversation(
     setWaitingReason(undefined);
     abort.current?.abort("session");
     abort.current = null;
+    pendingStop.current = null;
+    setSending(false);
+    setStreaming(false);
     setBusy(false);
   }, [readSession]);
   const abort = useRef<AbortController | null>(null);
@@ -99,6 +102,10 @@ export function useWorkspaceConversation(
       value.run && ["queued", "running", "waiting"].includes(value.run.state),
     );
     const paused = ["tool_contract_upgrade", "unknown"].includes(value.run?.reason ?? "");
+    if (pendingStop.current && (!running || paused)) {
+      pendingStop.current = null;
+      setSending(false);
+    }
     setBusy(running && !paused);
     setWaitingReason(paused ? value.run?.reason : undefined);
     setRunId(running || paused ? value.run!.id : undefined);
@@ -155,8 +162,27 @@ export function useWorkspaceConversation(
       setResolutionError(error instanceof Error ? error.message : tr("读取失败"));
     },
   });
+  const cancelRun = async (runId: string, request: symbol) => {
+    try {
+      await transport.json("POST", `/api/v2/runs/${encodeURIComponent(runId)}/cancel`);
+      // The run stream or snapshot confirms when cancellation has settled.
+      activity.invalidate({ canvasId, conversationId: sessionId });
+    } catch (error) {
+      if (sessionRef.current !== sessionId || pendingStop.current !== request) return;
+      pendingStop.current = null;
+      setSending(false);
+      setResolutionError(error instanceof Error ? error.message : tr("请求失败"));
+    }
+  };
+  const stop = () => {
+    const request = Symbol();
+    pendingStop.current = request;
+    setSending(true);
+    setResolutionError("");
+    if (runId) void cancelRun(runId, request);
+  };
   const ask = async () => {
-    if (sending || unknown.length) return;
+    if (sending || pendingStop.current || unknown.length) return;
     const prompt = question.trim() || tr("继续之前未完成的任务。");
     if (busy) {
       if (!question.trim()) return;
@@ -189,7 +215,7 @@ export function useWorkspaceConversation(
     }
     const id = newId();
     const activeSession = sessionId;
-    stopRequested.current = false;
+    setRunId(undefined);
     setStreaming(true);
     setQuestion("");
     setBusy(true);
@@ -219,10 +245,8 @@ export function useWorkspaceConversation(
           if (event.type === "start") {
             setMock(event.mode === "mock");
             setRunId(event.runId);
-            if (stopRequested.current && event.runId)
-              void transport
-                .json("POST", `/api/v2/runs/${event.runId}/cancel`)
-                .then(() => controller.abort());
+            if (pendingStop.current && event.runId)
+              void cancelRun(event.runId, pendingStop.current);
           }
           if (event.type === "message")
             update((turn) => ({
@@ -280,6 +304,10 @@ export function useWorkspaceConversation(
       setQuestion((current) => current || prompt);
     } finally {
       if (abort.current === controller) {
+        if (pendingStop.current) {
+          pendingStop.current = null;
+          setSending(false);
+        }
         setBusy(false);
         abort.current = null;
         setStreaming(false);
@@ -310,10 +338,8 @@ export function useWorkspaceConversation(
     sessionKey,
     sessionId,
     setSessionId,
-    runId,
     waitingReason,
-    stopRequested,
-    abort,
+    stop,
     ask,
     storage,
     transport,
