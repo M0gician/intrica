@@ -97,14 +97,18 @@ test("desktop upgrade preserves the workspace and updates its bundled server", {
       await page.keyboard.press("Control+,");
       const settings = page.getByRole("main", { name: "Settings", exact: true });
       await settings.getByRole("button", { name: "Version & updates", exact: true }).click();
-      await settings.getByRole("button", { name: "Check app updates", exact: true }).click();
-      await expect(settings.getByRole("status")).toContainText(expected, { timeout: 45000 });
+      const desktop = settings.locator(".settings-update-card").filter({
+        has: page.getByRole("heading", { name: "Desktop app", exact: true }),
+      });
+      await desktop.getByText("Background update preferences", { exact: true }).click();
+      await desktop.getByRole("button", { name: "Check for updates", exact: true }).click();
+      await expect(desktop.getByRole("status")).toContainText(expected, { timeout: 45000 });
       const checked = await page.evaluate(() => window.intricaDesktop.updates.state());
       assert.equal(checked.check?.available, true);
       assert.equal(checked.check.release.version, expected);
       assert.ok(checked.asset);
       report.checks.push("old app discovers published release and selects platform installer");
-      await settings.getByRole("button", { name: "Download & verify update", exact: true }).click();
+      await desktop.getByRole("button", { name: "Download & verify update", exact: true }).click();
       let downloaded;
       const deadline = Date.now() + 12 * 60_000;
       while (Date.now() < deadline) {
@@ -117,9 +121,7 @@ test("desktop upgrade preserves the workspace and updates its bundled server", {
       report.checks.push("download completes with size and SHA-256 verification");
       installer = join(profile, "updates", downloaded.asset.name);
       if (process.env.INTRICA_UPGRADE_OPEN_INSTALLER === "1") {
-        await settings
-          .getByRole("button", { name: "Open verified installer", exact: true })
-          .click();
+        await desktop.getByRole("button", { name: "Open verified installer", exact: true }).click();
         await page.getByRole("dialog").getByRole("button", { name: "Open", exact: true }).click();
         assert.equal(
           (await page.evaluate(() => window.intricaDesktop.updates.state())).phase,
