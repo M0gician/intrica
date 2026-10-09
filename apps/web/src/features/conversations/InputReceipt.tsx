@@ -98,8 +98,8 @@ export function InputReceipt({
           title={state === "expediting" ? tr("加急中") : tr("加急")}
           onClick={() => void expedite()}
         >
-          <svg width="12" height="12" viewBox="0 0 18 22" fill="currentColor" aria-hidden="true">
-            <path d="M10.5 1 2 12h5l-1 9 10-13h-6l.5-7Z" />
+          <svg width="10" height="14" viewBox="0 0 18 24" fill="currentColor" aria-hidden="true">
+            <path d="M11 1 4 13h4l-1 10 7-13h-4l1-9Z" />
           </svg>
         </Button>
       )}
