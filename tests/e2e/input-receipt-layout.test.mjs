@@ -26,7 +26,7 @@ function Fixture() {
         h(MarkdownLite,{text:texts.workspace}),
         h(InputReceipt,{conversationId:"conversation",receipt:texts.receiptState===null?undefined:{messageId:"workspace-input",state:texts.receiptState??"unread"}}))),
     h("section",{className:"agent-activity"},
-      h("article",{id:"agent",className:"agent-event agent-event-user"},
+      h("article",{id:"agent",className:"agent-event agent-event-user",tabIndex:-1},
         h(TimelineEvent,{event:{id:"agent-input",kind:"user",agentId:"agent",conversationId:"conversation",createdAt:"2026-10-01T01:02:03Z",data:{text:texts.agent,inputReceipt:texts.receiptState===null?undefined:{messageId:"agent-input",state:texts.receiptState??"unread"}}},nodes:new Map(),requestEvent:new Map()}))));
 }
 createRoot(document.getElementById("root")).render(h(Fixture));
@@ -51,7 +51,7 @@ async function assertTimestampFits(bubble) {
   return timestamp;
 }
 
-test("both message bubbles use an icon footer and a hover-only overlay without layout movement", async () => {
+test("message bubbles fit visible content and expand for timestamps on hover or keyboard focus", async () => {
   const server = await createServer({
     root,
     configFile: `${root}/vite.config.ts`,
@@ -116,26 +116,51 @@ test("both message bubbles use an icon footer and a hover-only overlay without l
           const bubble = page.locator(`#${id}`),
             button = bubble.getByRole("button", { name: "Expedite", exact: true }),
             status = bubble.getByRole("status");
+          const time = bubble.locator("time");
+          if (id === "agent") await expect(time).toBeHidden();
           const before = await bubble.boundingBox();
           const parent = await bubble.locator("..").boundingBox();
           assert.ok(Math.abs(before.x + before.width - parent.x - parent.width) < 1);
+          if (!text.includes("\n")) {
+            const visibleWidth = await bubble.evaluate((element) => {
+              const range = new Range();
+              range.selectNodeContents(element.querySelector(".markdown-lite p"));
+              const style = getComputedStyle(element);
+              return (
+                range.getBoundingClientRect().width +
+                Number.parseFloat(style.paddingLeft) +
+                Number.parseFloat(style.paddingRight)
+              );
+            });
+            assert.ok(
+              Math.abs(before.width - visibleWidth) < 1,
+              "hidden timestamps must not widen a compact message bubble",
+            );
+          }
           const appearance = await bubble.evaluate((element) => {
             const style = getComputedStyle(element);
             return [style.backgroundColor, style.borderRadius];
           });
           assert.deepEqual(appearance, ["rgb(241, 240, 237)", "18px"]);
-          const body = await bubble.locator(".markdown-lite").boundingBox();
           await expect(button).toHaveCSS("opacity", "0");
+          await expect(status).toBeVisible();
           assert.equal(await status.textContent(), "");
           assert.equal(await button.textContent(), "");
           await bubble.hover();
           await expect(button).toHaveCSS("opacity", "1");
-          assert.deepEqual(await bubble.boundingBox(), before);
+          const expanded = await bubble.boundingBox();
+          assert.ok(expanded.width >= before.width);
+          assert.ok(Math.abs(expanded.x + expanded.width - before.x - before.width) < 1);
+          assert.equal(expanded.y, before.y);
+          assert.equal(expanded.height, before.height);
+          if (id === "workspace") assert.deepEqual(expanded, before);
+          else if ([...text].length === 1) assert.ok(expanded.width > before.width);
+          const body = await bubble.locator(".markdown-lite").boundingBox();
           const overlay = await button.boundingBox(),
             icon = await status.boundingBox();
-          assert.ok(overlay.x < before.x + 5 && overlay.y < before.y + 5);
-          const rightGap = before.x + before.width - icon.x - icon.width;
-          const bottomGap = before.y + before.height - icon.y - icon.height;
+          assert.ok(overlay.x < expanded.x + 5 && overlay.y < expanded.y + 5);
+          const rightGap = expanded.x + expanded.width - icon.x - icon.width;
+          const bottomGap = expanded.y + expanded.height - icon.y - icon.height;
           assert.ok(rightGap >= 4 && rightGap <= 10);
           assert.ok(bottomGap >= 4 && bottomGap <= 10);
           assert.ok(icon.width <= 14);
@@ -148,20 +173,45 @@ test("both message bubbles use an icon footer and a hover-only overlay without l
           assert.ok(overlay.width <= 24);
           assert.ok(overlay.height <= 24);
           assert.ok(
-            icon.y + icon.height <= before.y + before.height &&
-              icon.y > before.y + before.height - 32,
+            icon.y + icon.height <= expanded.y + expanded.height &&
+              icon.y > expanded.y + expanded.height - 32,
           );
-          const time = bubble.locator("time");
           if (id === "agent") {
+            await expect(time).toBeVisible();
             const timestamp = await assertTimestampFits(bubble);
             assert.ok(icon.x >= timestamp.x + timestamp.width);
             assert.ok(icon.x - timestamp.x - timestamp.width < 9);
           } else await expect(time).toHaveCount(0);
           await page.mouse.move(650, 650);
           await expect(button).toHaveCSS("opacity", "0");
+          if (id === "agent") await expect(time).toBeHidden();
+          assert.deepEqual(await bubble.boundingBox(), before);
         }
       }
     }
+    await page.evaluate(() => window.setReceiptExamples({ workspace: "OK", agent: "好" }));
+    const agent = page.locator("#agent");
+    await expect(agent.locator(".markdown-lite")).toHaveText("好");
+    const compact = await agent.boundingBox();
+    await page.locator("#before").focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await expect(agent.locator(".input-expedite")).toBeFocused();
+    await expect(agent.locator("time")).toBeVisible();
+    await assertTimestampFits(agent);
+    assert.ok((await agent.boundingBox()).width > compact.width);
+    await page.locator("#before").focus();
+    await expect(agent.locator("time")).toBeHidden();
+    assert.deepEqual(await agent.boundingBox(), compact);
+    await agent.locator(".markdown-lite").click();
+    await expect(agent).toBeFocused();
+    await page.mouse.move(650, 650);
+    await expect(agent.locator("time")).toBeHidden();
+    assert.deepEqual(
+      await agent.boundingBox(),
+      compact,
+      "mouse focus must not keep the bubble expanded after the pointer leaves",
+    );
     await page.evaluate(() =>
       window.setReceiptExamples({
         workspace: "这是已提交的输入。\n每条记录保留原始顺序。\n等待处理结果。",
@@ -208,10 +258,27 @@ test("both message bubbles use an icon footer and a hover-only overlay without l
         );
         await expect(page.locator("#agent .markdown-lite")).toHaveText("好");
         await expect(page.locator("#agent").getByRole("status")).toHaveCount(receiptState ? 1 : 0);
-        await assertTimestampFits(page.locator("#agent"));
+        await page.mouse.move(650, 650);
+        await expect(agent.locator("time")).toBeHidden();
+        const collapsed = await agent.boundingBox();
+        if (receiptState) {
+          await page
+            .locator("main")
+            .screenshot({ path: `/tmp/intrica-bubble-compact-${language}.png` });
+        }
+        await agent.hover();
+        await expect(agent.locator("time")).toHaveCSS("opacity", "1");
+        await assertTimestampFits(agent);
+        assert.ok((await agent.boundingBox()).width > collapsed.width);
+        if (receiptState) {
+          await page
+            .locator("main")
+            .screenshot({ path: `/tmp/intrica-bubble-hover-${language}.png` });
+        }
+        await page.mouse.move(650, 650);
+        await expect(agent.locator("time")).toBeHidden();
+        assert.deepEqual(await agent.boundingBox(), collapsed);
       }
-      await page.locator("#agent").hover();
-      await page.locator("main").screenshot({ path: `/tmp/intrica-bubble-width-${language}.png` });
     }
   } finally {
     await browser?.close();

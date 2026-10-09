@@ -14,18 +14,26 @@
   white-space: nowrap;
   color: var(--text-secondary, #5f646c);
 }
-.input-receipt:has(.agent-event-time) {
-  margin-left: 16px;
-}
 .input-receipt [role="status"] {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
 }
 .input-receipt .agent-event-time {
+  display: none;
   margin: 0;
   color: inherit;
   font-size: 10px;
+}
+:is(.chat-user, .agent-event-user):is(:hover, :focus-visible, :has(:focus-visible))
+  > .input-receipt:has(.agent-event-time) {
+  margin-left: 16px;
+}
+:is(.chat-user, .agent-event-user):is(:hover, :focus-visible, :has(:focus-visible))
+  > .input-receipt
+  .agent-event-time {
+  display: block;
+  opacity: 1;
 }
 .input-expedite.ui-button {
   position: absolute;
