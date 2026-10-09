@@ -276,6 +276,41 @@ it("read cursors bind targets, preserve complete content and cannot grant indexe
   await writeFile(`${path}.other`, "Different authorized content");
   const first = await s.call("read", { target: { kind: "path", path } });
   expect(first.value.nextCursor).toEqual(expect.any(String));
+  const resumed = await s.call("read", {
+    target: { kind: "path", path },
+    cursor: first.value.nextCursor,
+  });
+  expect(
+    (
+      await s.call("read", {
+        target: { kind: "path", path },
+        cursor: first.value.nextCursor,
+        mode: "auto",
+      })
+    ).value,
+  ).toEqual(resumed.value);
+  expect(
+    (
+      await s.call("read", {
+        target: { kind: "path", path },
+        cursor: first.value.nextCursor,
+        mode: "text",
+      })
+    ).result.isError,
+  ).toBe(true);
+  const textFirst = await s.call("read", { target: { kind: "path", path }, mode: "text" });
+  expect(
+    (
+      await s.call("read", {
+        target: { kind: "path", path },
+        cursor: textFirst.value.nextCursor,
+        mode: "text",
+      })
+    ).value,
+  ).toEqual(
+    (await s.call("read", { target: { kind: "path", path }, cursor: textFirst.value.nextCursor }))
+      .value,
+  );
   const forged = await s.call("read", {
     target: { kind: "path", path: `${path}.other` },
     cursor: first.value.nextCursor,

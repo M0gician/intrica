@@ -1,8 +1,10 @@
 export type AgentRole = "read" | "write" | "admin";
+export type CommandPermission = "none" | "isolated" | "host";
 export type ApprovalDecision = "approve" | "deny" | "escalate";
 export type ApprovalStatus =
   | "pending"
   | "approved"
+  | "satisfied"
   | "denied"
   | "cancelled"
   | "expired"
@@ -14,15 +16,20 @@ export type AccessIntent =
       kind: "path";
       path: string;
       directory: boolean;
+      mode?: "read" | "write";
+      execution?: CommandPermission;
       requiredRole?: "write";
       /** Server-resolved ownership of an ancestor's scratch path; never a tool argument. */
       workspaceOwnerId?: string;
+      workspaceRoot?: string;
     }
   | {
       kind: "host";
       tool: "read" | "rg" | "write" | "edit" | "bash" | "mcp";
       args: Record<string, any>;
       requiredRole?: "write";
+      workspaceOwnerId?: string;
+      workspaceRoot?: string;
     }
   | {
       kind: "agent";
@@ -57,6 +64,7 @@ export type ApprovalRecord = {
     operation?: string;
     path?: string;
     mode?: string;
+    capability?: string;
     recipients?: string[];
   };
   names?: Record<string, string>;

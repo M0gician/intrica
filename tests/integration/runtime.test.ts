@@ -591,6 +591,18 @@ describe("production graph and execution", () => {
       ).toMatchObject({
         text: expect.stringContaining("connected"),
       });
+      expect((await current.invoke("bash", { command: "pwd" })).status).toBe("pending");
+      const commandPermission = await current.invoke("request_permission", {
+        scope: {
+          kind: "path",
+          path: project,
+          access: "directory",
+          mode: "write",
+          execution: "host",
+        },
+        reason: "Explicit command authority",
+      });
+      await k.access.decide(commandPermission.requestId, 1, "approve", "host execution");
       expect((await current.invoke("bash", { command: "pwd" })).output.trim()).toBe(project);
       expect(
         (
@@ -617,7 +629,9 @@ describe("production graph and execution", () => {
         fullHost: true,
       });
       expect(mcp.tools).toEqual([]);
-      expect((await k.access.list(c)).requests).toHaveLength(0);
+      expect((await k.access.list(c)).requests.filter((r) => r.status === "pending")).toHaveLength(
+        0,
+      );
       const artifact = await current.invoke("create_artifact", {
         kind: "text",
         title: "file result",

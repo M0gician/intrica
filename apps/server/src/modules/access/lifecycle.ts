@@ -1,7 +1,7 @@
 import { canvasEvent, digest, type Tx } from "../../adapters/postgres/database.js";
 import { appendMessage, projectToolOutcome } from "../execution/messages.js";
 import { result } from "../execution/tool-calls.js";
-import { intentBasis, reviewerFor } from "./intents.js";
+import { intentBasis, intentCovered, reviewerFor } from "./intents.js";
 import { managementChain } from "./policy.js";
 
 export async function finishApproval(
@@ -43,6 +43,9 @@ export async function wakeOrigin(tx: Tx, callId: string) {
     and state='waiting' and reason in('approval','message') and cancel_requested_at is null`,
     [callId],
   );
+  await tx.query("select pg_notify('intrica_run_wake',run_id) from tool_calls where id=$1", [
+    callId,
+  ]);
 }
 export async function notifyReviewer(tx: Tx, request: any) {
   if (!request.assigned_reviewer_id) return;
@@ -110,7 +113,7 @@ export async function escalateApproval(tx: Tx, request: any, reason = "escalated
 export async function reconcileApprovals(tx: Tx, canvasId: string) {
   const rows = (
     await tx.query(
-      "select a.*,r.state as run_state,r.cancel_requested_at from approvals a left join tool_calls t on t.id=a.origin_call_id left join runs r on r.id=t.run_id where a.canvas_id=$1 and a.status='pending' for update of a",
+      "select a.*,t.state as tool_state,r.subject_id as conversation_id,r.state as run_state,r.cancel_requested_at from approvals a left join tool_calls t on t.id=a.origin_call_id left join runs r on r.id=t.run_id where a.canvas_id=$1 and a.status='pending' for update of a",
       [canvasId],
     )
   ).rows;
@@ -134,6 +137,45 @@ export async function reconcileApprovals(tx: Tx, canvasId: string) {
       await finishApproval(tx, r, "invalidated");
       continue;
     }
+    const sticky =
+      !r.assigned_reviewer_id &&
+      ["escalated", "manager_timeout", "manager_unavailable"].includes(r.route_reason);
+    const sameTarget =
+      digest({ ...basis, role: undefined, delta: undefined, grant: undefined }) ===
+      digest({ ...r.basis, role: undefined, delta: undefined, grant: undefined });
+    const unknown = (
+      await tx.query(
+        "select 1 from tool_calls t join runs r on r.id=t.run_id where r.subject_id=$1 and t.state='unknown' limit 1",
+        [r.conversation_id],
+      )
+    ).rowCount;
+    const authority =
+      !sticky && !unknown && sameTarget && ["prepared", "waiting"].includes(r.tool_state)
+        ? await intentCovered(tx, r.subject_id, r.action)
+        : null;
+    if (authority) {
+      const output = result({ status: "satisfied", requestId: r.id, executed: false, authority });
+      await tx.query(
+        "update approvals set status='satisfied',version=version+1,decided_by=null,decided_at=now(),execution_basis=$2,result=$3 where id=$1",
+        [r.id, JSON.stringify(basis), JSON.stringify(output)],
+      );
+      await tx.query(
+        "update tool_calls set state=$2,result=$3,delivered_at=null,updated_at=now() where id=$1 and state in('waiting','prepared')",
+        [
+          r.origin_call_id,
+          r.complete_tool ? "succeeded" : "prepared",
+          r.complete_tool ? JSON.stringify(output) : null,
+        ],
+      );
+      await wakeOrigin(tx, r.origin_call_id);
+      await projectToolOutcome(tx, r.origin_call_id);
+      await canvasEvent(tx, r.canvas_id, "approval.changed", {
+        id: r.id,
+        agentId: r.subject_id,
+        status: "satisfied",
+      });
+      continue;
+    }
     if (digest(basis) !== digest(r.basis)) {
       await finishApproval(tx, r, "invalidated");
       continue;
@@ -143,9 +185,6 @@ export async function reconcileApprovals(tx: Tx, canvasId: string) {
       await escalateApproval(tx, r, "manager_timeout");
       continue;
     }
-    const sticky =
-      !r.assigned_reviewer_id &&
-      ["escalated", "manager_timeout", "manager_unavailable"].includes(r.route_reason);
     const chain = await managementChain(tx, r.subject_id);
     const reviewer = sticky
       ? null

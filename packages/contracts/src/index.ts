@@ -7,7 +7,9 @@ export type {
   ApprovalPage,
   ApprovalRecord,
   ApprovalStatus,
+  CommandPermission,
 } from "./approvals.js";
+export * from "./command-result.js";
 export * from "./constants.js";
 export * from "./conversation-navigation.js";
 export * from "./downloads.js";

@@ -956,7 +956,7 @@ it("C31 a page of broken-model inboxes cannot starve a healthy recipient on the 
   }
   // A fresh scanner and database ordering fix the page boundary independently
   // of random IDs, locale and the cursor left by earlier tests.
-  const maintainer = new AccessService(k.db, k.graph, k.conversations);
+  const maintainer = new AccessService(k.db, k.graph, k.conversations, k.assets);
   const ordered = (
     await k.db.pool.query("select id from conversations where id=any($1::text[]) order by id", [
       targets.map((t) => t.conversation.id),

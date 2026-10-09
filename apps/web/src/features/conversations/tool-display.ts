@@ -127,7 +127,15 @@ export function toolOutcomeLabel(data: Record<string, unknown>) {
   if (data.approvalStatus === "cancelled") return tr("审批已取消 · 未执行");
   if (data.approvalStatus === "invalidated") return tr("权限条件已变化 · 未执行");
   if (data.waitingReason === "approval") return tr("等待审批");
+  if (status === "prepared" && ["approved", "satisfied"].includes(String(data.approvalStatus)))
+    return tr("已获授权，等待执行");
   const output = parsedToolOutput(data.result);
+  if (data.name === "bash") {
+    if (output?.termination === "timed_out") return tr("命令超时，结果待核实");
+    if (output?.termination === "cancelled") return tr("命令已取消，结果待核实");
+    if (output?.termination === "start_failed") return tr("命令未启动");
+    if (typeof output?.signal === "string") return tr("命令终止信号 {{v0}}", { v0: output.signal });
+  }
   const failed =
     ["failed", "error"].includes(status) || (isRecord(data.result) && data.result.isError === true);
   if (failed) return tr("失败");
@@ -190,6 +198,7 @@ export function approvalStatusLabel(status: string) {
     {
       pending: tr("仍待审批"),
       approved: tr("已批准"),
+      satisfied: tr("已由现有授权满足"),
       denied: tr("已拒绝"),
       cancelled: tr("已取消"),
       expired: tr("已过期"),

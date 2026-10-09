@@ -1,4 +1,5 @@
 import { Value } from "typebox/value";
+import { ProcessOutcomeError } from "../../adapters/host/process-outcome.js";
 import { assertFence, DomainError, digest, id, type Tx } from "../../adapters/postgres/database.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
 import type { ExecutionContext } from "./worker.js";
@@ -116,7 +117,11 @@ async function executeWithDeadline(
   const interrupted = new Promise<never>((_, reject) => {
     rejectAbort = reject;
   });
-  const abort = () => rejectAbort(signal.reason ?? new Error("工具已停止"));
+  let abortTimer: ReturnType<typeof setTimeout> | undefined;
+  // Give cooperative process supervisors a bounded interval to return termination evidence.
+  const abort = () => {
+    abortTimer = setTimeout(() => rejectAbort(signal.reason ?? new Error("工具已停止")), 500);
+  };
   signal.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(
     () => deadline.abort(new Error("工具执行超过总时限")),
@@ -127,6 +132,7 @@ async function executeWithDeadline(
     return await Promise.race([tool.execute(logicalId, args, signal), interrupted]);
   } finally {
     clearTimeout(timer);
+    clearTimeout(abortTimer);
     signal.removeEventListener("abort", abort);
   }
 }
@@ -218,6 +224,29 @@ export async function invokeTool(
     }
     await tx.query("savepoint tool_preflight");
     try {
+      const expedited = (
+        await tx.query(
+          "select 1 from messages m join conversations c on c.id=m.conversation_id where m.conversation_id=$1 and m.seq>c.consumed_message_seq and m.expedite_run_id=$2 and m.consumed_run_id is null limit 1",
+          [ctx.run.subject_id, ctx.run.id],
+        )
+      ).rowCount;
+      if (expedited) {
+        if (row?.is_async) return { state: "prepared", result: null };
+        const output = {
+          ...result({
+            executed: false,
+            reason: "expedited_input",
+            nextAction: "Read the new input before choosing the next operation.",
+          }),
+          isError: true,
+        };
+        await tx.query(
+          "update tool_calls set state='failed',result=$2,updated_at=now() where id=$1",
+          [callId, JSON.stringify(output)],
+        );
+        await emit(tx, { id: logicalId, callId, name, args, status: "error", result: output });
+        return { state: "failed", result: output };
+      }
       executionArgs =
         row?.execution_input ?? (definition.normalize ? await definition.normalize(args) : args);
       await tx.query("update tool_calls set execution_input=$2 where id=$1", [
@@ -276,6 +305,8 @@ export async function invokeTool(
       name !== "get_tool_result" &&
       (counts.total >= limits.tools || counts.own >= limits.toolsPerAgent)
     ) {
+      if (row?.is_async && row.state === "prepared")
+        return { state: "prepared", result: null, id: callId };
       const busy = {
         ...result(
           promptText(
@@ -307,6 +338,7 @@ export async function invokeTool(
     await emit(tx, { id: logicalId, callId, name, status: "running", args });
     return null;
   });
+  if (prior?.state === "prepared") return backgroundResult(callId, ctx.run.frozen_input.language);
   if (prior?.state === "unknown")
     return {
       result: prior.result ?? {
@@ -342,14 +374,31 @@ export async function invokeTool(
       failed = Boolean(output.isError);
       ctx.progress();
     } catch (error) {
-      if (ctx.signal.aborted) throw error;
+      if (ctx.signal.aborted) {
+        if (error instanceof ProcessOutcomeError)
+          await store.db.pool.query(
+            "update tool_calls t set result=$4 from runs r where t.id=$1 and t.run_id=r.id and r.epoch=$2 and t.attempt_id=$3 and r.state='running' and r.lease_until>clock_timestamp() and t.state='dispatching'",
+            [
+              callId,
+              ctx.run.epoch,
+              ctx.run.attemptId,
+              JSON.stringify({ ...result(error.outcome), isError: true }),
+            ],
+          );
+        throw error;
+      }
       failed = true;
-      ambiguous = definition!.effect !== "read" && !(error instanceof DomainError);
+      ambiguous =
+        definition!.effect !== "read" &&
+        !(error instanceof DomainError) &&
+        !(error instanceof ProcessOutcomeError && error.outcome.termination === "start_failed");
       output = {
         ...result(
-          error instanceof DomainError
-            ? error.message
-            : "工具执行失败或超时；有副作用的操作需要核实结果",
+          error instanceof ProcessOutcomeError
+            ? error.outcome
+            : error instanceof DomainError
+              ? error.message
+              : "工具执行失败或超时；有副作用的操作需要核实结果",
         ),
         isError: true,
       };

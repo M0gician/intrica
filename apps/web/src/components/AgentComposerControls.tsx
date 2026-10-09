@@ -9,10 +9,10 @@ import { IconButton, IconClose, IconPlus, IconShield } from "./icons";
 
 const roles = {
   get read() {
-    return [tr("只读"), tr("文件工具只读访问连接资源；连接目录允许执行命令。")] as const;
+    return [tr("只读"), tr("文件工具只读访问连接资源；命令执行单独授权。")] as const;
   },
   get write() {
-    return [tr("读写"), tr("连接资源可读写，连接目录内执行命令免重复审批。")] as const;
+    return [tr("读写"), tr("连接资源可读写；命令执行单独授权。")] as const;
   },
   get admin() {
     return [
@@ -183,7 +183,9 @@ export function AgentComposerControls({
             </li>
             <li>
               <strong>{tr("命令与 MCP")}</strong>
-              <span>{tr("连接路径内命令与 MCP 隔离执行。新路径或无法隔离的操作由你批准。")}</span>
+              <span>
+                {tr("命令与 MCP 使用单独的隔离或宿主执行权限。隔离不可用时不会自动扩大权限。")}
+              </span>
             </li>
           </ul>
           {capabilities && (

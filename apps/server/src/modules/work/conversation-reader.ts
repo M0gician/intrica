@@ -6,6 +6,7 @@ import { type Database, DomainError, type Tx } from "../../adapters/postgres/dat
 import { agentIdentity } from "../access/policy.js";
 import { CollaborationReader } from "./collaboration-reader.js";
 import { ConversationNavigation } from "./conversation-navigation.js";
+import { projectInputReceipts } from "./input-receipts.js";
 import { canRetryUnknown } from "./tool-outcomes.js";
 
 function publicContext(context: Record<string, unknown> | null) {
@@ -14,9 +15,10 @@ function publicContext(context: Record<string, unknown> | null) {
     pendingTurnId: _pendingTurnId,
     turnsSinceInput: _turns,
     turnLimitReached: _turnLimitReached,
+    modelBlocked: _modelBlocked,
     ...usage
   } = context;
-  return usage;
+  return Object.keys(usage).length ? usage : null;
 }
 export class ConversationReader {
   readonly navigation: ConversationNavigation;
@@ -97,6 +99,7 @@ export class ConversationReader {
     return records[0];
   }
   private async projectToolReceipts(records: any[], conversationId: string, bounded = false) {
+    await projectInputReceipts(this.db, records, conversationId);
     const ids = records
       .filter((r) => ["tool", "tool_update"].includes(r.role))
       .map((r) => r.content.callId)
@@ -250,14 +253,16 @@ export class ConversationReader {
       runReason: run?.reason,
       supersededByRunId: run?.superseded_by_run_id ?? null,
       unknownTools: unknown,
-      configurationBlocked: Boolean(
-        (
-          await this.db.pool.query(
-            "select 1 from schedules where agent_id=$1 and spec->>'blockedReason'='model_not_configured' limit 1",
-            [agentId],
-          )
-        ).rowCount,
-      ),
+      configurationBlocked:
+        c.context?.modelBlocked === true ||
+        Boolean(
+          (
+            await this.db.pool.query(
+              "select 1 from schedules where agent_id=$1 and spec->>'blockedReason'='model_not_configured' limit 1",
+              [agentId],
+            )
+          ).rowCount,
+        ),
       interrupted: run?.state === "failed" || run?.state === "cancelled",
       nextBefore: bounds.earlier ? Number(records[0].seq) : null,
       nextAfter: bounds.later ? Number(records.at(-1).seq) : null,

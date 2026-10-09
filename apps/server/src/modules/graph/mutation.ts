@@ -278,6 +278,16 @@ export class GraphMutation {
         patch.agent.enabled,
       ]);
       await this.syncSchedule(nodeId, patch.agent);
+      if (JSON.stringify(row.agent?.model) !== JSON.stringify(patch.agent.model)) {
+        await this.tx.query(
+          "update conversations set context=context-'modelBlocked' where agent_id=$1",
+          [nodeId],
+        );
+        await this.tx.query(
+          "update schedules set enabled=true,spec=spec-'blockedReason',next_due_at=now() where agent_id=$1 and spec->>'blockedReason'='model_not_configured'",
+          [nodeId],
+        );
+      }
       if (roleRank[patch.agent.role as keyof typeof roleRank] < roleRank[row.agent!.role])
         await cancelAgents(this.tx, [nodeId]);
     }
@@ -431,6 +441,7 @@ export class GraphMutation {
     mode: "read" | "write",
     edgeId: string,
     delegatedBy: string | null = null,
+    execution: import("@intrica/contracts").CommandPermission = "none",
   ) {
     const before = (
       await this.tx.query(
@@ -441,9 +452,9 @@ export class GraphMutation {
     const grantId = before?.id ?? id("grant");
     if (!this.beforeGrants.has(grantId)) this.beforeGrants.set(grantId, before ?? null);
     await this.tx.query(
-      `insert into grants(id,canvas_id,subject_id,resource_id,mode,source_link_id,delegated_by) values($1,$2,$3,$4,$5,$6,$7)
-      on conflict(subject_id,resource_id,delegated_by) do update set mode=excluded.mode,source_link_id=excluded.source_link_id,version=grants.version+1`,
-      [grantId, this.canvasId, subject, resource, mode, edgeId, delegatedBy],
+      `insert into grants(id,canvas_id,subject_id,resource_id,mode,source_link_id,delegated_by,execution_mode) values($1,$2,$3,$4,$5,$6,$7,$8)
+      on conflict(subject_id,resource_id,delegated_by) do update set mode=excluded.mode,execution_mode=excluded.execution_mode,source_link_id=excluded.source_link_id,version=grants.version+1`,
+      [grantId, this.canvasId, subject, resource, mode, edgeId, delegatedBy, execution],
     );
   }
   async connectGrant(
@@ -453,6 +464,7 @@ export class GraphMutation {
     kind = "user_link",
     sourceRunId?: string,
     delegatedBy: string | null = null,
+    execution: import("@intrica/contracts").CommandPermission = "none",
   ) {
     // Agent callers can grant only an artifact created in this mutation to themselves.
     if (
@@ -477,7 +489,8 @@ export class GraphMutation {
       source,
       kind === "derived_from" ? (await this.row(subject)).content_version : undefined,
     );
-    await this.grant(subject, resource, mode, edge.id, delegatedBy);
+    await this.capturePermissions();
+    await this.grant(subject, resource, mode, edge.id, delegatedBy, execution);
   }
   async deleteEdge(edgeId: string, expectedVersion?: number) {
     if (this.actor.kind !== "owner") throw new DomainError("FORBIDDEN", "删除连接需要用户操作");

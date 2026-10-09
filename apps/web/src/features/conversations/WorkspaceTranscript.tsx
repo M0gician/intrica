@@ -6,6 +6,7 @@ import { MarkdownLite } from "../../components/MarkdownLite";
 import { ToolCallDetails } from "../../components/ToolCallDetails";
 import { tr } from "../../i18n";
 import { Button } from "../../ui/button";
+import { InputReceipt } from "./InputReceipt";
 import { useTranscriptScroll } from "./navigation/use-transcript-scroll";
 import { type ConversationSnapshot, restoreTurns, type Turn } from "./workspace-model";
 
@@ -97,6 +98,7 @@ export function WorkspaceTranscript({
                   text={turn.question}
                   origin={{ kind: "conversation", id: conversationId }}
                 />
+                <InputReceipt conversationId={conversationId} receipt={turn.receipt} />
               </article>
               <article className="chat-assistant">
                 {turn.timeline.map((item) => {
@@ -106,6 +108,10 @@ export function WorkspaceTranscript({
                         <MarkdownLite
                           text={turn.messages[item.id]!.text}
                           origin={{ kind: "conversation", id: conversationId }}
+                        />
+                        <InputReceipt
+                          conversationId={conversationId}
+                          receipt={turn.messages[item.id]!.receipt}
                         />
                       </article>
                     );

@@ -41,10 +41,13 @@ export type EffectiveAgentPermissions = {
     rootId: string;
     title: string;
     mode: "read" | "write";
+    execution?: import("./approvals.js").CommandPermission;
     sourceLinkId: string;
     delegatedBy: string | null;
   }>;
   totalResources: number;
+  commandExecution?: "isolated" | "host";
+  permissionProtocol?: number;
 };
 
 export type ServerCapabilities = {

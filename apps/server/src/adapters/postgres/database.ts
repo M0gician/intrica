@@ -29,6 +29,44 @@ export function digest(value: unknown): string {
 }
 export class Database {
   readonly pool: pg.Pool;
+  private listeners = new Map<string, Set<(payload: string) => void>>();
+  private listener: pg.Client | undefined;
+  private listening: Promise<void> | undefined;
+  /** Notifications are hints after commit. Callers retain bounded polling for reconnects. */
+  async listen(channel: string, callback: (payload: string) => void) {
+    if (!/^[a-z_]+$/.test(channel)) throw new Error("Invalid notification channel");
+    const callbacks = this.listeners.get(channel) ?? new Set();
+    callbacks.add(callback);
+    this.listeners.set(channel, callbacks);
+    if (!this.listener) {
+      const client = new pg.Client({ connectionString: this.url });
+      this.listener = client;
+      client.on("notification", (event) => {
+        for (const handler of this.listeners.get(event.channel) ?? []) handler(event.payload ?? "");
+      });
+      client.on("error", () => {
+        if (this.listener === client) {
+          this.listener = undefined;
+          this.listening = undefined;
+        }
+        void client.end().catch(() => {});
+      });
+      this.listening = client
+        .connect()
+        .then(async () => {
+          for (const name of this.listeners.keys()) await client.query(`LISTEN ${name}`);
+        })
+        .catch(async () => {
+          if (this.listener === client) this.listener = undefined;
+          await client.end().catch(() => {});
+        });
+    }
+    await this.listening;
+    await this.listener?.query(`LISTEN ${channel}`).catch(() => {});
+    return () => {
+      callbacks.delete(callback);
+    };
+  }
   constructor(readonly url: string) {
     this.pool = new pg.Pool({
       connectionString: url,
@@ -125,14 +163,23 @@ export class Database {
           );
           version = 10;
         }
-        if (version !== 10) throw new Error("不支持此数据库版本，请使用独立数据库");
+        if (version === 10) {
+          await tx.query(
+            await readFile(join(dirname(path), "migrations/0011-workflow-controls.sql"), "utf8"),
+          );
+          version = 11;
+        }
+        if (version !== 11) throw new Error("不支持此数据库版本，请使用独立数据库");
         return;
       }
       await tx.query(await readFile(path, "utf8"));
     });
   }
-  close() {
-    return this.pool.end();
+  async close() {
+    await this.listening;
+    await this.listener?.end();
+    this.listener = undefined;
+    await this.pool.end();
   }
 }
 export async function lockCanvas(tx: Tx, canvasId: string, includeDeleted = false) {

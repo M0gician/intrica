@@ -69,6 +69,8 @@ export function useAgentActivity(
     runId: data.runId,
     cursor: data.lastEventSeq,
     onEvent(event) {
+      if (event.type === "input.receipt")
+        activity.invalidate({ conversationId: event.payload.conversationId, agentIds: [nodeId] });
       if (event.type === "message" && event.payload.streaming)
         setData((current) => ({
           ...current,

@@ -6,6 +6,7 @@ import { useConnection } from "../../app/connection-context";
 import { useModelReady } from "../../components/ModelRequired";
 import { tr } from "../../i18n";
 import { useGraphValue, useStore, useViewValue } from "../../state/store";
+import type { Receipt } from "./InputReceipt";
 import type { UnknownCall } from "./UnknownTools";
 import { useRunEvents } from "./useRunEvents";
 import { type ConversationSnapshot, restoreTurns, type Turn } from "./workspace-model";
@@ -33,6 +34,30 @@ export function useWorkspaceConversation(
   const [model, setModel] = useState<ModelSelection | null>(null);
   const modelReady = useModelReady(model);
   const [turns, setTurns] = useState<Turn[]>([]);
+  const receipts = useRef(new Map<string, Receipt>());
+  const readInputs = (messageIds: string[]) => {
+    for (const messageId of messageIds)
+      receipts.current.set(messageId, { messageId, state: "read" });
+    setTurns((current) =>
+      current.map((turn) => ({
+        ...turn,
+        ...(turn.receipt && receipts.current.has(turn.receipt.messageId)
+          ? { receipt: receipts.current.get(turn.receipt.messageId)! }
+          : {}),
+        messages: Object.fromEntries(
+          Object.entries(turn.messages).map(([id, message]) => [
+            id,
+            {
+              ...message,
+              ...(message.receipt && receipts.current.has(message.receipt.messageId)
+                ? { receipt: receipts.current.get(message.receipt.messageId)! }
+                : {}),
+            },
+          ]),
+        ),
+      })),
+    );
+  };
   const [transcriptGeneration, setTranscriptGeneration] = useState(0);
   const [unknown, setUnknown] = useState<UnknownCall[]>([]);
   const [resolutionError, setResolutionError] = useState("");
@@ -62,6 +87,7 @@ export function useWorkspaceConversation(
   useEffect(() => {
     setSessionId(readSession());
     setTurns([]);
+    receipts.current.clear();
     setRunId(undefined);
     setUnknown([]);
     setWaitingReason(undefined);
@@ -136,6 +162,7 @@ export function useWorkspaceConversation(
     cursor: runCursor.current,
     recover: synchronize,
     onEvent(event) {
+      if (event.type === "input.receipt") readInputs(event.payload.messageIds);
       if (event.type === "message")
         setTurns((current) =>
           current.map((turn, index) =>
@@ -189,7 +216,10 @@ export function useWorkspaceConversation(
       if (!question.trim()) return;
       setSending(true);
       try {
-        await agentRequest("agent/steer", { sessionId, message: prompt });
+        const submitted = await agentRequest<{ messageId: string }>("agent/steer", {
+          sessionId,
+          message: prompt,
+        });
         const id = newId();
         setTurns((turns) =>
           turns.map((turn, index) =>
@@ -197,7 +227,17 @@ export function useWorkspaceConversation(
               ? {
                   ...turn,
                   timeline: [...turn.timeline, { kind: "user", id }],
-                  messages: { ...turn.messages, [id]: { text: prompt, thinking: "" } },
+                  messages: {
+                    ...turn.messages,
+                    [id]: {
+                      text: prompt,
+                      thinking: "",
+                      receipt: receipts.current.get(submitted.messageId) ?? {
+                        messageId: submitted.messageId,
+                        state: "unread",
+                      },
+                    },
+                  },
                 }
               : turn,
           ),
@@ -223,7 +263,15 @@ export function useWorkspaceConversation(
     setTranscriptGeneration((value) => value + 1);
     setTurns((turns) => [
       ...turns,
-      { id, question: prompt, messages: {}, tools: {}, timeline: [], state: "running" },
+      {
+        id,
+        question: prompt,
+        receipt: { messageId: id, state: "sending" },
+        messages: {},
+        tools: {},
+        timeline: [],
+        state: "running",
+      },
     ]);
     const update = (change: (turn: Turn) => Turn) =>
       setTurns((turns) => turns.map((turn) => (turn.id === id ? change(turn) : turn)));
@@ -244,10 +292,19 @@ export function useWorkspaceConversation(
         (event) => {
           if (event.type === "context") setUsage(event.usage);
           if (event.type === "start") {
+            if (event.messageId)
+              update((turn) => ({
+                ...turn,
+                receipt: receipts.current.get(event.messageId) ?? {
+                  messageId: event.messageId,
+                  state: "unread",
+                },
+              }));
             setRunId(event.runId);
             if (pendingStop.current && event.runId)
               void cancelRun(event.runId, pendingStop.current);
           }
+          if (event.type === "input.receipt") readInputs(event.messageIds);
           if (event.type === "message")
             update((turn) => ({
               ...turn,
@@ -294,6 +351,9 @@ export function useWorkspaceConversation(
         return;
       update((turn) => ({
         ...turn,
+        ...(turn.receipt?.state === "sending"
+          ? { receipt: { ...turn.receipt, state: "failed" } as Receipt }
+          : {}),
         state: controller.signal.aborted ? "stopped" : "error",
         error: controller.signal.aborted
           ? tr("已停止")

@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
+import type { CommandResult } from "@intrica/contracts";
+import { ProcessOutcomeError } from "./process-outcome.js";
 import { socketPath } from "./rpc.js";
 export async function canonicalPath(path: string, cwd = process.cwd()): Promise<string> {
   const absolute =
@@ -145,7 +147,7 @@ export async function runProcess(
   timeout = 120000,
   stdoutOnly = false,
   onOutput?: (output: string) => void,
-): Promise<{ output: string; exitCode: number | null }> {
+): Promise<CommandResult> {
   signal.throwIfAborted();
   return new Promise((resolveResult, reject) => {
     const child = fork(fileURLToPath(new URL("./guardian.js", import.meta.url)), [], {
@@ -155,8 +157,12 @@ export async function runProcess(
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
     let resultCode: number | null = null;
+    let resultSignal: string | null = null,
+      errorCode: string | undefined;
     child.on("message", (message: any) => {
       if (typeof message.exitCode === "number") resultCode = message.exitCode;
+      if (typeof message.signal === "string") resultSignal = message.signal;
+      if (typeof message.errorCode === "string") errorCode = message.errorCode;
     });
     child.send({ command, args, cwd });
     let output = "",
@@ -193,9 +199,26 @@ export async function runProcess(
       collect(stdout.end());
       if (!stdoutOnly) collect(stderr.end());
       cleanup();
-      if (signal.aborted) reject(signal.reason ?? new Error("已停止"));
-      else if (killed || resultCode === null) reject(new Error("命令已终止，结果需要确认"));
-      else resolveResult({ output, exitCode: resultCode });
+      const outcome: CommandResult = {
+        output,
+        exitCode: resultCode,
+        signal: resultSignal,
+        termination: signal.aborted
+          ? "cancelled"
+          : killed
+            ? "timed_out"
+            : errorCode
+              ? "start_failed"
+              : resultSignal
+                ? "signal"
+                : resultCode === null
+                  ? "unknown"
+                  : "exited",
+        ...(errorCode ? { errorCode } : {}),
+        taskStatus: "unverified",
+      };
+      if (["exited", "signal"].includes(outcome.termination)) resolveResult(outcome);
+      else reject(new ProcessOutcomeError(outcome));
     });
   });
 }

@@ -1,16 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Node } from "@intrica/contracts";
 import { buildServer, type Kernel } from "@intrica/server";
 import pg from "pg";
-import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import type { Lease } from "../../apps/server/dist/modules/execution/store.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { Worker } from "../../apps/server/dist/modules/execution/worker.js";
+import { expediteInput } from "../../apps/server/dist/modules/work/input-receipts.js";
 
 const key = () => randomUUID();
 const database = `intrica_coordination_${key().replaceAll("-", "")}`;
@@ -19,12 +21,17 @@ let app: Awaited<ReturnType<typeof buildServer>>, k: Kernel, admin: pg.Client;
 let provider: Server, directory: string, board: string;
 let inputs: Array<{ messages: Array<{ role: string; content: unknown }> }> = [];
 const workers: Worker[] = [];
+let holdNext: ((response: ServerResponse) => Promise<void>) | undefined;
 beforeAll(async () => {
   provider = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     const input = JSON.parse(body);
     inputs.push(input);
+    const held = holdNext;
+    holdNext = undefined;
+    if (held) await held(res);
+    if (res.destroyed) return;
     if (JSON.stringify(input.messages).includes("FAIL_AUTH")) {
       res.writeHead(401, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: { message: "401 unauthorized fixture-private-detail" } }));
@@ -136,6 +143,194 @@ const runs = async (member: Node) =>
       [member.id],
     )
   ).rows;
+
+async function until(check: () => Promise<boolean>, timeout = 3000) {
+  const deadline = Date.now() + timeout;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error("Timed out waiting for durable state");
+    await delay(20);
+  }
+}
+function holdResponse() {
+  let started!: () => void, release!: () => void;
+  const entered = new Promise<void>((r) => {
+    started = r;
+  });
+  const held = new Promise<void>((r) => {
+    release = r;
+  });
+  let cancelled = false;
+  holdNext = async (response) => {
+    response.once("close", () => {
+      cancelled = true;
+    });
+    started();
+    await held;
+  };
+  return { entered, release, cancelled: () => cancelled };
+}
+it("ordinary input stays unread during inference; explicit expedite consumes distinct IDs in order", async () => {
+  const member = await agent(),
+    run = await start(member),
+    held = holdResponse();
+  const execution = k.worker.handlers.conversation(context(run));
+  try {
+    await held.entered;
+    const first = await k.conversations.submit({
+      canvasId: board,
+      agentId: member.id,
+      message: "Same text",
+      key: key(),
+    });
+    const second = await k.conversations.submit({
+      canvasId: board,
+      agentId: member.id,
+      message: "Same text",
+      key: key(),
+    });
+    await delay(150);
+    const view = await k.conversations.read.view(run.subject_id);
+    expect(
+      view.messages.filter((m) => m.role === "user").map((m) => m.content.inputReceipt.state),
+    ).toEqual(["read", "unread", "unread"]);
+    expect(held.cancelled()).toBe(false);
+    await Promise.all([
+      expediteInput(k.db, run.subject_id, second.messageId),
+      expediteInput(k.db, run.subject_id, second.messageId),
+    ]);
+    await execution;
+    expect(held.cancelled()).toBe(true);
+    expect(inputs).toHaveLength(2);
+    const messages = (await history(member)).filter((m) => m.role === "user");
+    expect(messages.slice(1).map((m) => m.client_message_id)).toEqual([
+      first.messageId,
+      second.messageId,
+    ]);
+    expect(messages.every((m) => m.consumed_run_id === run.id)).toBe(true);
+    expect(JSON.stringify(inputs[1]!.messages).match(/Same text/g)).toHaveLength(2);
+    expect(await expediteInput(k.db, run.subject_id, second.messageId)).toMatchObject({
+      state: "read",
+    });
+  } finally {
+    held.release();
+    await execution;
+  }
+});
+it("approved independent tools resume within two seconds without interrupting inference or consuming normal input", async () => {
+  const member = await agent(),
+    run = await start(member);
+  const path = join(directory, "outside-workspace.txt");
+  await writeFile(path, "read-once");
+  const logical = key(),
+    pending = await call(run, "read", { target: { kind: "path", path } }, logical);
+  expect(pending.waiting).toBe("approval");
+  await k.db.pool.query(
+    "update tool_calls set is_async=true,delivered_at=now() where id=(select origin_call_id from approvals where id=$1)",
+    [pending.value.requestId],
+  );
+  const held = holdResponse(),
+    execution = k.worker.handlers.conversation(context(run));
+  try {
+    await held.entered;
+    const queued = await k.conversations.submit({
+      canvasId: board,
+      agentId: member.id,
+      message: "ordinary input",
+      key: key(),
+    });
+    const started = Date.now();
+    await k.access.decide(pending.value.requestId, 1, "approve", "Allow this read");
+    await until(
+      async () =>
+        (
+          await k.db.pool.query(
+            "select state from tool_calls where run_id=$1 and logical_call_id=$2",
+            [run.id, logical],
+          )
+        ).rows[0].state === "succeeded",
+      2000,
+    );
+    expect(Date.now() - started).toBeLessThanOrEqual(2000);
+    expect(held.cancelled()).toBe(false);
+    expect(
+      (await history(member)).find((m) => m.client_message_id === queued.messageId).consumed_run_id,
+    ).toBeNull();
+    expect(await readFile(path, "utf8")).toBe("read-once");
+    expect(
+      (
+        await k.db.pool.query(
+          "select count(*)::int as n from tool_calls where run_id=$1 and logical_call_id=$2",
+          [run.id, logical],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+  } finally {
+    held.release();
+    await execution;
+  }
+});
+it("expedite cannot restart a stopped run or consume a reset input", async () => {
+  const member = await agent(),
+    run = await start(member);
+  const queued = await k.conversations.submit({
+    canvasId: board,
+    agentId: member.id,
+    message: "pending",
+    key: key(),
+  });
+  await k.conversations.stop(member.id);
+  await k.runs.fail(run, new Error("stopped"));
+  await expect(expediteInput(k.db, run.subject_id, queued.messageId)).rejects.toMatchObject({
+    code: "INVALID_STATE",
+  });
+  await k.conversations.reset(member.id);
+  expect(
+    (await k.conversations.read.view(run.subject_id)).messages.find(
+      (m) => m.content.text === "pending",
+    ).content.inputReceipt.state,
+  ).toBe("closed");
+});
+
+it("a rolled-back checkpoint never publishes a read receipt", async () => {
+  const member = await agent(),
+    run = await start(member);
+  const canvas = k.db.canvas.bind(k.db);
+  const failing = vi.spyOn(k.db, "canvas").mockImplementation(async (id, action, ...args) =>
+    canvas(
+      id,
+      async (tx) => {
+        const result = await action(tx);
+        if (
+          (
+            await tx.query(
+              "select 1 from messages where conversation_id=$1 and consumed_run_id=$2",
+              [run.subject_id, run.id],
+            )
+          ).rowCount
+        )
+          throw new Error("fixture rollback");
+        return result;
+      },
+      ...args,
+    ),
+  );
+  try {
+    await expect(
+      k.conversations.execute(context(run), (ctx, input) => k.tools.create(ctx, input)),
+    ).rejects.toThrow("fixture rollback");
+  } finally {
+    failing.mockRestore();
+  }
+  const view = await k.conversations.read.view(run.subject_id);
+  expect(view.messages[0].content.inputReceipt.state).toBe("unread");
+  expect(
+    (await k.db.pool.query("select checkpoint from conversations where id=$1", [run.subject_id]))
+      .rows[0].checkpoint,
+  ).toEqual([]);
+  expect((await k.events.read("run", run.id, "0")).some((e) => e.type === "input.receipt")).toBe(
+    false,
+  );
+});
 
 it("conversation views select the current run after cancellation or failure", async () => {
   for (const state of ["cancelled", "failed"] as const) {

@@ -129,6 +129,78 @@ async function decide(
   return k.access.decide(id, (await request(id)).version, decision, "reviewed", actor);
 }
 describe("origin-bound approval lifecycle", () => {
+  it("new directory grants separate file modes from execution and satisfy the original pending read", async () => {
+    const c = await canvas(),
+      a = await agent(c, "read"),
+      child = await start(a.id);
+    const path = join(area, `${key()}.txt`);
+    await writeFile(path, "authorized bytes");
+    const args = { target: { kind: "path", path } };
+    const pending = await child.call("read", args);
+    expect(pending.waiting).toBe("approval");
+    const directory = await resource(c, area);
+    const link = await connect(a.id, directory.id);
+    const satisfied = await request(pending.value.requestId);
+    expect(satisfied).toMatchObject({ status: "satisfied", decided_by: null });
+    const resumed = await child.call("read", args, pending.logical);
+    expect(resumed.value.text).toBe("authorized bytes");
+    expect(
+      (
+        await k.db.pool.query(
+          "select count(*)::int as n from tool_calls where run_id=$1 and logical_call_id=$2",
+          [child.run.id, pending.logical],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+    expect((await child.call("write", { path, content: "blocked" })).waiting).toBe("approval");
+    expect((await child.call("bash", { command: "pwd", fullHost: true, cwd: area })).waiting).toBe(
+      "approval",
+    );
+    expect(
+      (await k.access.describe(a.id)).resources.find((r) => r.nodeId === directory.id),
+    ).toMatchObject({ mode: "read", execution: "none" });
+    await k.graph.deleteLink(link.edge.id, { idempotencyKey: key() });
+    expect((await k.runs.get(child.run.id)).cancel_requested_at).not.toBeNull();
+  });
+  it("one-off reads and persistent paths use the same manager scratch ownership", async () => {
+    const c = await canvas(),
+      m = await agent(c, "admin"),
+      b = await agent(m.id, "write");
+    const manager = await start(m.id),
+      child = await start(b.id);
+    const path = join((await k.host.scope(manager.actor)).scratch, `${key()}.txt`);
+    await writeFile(path, "manager bytes");
+    const args = { target: { kind: "path", path } };
+    const once = await child.call("read", args);
+    expect((await request(once.value.requestId)).action.workspaceOwnerId).toBe(m.id);
+    await decide(once.value.requestId, manager.actor);
+    expect((await child.call("read", args, once.logical)).value.text).toBe("manager bytes");
+    const ongoing = await child.call("request_permission", {
+      scope: { kind: "path", path, access: "file", mode: "read" },
+      reason: "Read the same owned file",
+    });
+    await decide(ongoing.value.requestId, manager.actor);
+    expect((await child.call("read", args)).value.text).toBe("manager bytes");
+  });
+  it("existing authority never bypasses denial or a request escalated to the user", async () => {
+    const c = await canvas(),
+      m = await agent(c, "admin"),
+      a = await agent(m.id, "write");
+    const manager = await start(m.id),
+      child = await start(a.id);
+    const paths = [join(area, `${key()}.txt`), join(area, `${key()}.txt`)];
+    for (const path of paths) await writeFile(path, "private");
+    const denied = await child.call("read", { target: { kind: "path", path: paths[0] } });
+    await decide(denied.value.requestId, undefined, "deny");
+    const escalated = await child.call("read", { target: { kind: "path", path: paths[1] } });
+    await decide(escalated.value.requestId, manager.actor, "escalate");
+    await connect(a.id, (await resource(c, area)).id);
+    expect((await request(denied.value.requestId)).status).toBe("denied");
+    expect(await request(escalated.value.requestId)).toMatchObject({
+      status: "pending",
+      assigned_reviewer_id: null,
+    });
+  });
   it("T47 multimodal read uses the same frozen path approval and respects model capabilities", async () => {
     const c = await canvas(),
       a = await agent(c),
@@ -845,15 +917,19 @@ describe("origin-bound approval lifecycle", () => {
       root = await resource(c, area),
       nested = await resource(root.id, nestedPath);
     await connect(m.id, root.id);
-    const manager = await start(m.id),
-      hired = await manager.call("hire_agent", {
-        title: "worker",
-        persona: "",
-        task: "inspect",
-        role: "write",
-        respondToResources: false,
-        resourceIds: [root.id],
-      });
+    const manager = await start(m.id);
+    await manager.call("request_permission", {
+      scope: { kind: "path", path: area, access: "directory", mode: "write", execution: "host" },
+      reason: "Explicit host execution for this team",
+    });
+    const hired = await manager.call("hire_agent", {
+      title: "worker",
+      persona: "",
+      task: "inspect",
+      role: "write",
+      respondToResources: false,
+      resourceIds: [root.id],
+    });
     const child = await start(hired.value.id);
     const first = await child.call("bash", { command: "pwd", fullHost: true });
     expect(first.waiting).toBeUndefined();
@@ -1062,7 +1138,7 @@ describe("origin-bound approval lifecycle", () => {
       manager = await start(middle.id),
       director = await start(top.id);
     const pending = await child.call("request_permission", {
-      scope: { kind: "path", path: area, access: "directory_and_commands" },
+      scope: { kind: "path", path: area, access: "directory", mode: "read" },
       reason: "read source",
     });
     expect((await request(pending.value.requestId)).assigned_reviewer_id).toBe(middle.id);
@@ -1469,7 +1545,7 @@ describe("origin-bound approval lifecycle", () => {
     const manager = await start(m.id),
       child = await start(b.id);
     const pending = await child.call("request_permission", {
-      scope: { kind: "path", path: subdirectory, access: "directory_and_commands" },
+      scope: { kind: "path", path: subdirectory, access: "directory", mode: "read" },
       reason: "read the physical subdirectory",
     });
     await decide(pending.value.requestId, manager.actor);

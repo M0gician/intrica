@@ -6,6 +6,7 @@ import { ToolCallDetails } from "../../components/ToolCallDetails";
 import i18n, { tr } from "../../i18n";
 import { Button } from "../../ui/button";
 import { FileReferenceView } from "../files/FileReferenceView";
+import { InputReceipt, type Receipt } from "./InputReceipt";
 import { type Activity, activityKey } from "./model";
 export function EventTime({ value }: { value: Activity["createdAt"] }) {
   if (!value) return null;
@@ -94,6 +95,12 @@ export function TimelineEvent({
           : ""}
         {<EventTime value={event.createdAt} />}
       </small>
+      {event.kind === "user" && (
+        <InputReceipt
+          conversationId={event.conversationId}
+          receipt={event.data.inputReceipt as Receipt | undefined}
+        />
+      )}
       {event.kind === "broadcast" && (
         <DeferredDetails className="broadcast-scope" summary={tr("接收者与共享资源")}>
           {() => (

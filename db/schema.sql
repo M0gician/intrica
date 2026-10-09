@@ -1,6 +1,6 @@
 -- Intrica protocol 2. This schema never reads or alters the previous public tables.
-CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=10), models_initialized boolean NOT NULL DEFAULT false);
-INSERT INTO schema_info(version) VALUES (10) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=11), models_initialized boolean NOT NULL DEFAULT false);
+INSERT INTO schema_info(version) VALUES (11) ON CONFLICT DO NOTHING;
 CREATE TABLE canvases (
  id text PRIMARY KEY, title text NOT NULL, graph_revision integer NOT NULL DEFAULT 0,
  event_seq bigint NOT NULL DEFAULT 0,
@@ -59,7 +59,7 @@ CREATE TABLE conversations (
 CREATE TABLE messages (
  conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, seq bigint NOT NULL,
  client_message_id text NOT NULL, role text NOT NULL, content jsonb NOT NULL,
- run_id text, consumed_run_id text, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(conversation_id,seq),
+ run_id text, consumed_run_id text, consumed_at timestamptz, expedite_requested_at timestamptz, expedite_run_id text, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(conversation_id,seq),
  UNIQUE(conversation_id,client_message_id)
 );
 CREATE TABLE runs (
@@ -107,6 +107,7 @@ CREATE INDEX tool_calls_dispatching ON tool_calls(run_id) WHERE state='dispatchi
 CREATE TABLE grants (
  id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id), subject_id text NOT NULL REFERENCES agent_configs(node_id) ON DELETE CASCADE,
  resource_id text NOT NULL, mode text NOT NULL CHECK(mode IN ('read','write')),
+ execution_mode text NOT NULL DEFAULT 'none' CHECK(execution_mode IN ('none','isolated','host')),
  source_link_id text NOT NULL REFERENCES edges(id) ON DELETE CASCADE,
  version integer NOT NULL DEFAULT 1, delegated_by text, UNIQUE NULLS NOT DISTINCT(subject_id,resource_id,delegated_by)
 );
@@ -115,7 +116,7 @@ CREATE TABLE approvals (
  id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id), subject_id text NOT NULL,
  origin_call_id text REFERENCES tool_calls(id), action jsonb NOT NULL,
  complete_tool boolean NOT NULL DEFAULT false, basis jsonb NOT NULL, execution_basis jsonb,
- status text NOT NULL CHECK(status IN ('pending','approved','denied','cancelled','expired','invalidated')),
+ status text NOT NULL CHECK(status IN ('pending','approved','satisfied','denied','cancelled','expired','invalidated')),
  version integer NOT NULL DEFAULT 1, assigned_reviewer_id text, review_due_at timestamptz,
  route_reason text NOT NULL DEFAULT 'user', expires_at timestamptz NOT NULL,
  decided_by text, reason text NOT NULL, decision text, decided_at timestamptz, result jsonb,

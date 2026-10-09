@@ -70,11 +70,17 @@ export class AccessService {
     );
     return {
       role: identity.config.role,
+      permissionProtocol: 2,
+      commandExecution:
+        identity.config.role === "admin" || grants.some((g) => g.execution_mode === "host")
+          ? "host"
+          : "isolated",
       resources: grants.slice(0, 200).map((grant) => ({
         nodeId: grant.resource_id,
         rootId: grant.root_resource_id,
         title: names.get(grant.resource_id) || grant.resource_id,
         mode: grant.mode,
+        execution: grant.execution_mode,
         sourceLinkId: grant.source_link_id,
         delegatedBy: grant.delegated_by ?? null,
       })),
@@ -268,18 +274,41 @@ export class AccessService {
       // currently conveys. Never upgrade a non-admin owner as a side effect of
       // approving its member's path request.
       if (workspaceOwner?.agent?.role === "admin" && workspaceOwner.id !== subject)
-        await mutation.connectGrant(workspaceOwner.id, resource, "write");
+        await mutation.connectGrant(
+          workspaceOwner.id,
+          resource,
+          "write",
+          "user_link",
+          undefined,
+          null,
+          intent.execution ?? "none",
+        );
       const mode =
-        delegatedBy &&
+        intent.mode ??
+        (delegatedBy &&
         !(await coveringGrant(
           await grantsFor(tx, delegatedBy),
           { resource: { path: intent.path, type: "directory" } },
           "write",
         ))
           ? "read"
-          : "write";
-      await mutation.connectGrant(subject, resource, mode, "user_link", undefined, delegatedBy);
-      output = { ...output, path: intent.path, nodeId: resource };
+          : "write");
+      await mutation.connectGrant(
+        subject,
+        resource,
+        mode,
+        "user_link",
+        undefined,
+        delegatedBy,
+        intent.execution ?? "none",
+      );
+      output = {
+        ...output,
+        path: intent.path,
+        nodeId: resource,
+        mode,
+        execution: intent.execution ?? "none",
+      };
     }
     if (intent.kind === "agent") {
       const args = intent.args;
@@ -411,7 +440,15 @@ export class AccessService {
         !(await coveringGrant(available, { id, resource: target.body.resource }, mode))
       )
         throw new DomainError("FORBIDDEN", "原委托权限已变化，请重新申请");
-      await mutation.connectGrant(member, id, mode, "user_link", undefined, delegatedBy);
+      await mutation.connectGrant(
+        member,
+        id,
+        mode,
+        "user_link",
+        undefined,
+        delegatedBy,
+        grant?.execution_mode ?? "none",
+      );
     }
   }
 
@@ -637,7 +674,7 @@ export class AccessService {
         `
       select c.id,c.canvas_id,c.agent_id,cfg.config from conversations c
       join agent_configs cfg on cfg.node_id=c.agent_id join canvases board on board.id=c.canvas_id
-      where board.deleted_at is null
+      where board.deleted_at is null and c.context->>'modelBlocked' is distinct from 'true'
       and exists(select 1 from messages m where m.conversation_id=c.id and m.seq>c.consumed_message_seq and m.run_id is null and ${eligible})
       and not exists(select 1 from runs r where r.subject_id=c.id and r.state in('queued','running','waiting'))
       order by (c.id<=$1),c.id limit 128`,
@@ -702,6 +739,16 @@ export class AccessService {
       } catch (error) {
         if (error instanceof DomainError && error.code === "QUEUE_FULL") continue;
         await this.db.canvas(c.canvas_id, async (tx) => {
+          if (error instanceof DomainError && error.code === "MODEL_NOT_CONFIGURED") {
+            await tx.query(
+              "update conversations set context=coalesce(context,'{}')||'{\"modelBlocked\":true}'::jsonb where id=$1",
+              [c.id],
+            );
+            await canvasEvent(tx, c.canvas_id, "conversation.changed", {
+              conversationId: c.id,
+              agentId: c.agent_id,
+            });
+          }
           const rows = (
             await tx.query(
               "select * from approvals where assigned_reviewer_id=$1 and status='pending' for update",

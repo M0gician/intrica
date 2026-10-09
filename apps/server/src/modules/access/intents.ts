@@ -3,7 +3,8 @@ import type { AccessIntent, AgentRole, ApprovalRecord } from "@intrica/contracts
 import { canonicalPath, withinPath } from "../../adapters/host/sandbox.js";
 import { DomainError, type Sql } from "../../adapters/postgres/database.js";
 import { agentIdentity, canReadAgentResources, grantsFor, managementChain } from "./policy.js";
-import { coveringGrant } from "./resources.js";
+import { coveringExecution, coveringGrant } from "./resources.js";
+import { validWorkspaceOwner } from "./workspace-ownership.js";
 
 export const roleRank = { read: 0, write: 1, admin: 2 };
 export async function roleDelta(sql: Sql, subject: string, role: AgentRole) {
@@ -94,18 +95,28 @@ export async function canApprove(
     return Boolean(target && (await coveringGrant(grants, target, intent.mode)));
   }
   if (intent.kind === "path" || intent.kind === "host") {
-    if (intent.kind === "path" && intent.workspaceOwnerId === reviewer) return true;
     // Admin already has full-host command authority. cwd is not a process boundary.
     if (intent.kind === "host" && ["bash", "mcp"].includes(intent.tool))
       return canReadAgentResources(sql, reviewer, subject);
     const path = intent.kind === "path" ? intent.path : (intent.args.path ?? intent.args.cwd);
     if (!path) return false;
+    if (
+      intent.workspaceOwnerId === reviewer &&
+      (await validWorkspaceOwner(sql, subject, intent, path))
+    )
+      return true;
     const mode =
-      intent.kind === "path" || (intent.kind === "host" && ["read", "rg"].includes(intent.tool))
-        ? "read"
-        : "write";
+      intent.kind === "path"
+        ? (intent.mode ?? "read")
+        : ["read", "rg"].includes(intent.tool)
+          ? "read"
+          : "write";
     return (
       Boolean(await coveringGrant(grants, { resource: { path, type: "file" } }, mode)) &&
+      (intent.kind !== "path" ||
+        !intent.execution ||
+        intent.execution === "none" ||
+        Boolean(await coveringExecution(grants, path, intent.execution))) &&
       (intent.kind === "path" || (await canReadAgentResources(sql, reviewer, subject)))
     );
   }
@@ -144,6 +155,60 @@ export async function canApprove(
   }
   return true;
 }
+
+/** Existing authority for an unchanged operation. This does not create a grant or an approver. */
+export async function intentCovered(sql: Sql, subject: string, intent: AccessIntent) {
+  const identity = await agentIdentity(sql, subject);
+  const grants = await grantsFor(sql, subject);
+  if (intent.kind === "role")
+    return identity.config.role === intent.role ? { role: intent.role } : null;
+  if (
+    "requiredRole" in intent &&
+    intent.requiredRole &&
+    roleRank[identity.config.role as AgentRole] < roleRank[intent.requiredRole]
+  )
+    return null;
+  if (intent.kind === "resource") {
+    const grant = grants.find(
+      (g) => g.resource_id === intent.nodeId && (intent.mode === "read" || g.mode === "write"),
+    );
+    return grant
+      ? { grantId: grant.id, sourceLinkId: grant.source_link_id, version: grant.version }
+      : null;
+  }
+  if (intent.kind !== "host" && intent.kind !== "path") return null;
+  const path = intent.kind === "path" ? intent.path : (intent.args.path ?? intent.args.cwd);
+  if (!path || (await canonicalPath(path)) !== path) return null;
+  if (identity.config.role === "admin") return { role: "admin" };
+  if (intent.kind === "host" && ["bash", "mcp"].includes(intent.tool)) {
+    const grant = await coveringExecution(grants, path, intent.args.fullHost ? "host" : "isolated");
+    return grant
+      ? { grantId: grant.id, sourceLinkId: grant.source_link_id, version: grant.version }
+      : null;
+  }
+  const mode =
+    intent.kind === "path"
+      ? (intent.mode ?? "read")
+      : ["read", "rg"].includes(intent.tool)
+        ? "read"
+        : "write";
+  if (
+    intent.workspaceOwnerId === subject &&
+    (await validWorkspaceOwner(sql, subject, intent, path)) &&
+    (intent.kind === "host" || !intent.execution || intent.execution === "none")
+  )
+    return { workspaceOwnerId: subject };
+  const grant = await coveringGrant(grants, { resource: { path, type: "file" } }, mode);
+  if (!grant || (mode === "write" && identity.config.role === "read")) return null;
+  if (
+    intent.kind === "path" &&
+    intent.execution &&
+    intent.execution !== "none" &&
+    !(await coveringExecution(grants, path, intent.execution))
+  )
+    return null;
+  return { grantId: grant.id, sourceLinkId: grant.source_link_id, version: grant.version };
+}
 export async function intentBasis(sql: Sql, subject: string, intent: AccessIntent) {
   const identity = await agentIdentity(sql, subject);
   const base: Record<string, unknown> = { role: identity.config.role };
@@ -177,15 +242,17 @@ export async function intentBasis(sql: Sql, subject: string, intent: AccessInten
         throw new DomainError("TARGET_CHANGED", "路径类型已变化");
     }
     base.path = resolved;
-    if (intent.kind === "path" && intent.workspaceOwnerId) {
+    if (intent.workspaceOwnerId && intent.workspaceRoot) {
       const owner = await agentIdentity(sql, intent.workspaceOwnerId);
       if (
+        !(await validWorkspaceOwner(sql, subject, intent, path)) ||
         owner.canvas_id !== identity.canvas_id ||
         (owner.node_id !== subject &&
           !(await managementChain(sql, subject)).includes(owner.node_id))
       )
         throw new DomainError("TARGET_CHANGED", "工作区所属团队已变化，请重新申请");
       base.workspaceOwnerId = owner.node_id;
+      base.workspaceRoot = intent.workspaceRoot;
     }
   }
   if (intent.kind === "agent") {
@@ -305,10 +372,22 @@ export function intentSummary(
         ...(intent.requiredRole ? { role: intent.requiredRole } : {}),
       };
     case "path":
-      return { path: intent.path, ...(intent.requiredRole ? { role: intent.requiredRole } : {}) };
+      return {
+        path: intent.path,
+        mode: intent.mode ?? "read",
+        capability: intent.execution ?? "none",
+        ...(intent.requiredRole ? { role: intent.requiredRole } : {}),
+      };
     case "host":
       return {
         tool: intent.tool,
+        capability: ["bash", "mcp"].includes(intent.tool)
+          ? intent.args.fullHost
+            ? "host"
+            : "isolated"
+          : ["write", "edit"].includes(intent.tool)
+            ? "write"
+            : "read",
         path: intent.args.path ?? intent.args.cwd,
         ...(intent.requiredRole ? { role: intent.requiredRole } : {}),
       };

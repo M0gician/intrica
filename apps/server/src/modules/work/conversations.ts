@@ -185,7 +185,8 @@ export class Conversations {
           [conversationId, input.key],
         )
       ).rows[0];
-      if (prior?.run_id) return { conversationId, run: await this.runs.get(prior.run_id, tx) };
+      if (prior?.run_id)
+        return { conversationId, messageId: input.key, run: await this.runs.get(prior.run_id, tx) };
       if (input.resumeRunId) {
         const barrier = await this.runs.conversationBarrier(conversationId, tx);
         const latest = (
@@ -233,7 +234,7 @@ export class Conversations {
         agentId: input.agentId ?? null,
         seq,
       });
-      return { conversationId, run };
+      return { conversationId, messageId: input.key, run };
     });
   }
   async execute(ctx: ExecutionContext, factory: ToolsFactory) {
@@ -284,10 +285,23 @@ export class Conversations {
     let budget = Number(conversation.context?.turnsSinceInput ?? 0);
     let exhausted = conversation.context?.turnLimitReached === true;
     const persist = async (tx: Tx) => {
-      await tx.query(
-        "update messages set consumed_run_id=$3 where conversation_id=$1 and seq=any($2::bigint[])",
+      const received = await tx.query(
+        "update messages set consumed_run_id=$3,consumed_at=now() where conversation_id=$1 and seq=any($2::bigint[]) and consumed_run_id is null returning client_message_id",
         [input.conversationId, [...consumedInContext], ctx.run.id],
       );
+      if (received.rowCount) {
+        const messageIds = received.rows.map((m) => m.client_message_id);
+        await ctx.store.eventTx(tx, ctx.run.id, ctx.run.attemptId, "input.receipt", {
+          conversationId: input.conversationId,
+          messageIds,
+          state: "read",
+        });
+        await canvasEvent(tx, ctx.run.canvas_id, "conversation.changed", {
+          conversationId: input.conversationId,
+          agentId: input.agentId,
+          consumedMessageIds: messageIds,
+        });
+      }
       consumedInContext.clear();
       const info = {
         ...contextUsage(model, config),
@@ -317,6 +331,15 @@ export class Conversations {
           await tx.query(
             `select 1 from messages m where m.conversation_id=$1 and m.seq>$2 and ${actionableMessage} limit 1`,
             [input.conversationId, consumed],
+          )
+        ).rowCount,
+      );
+    const expedited = async () =>
+      Boolean(
+        (
+          await this.db.pool.query(
+            "select 1 from messages where conversation_id=$1 and seq>$2 and consumed_run_id is null and expedite_run_id=$3 limit 1",
+            [input.conversationId, consumed, ctx.run.id],
           )
         ).rowCount,
       );
@@ -604,6 +627,8 @@ export class Conversations {
         }
         if (!closing) budget++;
         await checkpoint();
+        // Read batches remain bounded. Reach the selected expedited input before inferring again.
+        if (await expedited()) continue;
         const usage = contextUsage(model, config);
         if (usage.tokens >= usage.safeLimit) {
           await ctx.store.event(ctx.run, "compaction", {
@@ -643,19 +668,46 @@ export class Conversations {
         }
         let lastEmission = 0;
         round++;
-        const message = await model.turn(ctx.signal, async (partial) => {
-          ctx.progress();
-          if (Date.now() - lastEmission < 250) return;
-          lastEmission = Date.now();
-          await ctx.store.event(ctx.run, "message", {
-            id: `${ctx.run.attemptId}-${round}`,
-            text: partial.content.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n"),
-            thinking: partial.content
-              .flatMap((p) => (p.type === "thinking" ? [p.thinking] : []))
-              .join("\n"),
-            streaming: true,
-          });
+        const inferenceAbort = new AbortController();
+        const stopMonitor = await background.monitorInference(async () => {
+          if (await expedited()) inferenceAbort.abort(new DomainError("EXPEDITED", "有加急输入"));
         });
+        let message: import("@earendil-works/pi-ai").AssistantMessage;
+        try {
+          message = await model.turn(
+            AbortSignal.any([ctx.signal, inferenceAbort.signal]),
+            async (partial) => {
+              ctx.progress();
+              if (Date.now() - lastEmission < 250) return;
+              lastEmission = Date.now();
+              await ctx.store.event(ctx.run, "message", {
+                id: `${ctx.run.attemptId}-${round}`,
+                text: partial.content
+                  .flatMap((p) => (p.type === "text" ? [p.text] : []))
+                  .join("\n"),
+                thinking: partial.content
+                  .flatMap((p) => (p.type === "thinking" ? [p.thinking] : []))
+                  .join("\n"),
+                streaming: true,
+              });
+            },
+          );
+        } catch (error) {
+          if (inferenceAbort.signal.aborted && !ctx.signal.aborted) {
+            await ctx.store.event(ctx.run, "message", {
+              id: `${ctx.run.attemptId}-${round}`,
+              text: "",
+              thinking: "",
+              streaming: false,
+              interrupted: true,
+            });
+            budget = Math.max(0, budget - 1);
+            continue;
+          }
+          throw error;
+        } finally {
+          await stopMonitor();
+        }
         ctx.progress();
         if (closing)
           message.content = message.content.map((part) =>

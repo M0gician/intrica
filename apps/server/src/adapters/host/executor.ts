@@ -5,14 +5,10 @@ import type { AccessIntent } from "@intrica/contracts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Type } from "typebox";
-import {
-  type Actor,
-  agentIdentity,
-  grantsFor,
-  managementChain,
-} from "../../modules/access/policy.js";
-import { coveringGrant } from "../../modules/access/resources.js";
+import { type Actor, agentIdentity, grantsFor } from "../../modules/access/policy.js";
+import { coveringExecution, coveringGrant } from "../../modules/access/resources.js";
 import type { AccessService } from "../../modules/access/service.js";
+import { workspaceOwnership } from "../../modules/access/workspace-ownership.js";
 import { type ExecutionTool, result } from "../../modules/execution/tool-calls.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
 import type { Database, Sql, Tx } from "../postgres/database.js";
@@ -97,13 +93,16 @@ export class HostExecutor {
         write: identity.config.role !== "read" && grant.mode === "write",
       });
     }
-    const commandRoots = [
-      ...new Set(
-        roots
-          .slice(1)
-          .filter((r) => r.directory)
-          .map((r) => r.path),
-      ),
+    const commandRoots = grants
+      .filter((g) => g.execution_mode === "host")
+      .map((g) => g.resource?.path ?? g.resource_id);
+    const isolatedRoots = [
+      scratch,
+      ...(await Promise.all(
+        grants
+          .filter((g) => g.execution_mode !== "none" && g.resource?.type === "directory")
+          .map((g) => canonicalPath(g.resource!.path)),
+      )),
     ];
     const anchors = [
       ...new Set(
@@ -114,18 +113,23 @@ export class HostExecutor {
     ];
     const defaultDirectory = anchors.length === 1 ? anchors[0]! : scratch;
     const directory = cwd ? await canonicalPath(cwd, defaultDirectory) : defaultDirectory;
-    return { roots, scratch, cwd: directory, identity, commandRoots };
+    return { roots, scratch, cwd: directory, identity, commandRoots, isolatedRoots };
   }
   async requestPath(
     tx: Tx,
     actor: Extract<Actor, { kind: "agent" }>,
     callId: string,
-    args: { path: string; reason: string; directory: boolean },
+    args: {
+      path: string;
+      reason: string;
+      directory: boolean;
+      mode?: "read" | "write";
+      execution?: import("@intrica/contracts").CommandPermission;
+    },
   ) {
     const info = await stat(args.path);
     if (args.directory ? !info.isDirectory() : !info.isFile())
       throw new DomainError("VALIDATION", "路径类型与申请的能力不一致");
-    const scope = await this.scope(actor, undefined, tx);
     if (await this.protectedPath(args.path))
       throw new DomainError("FORBIDDEN", "不能连接 Server 管理目录");
     const existing = await coveringGrant(
@@ -133,23 +137,16 @@ export class HostExecutor {
       {
         resource: { path: args.path, type: "file" },
       },
-      "read",
+      args.mode ?? "read",
     );
-    if (existing)
+    if (
+      existing &&
+      (!args.execution ||
+        args.execution === "none" ||
+        (await coveringExecution(await grantsFor(tx, actor.agentId), args.path, args.execution)))
+    )
       return result({ status: "granted", path: args.path, nodeId: existing.resource_id });
-    // Recognize actual scratch ownership, not spatial parentage or full-host
-    // privilege. A symlink redirect of an ancestor's workspace cannot claim it.
-    const workspaceRoot = await canonicalPath(
-      join(this.dataDir, "workspaces", scope.identity.canvas_id),
-    );
-    let workspaceOwnerId: string | undefined;
-    for (const member of [actor.agentId, ...(await managementChain(tx, actor.agentId))]) {
-      const expected = join(workspaceRoot, member);
-      if ((await canonicalPath(expected)) === expected && withinPath(expected, args.path)) {
-        workspaceOwnerId = member;
-        break;
-      }
-    }
+    const ownership = await workspaceOwnership(tx, this.dataDir, actor.agentId, args.path);
     return this.access.gate(
       tx,
       actor,
@@ -158,7 +155,9 @@ export class HostExecutor {
         kind: "path",
         path: args.path,
         directory: args.directory,
-        ...(workspaceOwnerId ? { workspaceOwnerId } : {}),
+        mode: args.mode ?? "read",
+        execution: args.execution ?? "none",
+        ...ownership,
       },
       args.reason,
       true,
@@ -182,7 +181,11 @@ export class HostExecutor {
         throw new DomainError("FORBIDDEN", "Server 管理目录不能授权给 Agent");
       if (scope.identity.config.role === "admin") return;
       if (command) {
-        if (!args.fullHost || scope.commandRoots.length > 0) return;
+        if (
+          scope.commandRoots.length ||
+          (!args.fullHost && scope.isolatedRoots.some((root) => withinPath(root, path)))
+        )
+          return;
         return { kind: "host", tool: name as "bash" | "mcp", args };
       }
       const root = scope.roots.find(
@@ -211,6 +214,7 @@ export class HostExecutor {
         kind: "host",
         tool: name as "read" | "rg" | "write" | "edit",
         args,
+        ...(await workspaceOwnership(sql, this.dataDir, actor.agentId, path)),
         ...(requiredRole ? { requiredRole } : {}),
       };
     };
@@ -242,7 +246,7 @@ export class HostExecutor {
         fullHost: Boolean(
           args.fullHost ||
             !(await isolationAvailable()) ||
-            !scope.roots.some((r) => r.directory && withinPath(r.path, scope.cwd)),
+            !scope.isolatedRoots.some((root) => withinPath(root, scope.cwd)),
         ),
       };
     };
@@ -361,8 +365,8 @@ export class HostExecutor {
         name: "bash",
         label: "执行命令",
         description: text(
-          "Run a command; cwd defaults to the sole explicitly granted directory root (nested directories do not change it), or the agent workspace with zero/multiple roots. A connected directory grants repeated host execution independent of cwd. Default isolation has no network. fullHost=true or unavailable isolation uses the server account's host privileges, not a filesystem boundary at cwd. Without that authority, request approval for the frozen command.",
-          "执行命令；默认使用唯一显式授权目录根（嵌套目录不改变默认值），零个或多个根时使用 Agent 工作区。已连接目录持续授权宿主命令执行，不依赖 cwd。默认隔离不含网络；fullHost=true 或隔离不可用时使用服务账户权限，cwd 不是文件系统边界。无此权限时为冻结的具体命令申请批准。",
+          "Run a command; cwd defaults to the sole explicitly granted directory root (nested directories do not change it), or the agent workspace with zero/multiple roots. File links do not grant command execution. Isolated execution and host execution require separate authority. Default isolation has no network. fullHost=true or unavailable isolation uses the server account's host privileges, not a filesystem boundary at cwd. Without that authority, request approval for the frozen command.",
+          "执行命令；默认使用唯一显式授权目录根（嵌套目录不改变默认值），零个或多个根时使用 Agent 工作区。文件连接不授予命令执行权；隔离执行与宿主执行分别授权。默认隔离不含网络；fullHost=true 或隔离不可用时使用服务账户权限，cwd 不是文件系统边界。无此权限时为冻结的具体命令申请批准。",
         ),
         parameters: fileParameters.bash,
         effect: "external",
@@ -404,7 +408,7 @@ export class HostExecutor {
         label: "调用 MCP",
         description: text(
           "Start stdio MCP; omit tool to list tools. Uses the same cwd and authorization rules as bash. Default isolation has no network; fullHost=true or unavailable isolation uses the server account's host privileges. Admins and connected directories need no further approval.",
-          "启动 stdio MCP，tool 为空时列出工具。cwd 和授权规则与 bash 相同。默认隔离不含网络；fullHost=true 或隔离不可用时使用服务账户的宿主权限。管理员及连接目录免重复审批。",
+          "启动 stdio MCP，tool 为空时列出工具。cwd 和授权规则与 bash 相同。默认隔离不含网络；fullHost=true 或隔离不可用时使用服务账户的宿主权限。管理员及显式宿主命令授权免重复审批。",
         ),
         parameters: Type.Object({
           command: pathSchema,

@@ -47,6 +47,7 @@ export function AgentAccessCard({
         : tr("等待你的决定")
       : ({
           approved: tr("已批准"),
+          satisfied: tr("已由现有授权满足"),
           denied: tr("已拒绝"),
           cancelled: tr("已取消"),
           expired: tr("已过期"),
@@ -230,12 +231,15 @@ export function AgentAccessCard({
                 {tr("单次限制仅适用于本次操作；角色调整将保留。")}
               </p>
             )}
-            {action?.kind === "path" && action.directory && (
+            {action?.kind === "path" && action.execution === "host" && (
               <p>
                 {tr(
                   "连接目录同时允许持续执行宿主命令；无法隔离时使用服务器账户权限，工作目录不限制文件访问。",
                 )}
               </p>
+            )}
+            {action?.kind === "path" && action.execution !== "host" && (
+              <p>{action.execution === "isolated" ? tr("隔离命令执行") : tr("无命令执行权限")}</p>
             )}
             {host?.args.fullHost && <p>{tr("完整宿主执行权限：工作目录不构成文件访问隔离。")}</p>}
             {r.blockedReason && (

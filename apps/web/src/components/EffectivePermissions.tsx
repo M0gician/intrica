@@ -86,6 +86,13 @@ export function EffectivePermissions({
                 <div className="permission-resource-heading">
                   <strong>{resource.title}</strong>
                   <span>{resource.mode === "write" ? tr("读写") : tr("只读")}</span>
+                  <span>
+                    {resource.execution === "host"
+                      ? tr("宿主命令执行")
+                      : resource.execution === "isolated"
+                        ? tr("隔离命令执行")
+                        : tr("无命令执行权限")}
+                  </span>
                 </div>
                 <div className="permission-resource-actions">
                   {onSelectNode && (
@@ -109,7 +116,7 @@ export function EffectivePermissions({
           )}
           <p className="permissions-note">
             {tr(
-              "资源连接决定可访问内容；目录授权还包含宿主命令能力。变更授权可能影响依赖它的团队成员。",
+              "文件读写与命令执行分别授权。工作目录不限制宿主命令的文件访问。变更授权可能影响团队成员。",
             )}
           </p>
         </>

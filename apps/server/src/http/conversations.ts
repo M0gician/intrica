@@ -5,6 +5,7 @@ import { hostCapabilities } from "../adapters/host/executor.js";
 import { id } from "../adapters/postgres/database.js";
 import type { AppInstance } from "../app.js";
 import type { Kernel } from "../composition.js";
+import { expediteInput } from "../modules/work/input-receipts.js";
 import { promptLanguage, promptText } from "../prompt-language.js";
 import { createStream } from "./streams.js";
 
@@ -20,6 +21,19 @@ const activityFilter = (query: { selection?: string; groupId?: string }) => ({
   groupId: query.groupId,
 });
 export function registerConversations(app: AppInstance, k: Kernel) {
+  app.post(
+    "/api/v2/conversations/:id/expedite",
+    {
+      schema: {
+        params,
+        body: Type.Object(
+          { messageId: Type.String({ minLength: 1, maxLength: 200 }) },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    (req) => expediteInput(k.db, req.params.id, req.body.messageId),
+  );
   app.get("/api/v2/canvas-agents/:id/permissions", { schema: { params } }, (req) =>
     k.access.describe(req.params.id),
   );
@@ -93,7 +107,9 @@ export function registerConversations(app: AppInstance, k: Kernel) {
         language: promptLanguage(req.headers["accept-language"]),
         key: req.body.idempotencyKey ?? id("input"),
       });
-      return reply.code(202).send({ started: true, runId: response.run.id });
+      return reply
+        .code(202)
+        .send({ started: true, runId: response.run.id, messageId: response.messageId });
     },
   );
   app.post("/api/v2/canvas-agents/:id/stop", { schema: { params } }, async (req) =>
@@ -272,7 +288,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
         language: promptLanguage(req.headers["accept-language"]),
         key: req.body.idempotencyKey ?? id("input"),
       });
-      return { queued: true, runId: submitted.run.id };
+      return { queued: true, runId: submitted.run.id, messageId: submitted.messageId };
     },
   );
   app.post("/api/v2/runs/:id/cancel", { schema: { params } }, async (req) => {
@@ -322,6 +338,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
         yield {
           type: "start",
           runId: submitted.run.id,
+          messageId: submitted.messageId,
           mode: submitted.run.frozen_input.model.config.kind,
         };
         while (!signal.aborted) {
@@ -334,7 +351,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
                 : { type: "error", message: event.payload.reason ?? "运行已停止" };
               return;
             }
-            if (["message", "tool", "context", "compaction"].includes(event.type))
+            if (["message", "tool", "context", "compaction", "input.receipt"].includes(event.type))
               yield { type: event.type, ...event.payload };
           }
           const run = await k.runs.get(submitted.run.id);

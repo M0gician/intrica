@@ -60,7 +60,7 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
   );
   definition.normalize = async (args) => {
     const kind: Kind = args.target.kind;
-    if (args.cursor && [args.line, args.page, args.frame, args.mode].some((v) => v !== undefined))
+    if (args.cursor && [args.line, args.page, args.frame].some((v) => v !== undefined))
       throw new DomainError("VALIDATION", "cursor 不能与定位字段同时使用");
     if (
       (kind !== "path" && (args.line !== undefined || args.frame !== undefined)) ||
@@ -88,12 +88,18 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
       }
       if (!Value.Check(cursorSchema, decoded) || decoded.target !== digest(target))
         throw new DomainError("VALIDATION", "读取游标与目标不匹配");
+      if (args.mode !== undefined && args.mode !== (decoded.position.mode ?? "auto"))
+        throw new DomainError(
+          "VALIDATION",
+          "mode 与游标模式冲突；续读时省略 mode 或使用游标原模式",
+        );
       if (
         (kind === "skill" && Object.keys(decoded.position).some((key) => key !== "offset")) ||
         (kind === "node" && decoded.position.column !== undefined)
       )
         throw new DomainError("VALIDATION", "读取游标位置不适用于此目标");
       input = { ...input, ...decoded.position };
+      if (decoded.position.mode === undefined) delete input.mode;
     }
     return { target, input };
   };

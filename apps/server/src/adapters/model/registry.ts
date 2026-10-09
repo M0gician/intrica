@@ -41,6 +41,9 @@ export class ModelRegistry {
     return this.db.transaction(async (tx) => {
       await tx.query("select pg_advisory_xact_lock(hashtextextended('intrica-model-profiles',0))");
       const value = await action(tx);
+      await tx.query(
+        "update conversations set context=context-'modelBlocked' where context->>'modelBlocked'='true'",
+      );
       // A configuration edit wakes only schedules blocked for missing configuration.
       await tx.query(
         "update schedules set enabled=true,spec=spec-'blockedReason',next_due_at=now() where spec->>'blockedReason'='model_not_configured'",

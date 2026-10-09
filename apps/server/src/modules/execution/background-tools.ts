@@ -87,8 +87,46 @@ export class BackgroundTools {
     ).rows;
     for (const row of rows) {
       const tool = this.tools.find((t) => t.name === row.name);
+      if (!recover && row.state === "prepared") {
+        const conflicts = await this.ctx.store.db.pool.query(
+          "select 1 from tool_calls where run_id=$1 and id<>$2 and state in('prepared','dispatching','waiting','unknown') and effect_class='external' and (created_at,id)<($3,$2) limit 1",
+          [this.ctx.run.id, row.id, row.created_at],
+        );
+        if (conflicts.rowCount) continue;
+      }
       await this.invoke(tool ?? row.name, row.logical_call_id, row.args, true);
     }
+  }
+  /** Only the current lease owner dispatches. No checkpoint or model context is changed here. */
+  async monitorInference(checkInput: () => Promise<void>) {
+    let closed = false,
+      work: Promise<void> | undefined;
+    const tick = () => {
+      if (closed || work || this.ctx.signal.aborted) return;
+      work = (async () => {
+        this.ctx.progress();
+        await checkInput();
+        await this.deliver();
+      })()
+        .catch((error) => {
+          this.failure = error;
+        })
+        .finally(() => {
+          work = undefined;
+        });
+    };
+    const unlisten = await this.ctx.store.db.listen("intrica_run_wake", (runId) => {
+      if (runId === this.ctx.run.id) tick();
+    });
+    const timer = setInterval(tick, 500);
+    tick();
+    return async () => {
+      closed = true;
+      clearInterval(timer);
+      unlisten();
+      await work;
+      if (this.failure) throw this.failure;
+    };
   }
   /** A pending approval suspends one call, not the conversation's inbox. */
   async parkApproval(logicalId: string) {
