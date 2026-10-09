@@ -218,7 +218,7 @@ it("M03 three review hops retain one frozen call and user steering, then execute
     manager = await start(lead),
     child = await start(worker);
   const args = {
-      scope: { kind: "path", path: area, access: "directory_and_commands" },
+      scope: { kind: "path", path: area, access: "directory", mode: "read", execution: "none" },
       reason: "read assigned evidence",
     },
     pending = await child.call("request_permission", args, "three-hop-request");

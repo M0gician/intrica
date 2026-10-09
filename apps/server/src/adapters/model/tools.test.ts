@@ -169,7 +169,9 @@ describe("PI workspace tools", () => {
         if (JSON.stringify(part).includes("ready")) controller.abort();
       },
     );
-    await expect(result).rejects.toThrow(/abort/i);
+    await expect(result).rejects.toMatchObject({
+      outcome: { termination: "cancelled", taskStatus: "unverified", output: "ready" },
+    });
     await new Promise((resolve) => setTimeout(resolve, 1100));
     await expect(readFile(join(cwd, "should-not-exist"))).rejects.toMatchObject({ code: "ENOENT" });
   });

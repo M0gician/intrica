@@ -23,7 +23,7 @@ test("local startup errors show their cause and preserve the existing data", {
     const data = join(profile, "data/postgres");
     await mkdir(data, { recursive: true });
     await writeFile(join(data, "preserve.txt"), "preserved startup evidence");
-    const env = { ...process.env, INTRICA_DESKTOP_PORT: "0", MODEL_KIND: "mock" };
+    const env = { ...process.env, INTRICA_DESKTOP_PORT: "0" };
     delete env.INTRICA_SERVER_URL;
     delete env.DATABASE_URL;
     delete env.ELECTRON_RUN_AS_NODE;
@@ -45,7 +45,7 @@ test("local startup errors show their cause and preserve the existing data", {
 });
 
 async function launch(profile) {
-  const env = { ...process.env, INTRICA_DESKTOP_PORT: "0", MODEL_KIND: "mock" };
+  const env = { ...process.env, INTRICA_DESKTOP_PORT: "0" };
   delete env.INTRICA_SERVER_URL;
   delete env.DATABASE_URL;
   delete env.PORT;

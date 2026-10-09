@@ -40,7 +40,7 @@ test("两种输入框控件靠右，窄侧栏可收缩；移除对齐规则会�
   for (const mode of ["agent", "chat"]) {
     if (mode === "chat") await page.getByRole("button", { name: "模型会话", exact: true }).click();
     const toolbar = page.locator(".agent-composer-toolbar:visible");
-    await expect(toolbar.locator(".model-trigger")).toContainText("模拟模型");
+    await expect(toolbar.locator(".model-trigger")).toContainText("acceptance");
     for (const width of [320, 640]) {
       const resize = (await page.getByRole("separator", { name: "调整侧栏宽度" }).boundingBox())!;
       await page.mouse.move(resize.x + resize.width / 2, resize.y + 100);

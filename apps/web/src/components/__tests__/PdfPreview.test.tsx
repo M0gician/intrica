@@ -77,18 +77,16 @@ it("encodes server file paths, uses the current connection and does not embed ra
 
 it("the files panel previews server PDFs without downloading binary file content or showing image-copy controls", async () => {
   const { value, request } = connection();
-  const files = vi
-    .fn()
-    .mockImplementation(async (url: string) =>
-      url.startsWith("file?")
-        ? {
-            name: "Reference.pdf",
-            path: "/docs/Reference.pdf",
-            mime: "application/pdf",
-            serverId: value.serverId,
-          }
-        : { name: "docs", path: "/docs", parent: "/", entries: [], truncated: false },
-    );
+  const files = vi.fn().mockImplementation(async (url: string) =>
+    url.startsWith("file?")
+      ? {
+          name: "Reference.pdf",
+          path: "/docs/Reference.pdf",
+          mime: "application/pdf",
+          serverId: value.serverId,
+        }
+      : { name: "docs", path: "/docs", parent: "/", entries: [], truncated: false },
+  );
   value.serverRequest = files;
   render(
     <ConnectionServices.Provider value={value}>

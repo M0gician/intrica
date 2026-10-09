@@ -31,7 +31,9 @@ remain image content parts. Canvas results carry node identity and revision.
 Continue with the same target and the returned `nextCursor`. Cursors bind
 the target and preserve PDF display mode. Each continuation checks current
 permissions. Explicit `line` and PDF `page` are one-based; image `frame`
-is zero-based. Do not combine explicit positioning or mode with a cursor.
+is zero-based. Do not combine explicit positioning with a cursor. An explicit mode is allowed
+only when it equals the cursor mode (or the target default when omitted in the
+cursor). Conflicting modes fail without changing read permissions.
 An empty PDF text layer is not OCR; page images can contain unread evidence.
 
 ## Typed mutations
@@ -49,7 +51,15 @@ An empty PDF text layer is not OCR; page images can contain unread evidence.
   `write` replaces the complete file. Both session types share these
   contracts and the `bash({command,cwd?,timeout?,fullHost?})` contract.
 
+File artifacts persist a content-addressed snapshot. `report_result.fileIds`
+accepts their node IDs and checks accessible published snapshots. Text reports
+can omit attachments. Clients resolve `intrica-file:NODE_ID` within the owning
+server and conversation. Hashes and file references never grant access.
+
 Saving an artifact does not submit a report or certify task completion.
+Command results retain raw exit code, signal, timeout, cancellation and start
+failure. Task outcome remains unverified until separately checked. Nonzero
+exit codes and SIGPIPE are not silently converted to success.
 
 ## Collaboration and permissions
 
@@ -69,13 +79,35 @@ different operations.
 
 - `{kind:"role",role}`
 - `{kind:"resource",nodeId,mode:"read"|"write"}`
-- `{kind:"path",path,access:"file"|"directory_and_commands"}`
+- `{kind:"path",path,access:"file"|"directory",mode:"read"|"write",execution:"none"|"isolated"|"host"}`
 
-The path capability is explicit: a directory connection includes repeated
-host command execution under the server account. It is not a process
-filesystem boundary at `cwd`. Persistent requests remain distinct from
-the approval of one frozen operation. Approval decisions are separate
-tools and use the existing review chain.
+New file and directory connections grant file access only. Execution is a
+separate capability. Host execution runs under the service account and does
+not imply a process filesystem boundary at `cwd`. Legacy
+`directory_and_commands` explicitly requests write plus host execution;
+migration retains it only when the original grant records that intent.
+Persistent requests remain distinct from one-time approval of a frozen call.
+
+Grant reconciliation can mark a pending, unexecuted request `satisfied` with
+no fabricated approver. Denial, expiration, escalation, changed targets and
+unknown outcomes remain barriers. Scratch ownership uses the same physical
+path rules for both one-time and persistent requests.
+
+## Input receipts and tool recovery
+
+Appending input persists it in queue without cancelling inference. Read
+status is recorded atomically with the context checkpoint. A message becomes
+read only after that transaction commits. Reconnect reads durable receipts.
+
+An explicit expedite request addresses the existing message ID and cancels
+only inference. Earlier unread inputs enter context in order. Started tools
+retain their call IDs and state; unstarted tools check new input before dispatch.
+Stopped runs and unknown outcomes keep their existing barriers.
+
+The run lease owner listens for committed tool-state notifications during
+inference. Bounded polling recovers lost notifications. Dispatch rechecks
+permissions, capacity and dependencies and uses the original logical call ID.
+Tool approval does not cancel inference or create a second dispatch owner.
 
 ## Configuration and execution
 

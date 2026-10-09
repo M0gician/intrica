@@ -192,7 +192,9 @@ test("Agent 与模型会话独立选择模型及推理强度，并保留服务�
   await page.locator(`[data-node-id="${agent.id}"]`).dblclick();
   await expect(page.getByLabel("Agent 模型", { exact: true })).toContainText("配置已删除");
   const before = requests.length;
-  await page.getByRole("button", { name: "运行", exact: true }).click();
-  await expect(page.getByText(/Select a configured model|模型/).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "运行", exact: true })).toBeDisabled();
+  await expect(page.locator(".workspace-panel .model-required")).toContainText(
+    "所选模型已不可用。草稿已保留。",
+  );
   expect(requests.length).toBe(before);
 });

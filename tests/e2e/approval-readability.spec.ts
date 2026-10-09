@@ -4,8 +4,7 @@ import type { ApprovalDecision, ApprovalRecord } from "@intrica/contracts";
 import { type APIRequestContext, expect, type Locator, type Page, test } from "@playwright/test";
 import { API_URL } from "./environment.mjs";
 
-const directoryRisk =
-  "连接目录同时允许持续执行宿主命令；无法隔离时使用服务器账户权限，工作目录不限制文件访问。";
+const directoryRisk = "无命令执行权限";
 const blockedRisk = "超出当前审查者的授权范围";
 const longPath = `/home/reviewer/.local/share/intrica-server/state/data/workspaces/画布-${"审查資料é🙂".repeat(22)}/n-${"0123456789abcdef".repeat(10)}/交付物`;
 const longCommand = `python review.py --artifact '${"pelican_scooter_质量检查🙂".repeat(30)}.gif'`;

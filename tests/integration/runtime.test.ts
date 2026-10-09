@@ -40,7 +40,13 @@ it("fixed file helper separates stdout from runtime diagnostics without masking 
       5000,
       true,
     );
-    expect(response).toEqual({ output: '{"value":true}', exitCode });
+    expect(response).toEqual({
+      output: '{"value":true}',
+      exitCode,
+      signal: null,
+      termination: "exited",
+      taskStatus: "unverified",
+    });
   }
 });
 const adminUrl = process.env.INTRICA_TEST_ADMIN_URL ?? "postgres://127.0.0.1:5432/postgres";
