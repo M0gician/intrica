@@ -56,7 +56,7 @@ export class HostExecutor {
     );
   }
   async assertPath(
-    actor: Extract<Actor, { kind: "agent" }>,
+    actor: Pick<Extract<Actor, { kind: "agent" }>, "agentId">,
     path: string,
     write: boolean,
     sql: Sql = this.db.pool,
@@ -71,7 +71,11 @@ export class HostExecutor {
     )
       throw new DomainError("FORBIDDEN", "路径不在当前授权范围内");
   }
-  async scope(actor: Extract<Actor, { kind: "agent" }>, cwd?: string, sql: Sql = this.db.pool) {
+  async scope(
+    actor: Pick<Extract<Actor, { kind: "agent" }>, "agentId">,
+    cwd?: string,
+    sql: Sql = this.db.pool,
+  ) {
     const identity = await agentIdentity(sql, actor.agentId);
     const scratch = await this.workspace(identity.canvas_id, actor.agentId);
     const roots: Root[] = [{ path: scratch, directory: true, write: true }];

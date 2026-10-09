@@ -5,7 +5,7 @@ import {
   deliverCollaboration,
   selectRecipients,
 } from "../../access/collaboration.js";
-import { agentIdentity } from "../../access/policy.js";
+import { agentIdentity, authorize } from "../../access/policy.js";
 import { result } from "../../execution/tool-calls.js";
 import {
   idParameter,
@@ -56,12 +56,15 @@ export function collaborationTools({ registry, ctx, input, actor, text }: ToolCo
   const report = tool(
     "report_result",
     text(
-      "Record a report and notify your direct manager. Include result resourceIds to deliver read access to executors of runs you took over. Report submission does not end a run or certify task completion.",
-      "记录报告并通知直属管理者。resourceIds 为已接管运行的原执行者交付结果读取权限。提交报告不结束运行，也不代表业务任务已验收。",
+      "Record a report and notify your direct manager. For file delivery, include fileIds returned by create_artifact; the server verifies their published snapshots. resourceIds deliver read access to executors of runs you took over. Report submission does not end a run or certify completion.",
+      "记录报告并通知直属管理者。交付文件时将 create_artifact 返回的节点 ID 填入 fileIds，服务端验证发布快照。resourceIds 为已接管运行的原执行者交付读取权限。提交报告不结束运行，也不代表任务已验收。",
     ),
     object({
       message: messageParameter,
       resourceIds: Type.Optional(Type.Array(idParameter, { maxItems: 100, uniqueItems: true })),
+      fileIds: Type.Optional(
+        Type.Array(idParameter, { minItems: 1, maxItems: 20, uniqueItems: true }),
+      ),
     }),
     "graph",
     preflightOnly,
@@ -71,12 +74,26 @@ export function collaborationTools({ registry, ctx, input, actor, text }: ToolCo
     const manager = input.agentId
       ? (await agentIdentity(registry.graph.db.pool, input.agentId)).manager_id
       : null;
-    return { ...args, recipients: manager ? [manager] : [], messageKind: "report" };
+    return {
+      ...args,
+      ...(args.fileIds
+        ? { resourceIds: [...new Set([...(args.resourceIds ?? []), ...args.fileIds])] }
+        : {}),
+      recipients: manager ? [manager] : [],
+      messageKind: "report",
+    };
   };
   report.modelVisible = actor.kind === "agent";
   for (const definition of [send, report])
     definition.prepare = async (tx, callId, _logical, args) => {
       const intent: Delivery = { kind: "collaboration", ...args };
+      for (const nodeId of intent.fileIds ?? []) {
+        await authorize(tx, actor, ctx.run.canvas_id, nodeId, "read");
+        const node = await registry.graph.queries.node(nodeId, tx);
+        if (!node.assetId || node.resource?.snapshot?.assetId !== node.assetId)
+          throw new DomainError("VALIDATION", "文件交付需要 create_artifact 创建的发布快照");
+        await registry.assets.assertAvailable(node.assetId);
+      }
       if (actor.kind === "agent")
         return registry.access.gate(tx, actor, callId, intent, "Agent communication", true);
       return result(

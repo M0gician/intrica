@@ -100,14 +100,14 @@ afterAll(async () => {
 
 const canvas = async () =>
   (await k.graph.createCanvas({ title: "PDF evidence", idempotencyKey: key() })).node.id;
-const agent = async (parentId: string) =>
+const agent = async (parentId: string, role: "read" | "write" = "read") =>
   (
     await k.graph.createNode({
       kind: "agent",
       parentId,
       title: "PDF reader",
       position,
-      agent: { persona: "Read evidence with its page number", role: "read", enabled: true },
+      agent: { persona: "Read evidence with its page number", role, enabled: true },
       idempotencyKey: key(),
     })
   ).node;
@@ -170,6 +170,60 @@ const hasImage = (result: { content: Array<{ type: string }> }) =>
   result.content.some((part) => part.type === "image");
 
 describe("PDF canvas, multimodal read and durable authorization", () => {
+  it("published files retain bytes after overwrite/deletion and scoped references recheck grants", async () => {
+    const c = await canvas(),
+      writer = await agent(c, "write"),
+      reader = await agent(c, "write");
+    const child = await session(writer.id);
+    const path = join((await k.host.scope(child.actor)).scratch, "Unicode 报告.bin");
+    const original = Buffer.from("Published version αβγ");
+    await writeFile(path, original);
+    const created = await child.call("create_artifact", { kind: "text", title: "Delivery", path });
+    expect(created.result.isError).not.toBe(true);
+    const nodeId = created.value.id;
+    const node = await k.graph.queries.node(nodeId);
+    expect(node.resource?.snapshot).toMatchObject({ bytes: original.length, mime: "text/plain" });
+    const serverId = (await app.inject({ url: "/api/v2/server", headers })).json().id;
+    const ref = (origin: object, path?: string, server = serverId) =>
+      Buffer.from(JSON.stringify({ serverId: server, origin, ...(path ? { path } : {}) })).toString(
+        "base64url",
+      );
+    const nodeReference = ref({ kind: "node", id: nodeId });
+    const agentReference = ref({ kind: "agent", id: reader.id }, `intrica-file:${nodeId}`);
+    const download = (reference: string) =>
+      app.inject({ url: `/api/v2/files/download?reference=${reference}`, headers });
+    expect((await download(agentReference)).statusCode).toBe(403);
+    const link = await connect(reader.id, nodeId);
+    for (const change of [() => writeFile(path, "replacement"), () => rm(path)]) {
+      await change();
+      const saved = await download(nodeReference);
+      expect(saved.statusCode).toBe(200);
+      expect(saved.rawPayload).toEqual(original);
+      expect(saved.headers.etag).toBe(`"sha256-${node.resource!.snapshot!.hash}"`);
+      expect((await download(agentReference)).rawPayload).toEqual(original);
+    }
+    const preview = await app.inject({
+      url: `/api/v2/files/preview?reference=${nodeReference}`,
+      headers,
+    });
+    expect(preview.json()).toMatchObject({ text: original.toString(), serverId });
+    await k.graph.deleteLink(link.edge.id, { idempotencyKey: key() });
+    expect((await download(agentReference)).statusCode).toBe(403);
+    expect(
+      (await download(ref({ kind: "node", id: nodeId }, undefined, "another-server"))).statusCode,
+    ).toBe(403);
+    const fresh = await session(reader.id);
+    const textOnly = await fresh.call("create_artifact", {
+      kind: "text",
+      title: "No attachment",
+      text: "plain report",
+    });
+    const invalid = await fresh.call("report_result", {
+      message: "missing file",
+      fileIds: [textOnly.value.id],
+    });
+    expect(invalid.result.isError).toBe(true);
+  });
   it("PDF01 upgrades schema 7 to 8 through buildServer while preserving existing nodes", async () => {
     expect(priorVersion).toBe(7);
     expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(10);

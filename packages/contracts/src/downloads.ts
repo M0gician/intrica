@@ -1,6 +1,7 @@
 export type FileDownloadSource =
-  | { path: string; assetId?: never; name: string }
-  | { assetId: string; path?: never; name: string };
+  | { path: string; assetId?: never; referenceId?: never; name: string }
+  | { assetId: string; path?: never; referenceId?: never; name: string }
+  | { referenceId: string; path?: never; assetId?: never; name: string };
 
 export type FileDownloadProgress = {
   id: string;
@@ -17,6 +18,7 @@ export type DesktopFiles = {
     bindingId: string;
     path?: string;
     assetId?: string;
+    referenceId?: string;
     name?: string;
   }) => Promise<{ cancelled: boolean; path?: string }>;
   cancel: (id: string) => Promise<void>;

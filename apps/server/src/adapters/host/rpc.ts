@@ -51,7 +51,7 @@ export async function startHostServer(dataDir: string, host: OwnerHost) {
         try {
           const request = JSON.parse(buffer.slice(0, buffer.indexOf("\n")));
           if (request.method === "download") {
-            const file = await host.download(request.args.path);
+            const file = await host.download(request.args.path, request.args.strict === true);
             if (socket.destroyed) {
               file.stream.destroy();
               return;
@@ -96,6 +96,7 @@ export class HostClient {
   download(
     path: string,
     signal: AbortSignal,
+    strict = false,
   ): Promise<{ name: string; size: number; stream: Socket }> {
     return new Promise((resolve, reject) => {
       const socket = createConnection(socketPath(this.dataDir));
@@ -107,7 +108,7 @@ export class HostClient {
       socket.setTimeout(30000, () => socket.destroy(new Error("下载连接超时")));
       socket.once("error", reject);
       socket.once("connect", () =>
-        socket.write(`${JSON.stringify({ method: "download", args: { path } })}\n`),
+        socket.write(`${JSON.stringify({ method: "download", args: { path, strict } })}\n`),
       );
       const readHeader = (chunk: Buffer) => {
         header = Buffer.concat([header, chunk]);

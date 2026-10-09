@@ -45,6 +45,12 @@ export function nodePresentation(node: Node): NodePresentation {
   if (node.resource?.type === "directory") return { type: "directory", path: node.resource.path };
   if (node.resource?.type === "file") {
     const path = node.resource.path;
+    if (node.resource.snapshot) {
+      const mime = node.resource.snapshot.mime;
+      if (mime === "application/pdf") return { type: "path-pdf", path };
+      if (mime.startsWith("image/")) return { type: "path-image", path };
+      return { type: "file", path };
+    }
     if (/\.pdf$/i.test(path)) return { type: "path-pdf", path };
     if (/\.(?:gif|jpe?g|png|svg|webp)$/i.test(path)) return { type: "path-image", path };
     return { type: "file", path };

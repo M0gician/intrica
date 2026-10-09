@@ -15,6 +15,7 @@ import {
   type Sql,
   type Tx,
 } from "../../adapters/postgres/database.js";
+import type { AssetStore } from "../../adapters/storage/assets.js";
 import { pendingInboxMessage, projectToolOutcome } from "../execution/messages.js";
 import { result, type ToolResult } from "../execution/tool-calls.js";
 import type { GraphCommands } from "../graph/commands.js";
@@ -53,6 +54,7 @@ export class AccessService {
     readonly db: Database,
     readonly graph: GraphCommands,
     readonly conversations: Conversations,
+    readonly assets: AssetStore,
   ) {}
 
   async describe(agentId: string): Promise<EffectiveAgentPermissions> {
@@ -333,6 +335,18 @@ export class AccessService {
           callId,
         ])
       ).rows[0];
+      for (const nodeId of intent.fileIds ?? []) {
+        const node = await this.graph.queries.node(nodeId, tx);
+        if (
+          node.canvasId !== identity.canvas_id ||
+          !node.assetId ||
+          node.resource?.snapshot?.assetId !== node.assetId
+        )
+          throw new DomainError("TARGET_CHANGED", "交付文件的发布版本已变化");
+        if (!(await grantsFor(tx, subject)).some((grant) => grant.resource_id === node.id))
+          throw new DomainError("FORBIDDEN", "交付文件的读取权限已变化");
+        await this.assets.assertAvailable(node.assetId);
+      }
       const delivery = await deliverCollaboration(
         tx,
         this.conversations,

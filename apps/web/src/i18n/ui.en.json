@@ -989,5 +989,21 @@
   "取消安装": "Cancel installation",
   "可以离开此面板。返回服务器设置可继续查看安装进度。": "You can leave this panel. Return to server settings to view progress.",
   "下一步": "Next",
-  "查看服务器安装": "View server installation"
+  "查看服务器安装": "View server installation",
+  "无法恢复下载结果，请检查目标文件。": "Cannot restore this download's result. Check the destination file.",
+  "查看下载进度": "View download progress",
+  "收起下载提示": "Collapse download notice",
+  "关闭下载提示": "Dismiss download notice",
+  "文件超过预览限制，可下载原文件。": "This file exceeds the preview limit. You can download the original.",
+  "文件内容损坏或无法解码，可下载原文件检查。": "This file is corrupt or cannot be decoded. Download the original to inspect it.",
+  "此文件没有预览器，可下载原文件。": "No preview is available for this file. You can download the original.",
+  "文件属于其他服务器": "This file belongs to another server.",
+  "查看文件": "View file",
+  "文件引用不可用": "File reference unavailable",
+  "文件预览": "File preview",
+  "正在读取文件": "Reading file",
+  "文件引用缺少来源信息": "The file reference has no source context.",
+  "发布时的文件": "File as published",
+  "查看当前源文件": "View the current source file",
+  "预览与下载原文件": "Preview and download the original"
 }

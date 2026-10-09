@@ -14,11 +14,11 @@ export function nodeReader(context: ToolContext): Pick<ExecutionTool, "prepare" 
     execute: async (_call, args, signal) => {
       await requireResource(args.nodeId, "read");
       const node = await registry.graph.queries.node(args.nodeId);
-      if (node.kind === "pdf") {
+      if (node.kind === "pdf" || node.resource?.snapshot?.mime === "application/pdf") {
         if (args.mode === "image" && !supportsVision)
           throw new DomainError("VALIDATION", "当前模型不支持图像输入");
         let pdf: Awaited<ReturnType<typeof readMedia>>;
-        if (node.resource?.type === "file") {
+        if (node.resource?.type === "file" && !node.resource.snapshot) {
           const path = await canonicalPath(node.resource.path);
           if (path !== node.resource.path)
             throw new DomainError("TARGET_CHANGED", "PDF 资源路径目标已变化，请重新连接");
@@ -75,6 +75,30 @@ export function nodeReader(context: ToolContext): Pick<ExecutionTool, "prepare" 
         return pdf;
       }
       if (args.page !== undefined) throw new DomainError("VALIDATION", "page 仅适用于 PDF");
+      if (
+        node.resource?.snapshot &&
+        node.assetId &&
+        !node.resource.snapshot.mime.startsWith("image/")
+      ) {
+        if (args.mode === "image") throw new DomainError("VALIDATION", "此文件没有图像内容");
+        const file = await registry.assets.preview(node.assetId, node.resource.snapshot.name);
+        const offset = args.offset ?? 0,
+          limit = Math.min(args.limit ?? 6000, 48000);
+        const content = file.text?.slice(offset, offset + limit) ?? "";
+        await requireResource(args.nodeId, "read");
+        return result({
+          ...nodeContent(node),
+          attachment: node.resource.snapshot,
+          content,
+          field: "attachment",
+          offset,
+          nextOffset:
+            file.text && offset + content.length < file.text.length
+              ? offset + content.length
+              : null,
+          ...(file.previewError ? { previewError: file.previewError } : {}),
+        });
+      }
       if (args.mode === "image" && !node.assetId)
         throw new DomainError("VALIDATION", "此节点没有图像内容");
       const data = result(nodeContent(node, args.offset, args.limit));

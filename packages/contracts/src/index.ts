@@ -11,6 +11,7 @@ export type {
 export * from "./constants.js";
 export * from "./conversation-navigation.js";
 export * from "./downloads.js";
+export * from "./files.js";
 export * from "./generation.js";
 export * from "./graph-commit.js";
 export * from "./model.js";

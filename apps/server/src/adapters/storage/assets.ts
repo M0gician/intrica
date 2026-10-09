@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { constants, createReadStream } from "node:fs";
+import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { MAX_IMAGE_PIXELS } from "@intrica/contracts";
 import sharp from "sharp";
+import { readFilePreview, sniffMime } from "../host/file-preview.js";
 import { readPdf } from "../host/pdf-reader.js";
 import { type Database, DomainError, id } from "../postgres/database.js";
 
@@ -12,6 +13,98 @@ export class AssetStore {
     readonly db: Database,
     readonly directory: string,
   ) {}
+  /** Copy authorized file bytes before publishing. A node's asset FK retains the snapshot. */
+  async snapshot(path: string) {
+    const stage = join(this.directory, "assets", ".staging");
+    await mkdir(stage, { recursive: true, mode: 0o700 });
+    const temporary = join(stage, id("file"));
+    const input = await open(
+      path,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    try {
+      const before = await input.stat();
+      if (!before.isFile() || before.size > 256 * 1024 * 1024)
+        throw new DomainError("FILE_LIMIT", "发布附件必须是 256 MiB 以内的普通文件");
+      const output = await open(temporary, "wx", 0o600);
+      const hash = createHash("sha256");
+      let size = 0,
+        header = Buffer.alloc(0);
+      try {
+        for await (const chunk of input.createReadStream({ autoClose: false })) {
+          size += chunk.length;
+          if (size > before.size) throw new DomainError("TARGET_CHANGED", "文件在发布期间发生变化");
+          if (header.length < 8192)
+            header = Buffer.concat([header, chunk.subarray(0, 8192 - header.length)]);
+          hash.update(chunk);
+          await output.writeFile(chunk);
+        }
+        const after = await input.stat();
+        if (
+          size !== before.size ||
+          before.mtimeMs !== after.mtimeMs ||
+          before.ctimeMs !== after.ctimeMs
+        )
+          throw new DomainError("TARGET_CHANGED", "文件在发布期间发生变化");
+        await output.sync();
+      } finally {
+        await output.close();
+      }
+      const contentHash = hash.digest("hex"),
+        assetId = `asset-${contentHash}`;
+      const destination = join(this.directory, "assets", contentHash);
+      await mkdir(destination, { recursive: true });
+      await rename(temporary, join(destination, "original"));
+      const mime = sniffMime(header, path, size > header.length);
+      let width = 1,
+        height = 1;
+      if (mime.startsWith("image/")) {
+        try {
+          const image = sharp(join(destination, "original"), {
+            limitInputPixels: MAX_IMAGE_PIXELS,
+          });
+          const metadata = await image.metadata();
+          width = metadata.width ?? 1;
+          height = metadata.height ?? 1;
+          await image
+            .resize(512, 512, { fit: "inside", withoutEnlargement: true })
+            .png()
+            .toFile(join(destination, "thumb.png"));
+        } catch {
+          /* A corrupt file still has a downloadable original. */
+        }
+      }
+      await this.db.pool.query(
+        "insert into assets(id,content_hash,storage_key,mime,bytes,width,height,state) values($1,$2,$3,$4,$5,$6,$7,'ready') on conflict(content_hash) do nothing",
+        [assetId, contentHash, contentHash, mime, size, width, height],
+      );
+      return { assetId, hash: contentHash, bytes: size, mime, name: basename(path) };
+    } finally {
+      await input.close();
+      await rm(temporary, { force: true });
+    }
+  }
+  async preview(assetId: string, name: string) {
+    const row = await this.get(assetId);
+    return {
+      ...(await readFilePreview(join(this.directory, "assets", row.storage_key, "original"), name)),
+      path: "",
+    };
+  }
+  async assertAvailable(assetId: string) {
+    const row = await this.get(assetId);
+    const file = await open(
+      join(this.directory, "assets", row.storage_key, "original"),
+      constants.O_RDONLY | constants.O_NOFOLLOW,
+    );
+    try {
+      const info = await file.stat();
+      if (!info.isFile() || info.size !== Number(row.bytes))
+        throw new DomainError("TARGET_CHANGED", "交付文件缺失或已变化");
+    } finally {
+      await file.close();
+    }
+  }
   async put(buffer: Buffer) {
     if (buffer.subarray(0, 5).toString() === "%PDF-") {
       let page: Awaited<ReturnType<typeof readPdf>>;
@@ -54,12 +147,10 @@ export class AssetStore {
       throw new DomainError("ASSET_INVALID", "图片无效或超过像素限制");
     }
     const format = metadata.format;
-    let data = buffer;
+    const data = buffer;
     let mime: string;
     if (format === "svg") {
-      data = await sharp(buffer, { limitInputPixels: MAX_IMAGE_PIXELS }).png().toBuffer();
-      metadata = await sharp(data).metadata();
-      mime = "image/png";
+      mime = "image/svg+xml";
     } else {
       const types: Record<string, string> = {
         png: "image/png",
@@ -106,8 +197,14 @@ export class AssetStore {
   async resolve(assetId: string) {
     try {
       const row = await this.get(assetId);
+      const original = await readFile(join(this.directory, "assets", row.storage_key, "original"));
+      if (row.mime === "image/svg+xml")
+        return {
+          data: await sharp(original, { limitInputPixels: MAX_IMAGE_PIXELS }).png().toBuffer(),
+          mime: "image/png",
+        };
       return {
-        data: await readFile(join(this.directory, "assets", row.storage_key, "original")),
+        data: original,
         mime: row.mime as string,
       };
     } catch {
@@ -121,6 +218,8 @@ export class AssetStore {
         join(this.directory, "assets", row.storage_key, thumb ? "thumb.png" : "original"),
       ),
       mime: thumb ? "image/png" : row.mime,
+      size: thumb ? undefined : Number(row.bytes),
+      hash: row.content_hash,
     };
   }
 }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { mkdtemp, rename, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
@@ -9,18 +10,20 @@ export function createFileDownloads(connections, choosePath, revealPath = () => 
   const pending = new Map();
   const completed = new Map();
   return {
-    async save({ id, bindingId, path, assetId, name }) {
+    async save({ id, bindingId, path, assetId, referenceId, name }) {
       const file = typeof path === "string" && path.length > 0 && path.length <= 4096;
       const asset = typeof assetId === "string" && /^asset-[a-f0-9]{64}$/.test(assetId);
+      const reference = typeof referenceId === "string" && /^[\w-]{1,24000}$/.test(referenceId);
       if (
         typeof id !== "string" ||
         !id ||
         id.length > 100 ||
         pending.has(id) ||
         completed.has(id) ||
-        !(file !== asset) ||
+        Number(file) + Number(asset) + Number(reference) !== 1 ||
         (path !== undefined && !file) ||
         (assetId !== undefined && !asset) ||
+        (referenceId !== undefined && !reference) ||
         (name !== undefined && (typeof name !== "string" || name.length > 512)) ||
         connections.get().bindingId !== bindingId
       )
@@ -48,9 +51,11 @@ export function createFileDownloads(connections, choosePath, revealPath = () => 
         response = await connections.forward(
           new Request("intrica://app/", { signal: abort.signal }),
           bindingId,
-          asset
-            ? `/api/v2/assets/${assetId}`
-            : `/api/v2/workspace/download?path=${encodeURIComponent(path)}`,
+          reference
+            ? `/api/v2/files/download?reference=${encodeURIComponent(referenceId)}`
+            : asset
+              ? `/api/v2/assets/${assetId}`
+              : `/api/v2/workspace/download?path=${encodeURIComponent(path)}`,
         );
         if (!response.ok || !response.body)
           throw new Error(`Download failed (HTTP ${response.status})`);
@@ -59,11 +64,14 @@ export function createFileDownloads(connections, choosePath, revealPath = () => 
           progress.totalBytes = Number(size);
         temporary = await mkdtemp(join(dirname(selected), ".intrica-download-"));
         const payload = join(temporary, "payload");
+        const expectedHash = response.headers.get("etag")?.match(/^"sha256-([a-f0-9]{64})"$/)?.[1];
+        const hash = createHash("sha256");
         await pipeline(
           Readable.fromWeb(response.body),
           new Transform({
             transform(chunk, _encoding, callback) {
               progress.downloadedBytes += chunk.length;
+              hash.update(chunk);
               callback(null, chunk);
             },
           }),
@@ -75,6 +83,8 @@ export function createFileDownloads(connections, choosePath, revealPath = () => 
           throw new Error("Connection changed during download");
         if (progress.totalBytes !== null && progress.downloadedBytes !== progress.totalBytes)
           throw new Error("Download length mismatch; destination was not replaced");
+        if (expectedHash && hash.digest("hex") !== expectedHash)
+          throw new Error("Download checksum mismatch; destination was not replaced");
         await rename(payload, selected);
         progress.phase = "complete";
         completed.set(id, progress);

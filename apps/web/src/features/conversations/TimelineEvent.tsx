@@ -5,6 +5,7 @@ import { MarkdownLite } from "../../components/MarkdownLite";
 import { ToolCallDetails } from "../../components/ToolCallDetails";
 import i18n, { tr } from "../../i18n";
 import { Button } from "../../ui/button";
+import { FileReferenceView } from "../files/FileReferenceView";
 import { type Activity, activityKey } from "./model";
 export function EventTime({ value }: { value: Activity["createdAt"] }) {
   if (!value) return null;
@@ -132,6 +133,10 @@ export function TimelineEvent({
             </DeferredDetails>
           ) : null}
           <MarkdownLite
+            origin={{
+              kind: "agent",
+              id: String(event.data.from ?? event.data.senderId ?? event.agentId),
+            }}
             text={String(
               event.data.text ??
                 event.data.reason ??
@@ -145,6 +150,20 @@ export function TimelineEvent({
                   : ""),
             )}
           />
+          {Array.isArray(event.data.fileIds) &&
+            event.data.fileIds.map((id) =>
+              typeof id === "string" ? (
+                <FileReferenceView
+                  key={id}
+                  origin={{ kind: "node", id }}
+                  label={
+                    nodes.get(id)?.resource?.snapshot?.name ??
+                    nodes.get(id)?.title ??
+                    tr("查看文件")
+                  }
+                />
+              ) : null,
+            )}
           {typeof event.data.memoryNodeId === "string" &&
             nodes.has(event.data.memoryNodeId) &&
             onSelectNode && (

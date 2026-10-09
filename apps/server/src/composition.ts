@@ -26,7 +26,7 @@ export async function createKernel(config: ApiConfig) {
     await models.initialize();
     const assets = new AssetStore(db, config.dataDir),
       conversations = new Conversations(db, runs, models),
-      access = new AccessService(db, graph, conversations);
+      access = new AccessService(db, graph, conversations, assets);
     const host = new HostExecutor(db, access, config.dataDir);
     const tools = new ToolRegistry(graph, conversations, access, host, assets);
     const generation = new GenerationService(graph, runs, models, (id) => assets.resolve(id));

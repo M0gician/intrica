@@ -104,8 +104,8 @@ export function canvasTools(context: ToolContext) {
   const create = tool(
     "create_artifact",
     text(
-      "Save a text or todo artifact. path attaches an existing file to text; it never writes a file. completed applies only to todo. shareWithManagers=false saves privately without activating other Agents. Saving does not send a report or prove completion.",
-      "保存 text 或 todo 产物。path 仅为 text 附加已有文件，不写入文件。completed 仅适用于 todo。shareWithManagers=false 私有保存且不启动其他 Agent。保存不等于提交报告或完成任务。",
+      "Save a text or todo artifact. path snapshots an existing file; write the file first. Use attachment.reference for file links and the returned id in report_result.fileIds. completed applies only to todo. shareWithManagers=false saves privately. Saving does not submit a report or prove completion.",
+      "保存 text 或 todo 产物。path 为已有文件保存固定快照，请先写入文件。文件链接使用 attachment.reference，文件报告将节点 ID 填入 report_result.fileIds。completed 仅适用于 todo。shareWithManagers=false 私有保存。保存不等于提交报告或完成任务。",
     ),
     object(
       {

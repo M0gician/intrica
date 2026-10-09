@@ -1,5 +1,6 @@
 import type { Edge, Node, Operation } from "@intrica/contracts";
 import { DownloadStatus, useFileDownload } from "../features/files/download";
+import { FileReferenceView } from "../features/files/FileReferenceView";
 import { BookmarkAddress, EditableField } from "../features/inspector/fields";
 import { InspectorMetadata } from "../features/inspector/InspectorMetadata";
 import { tr, useTranslation } from "../i18n";
@@ -10,7 +11,6 @@ import { DocumentEditor } from "./DocumentEditor";
 import { ImagePreview } from "./ImagePreview";
 import { IconBrowser, IconEnter, IconGroup } from "./icons";
 import { PdfPreview } from "./PdfPreview";
-import { isImagePath, WorkspaceImagePreview } from "./WorkspaceImagePreview";
 export type InspectorPanelProps = {
   active?: boolean;
   focusRequest?:
@@ -67,6 +67,40 @@ export function InspectorPanel(props: InspectorPanelProps) {
     .map((id) => props.nodes.get(id))
     .filter((value): value is Node => Boolean(value));
   const metadata = <InspectorMetadata {...props} />;
+  if (node.resource?.type === "file")
+    return (
+      <div className="panel-body file-inspector">
+        <section className="detail-title" aria-label={tr("名称")}>
+          <EditableField
+            value={node.title ?? ""}
+            ariaLabel={tr("节点标题")}
+            onCommit={(title) => void props.onSave(node.id, { title })}
+          />
+        </section>
+        {node.resource.snapshot && <p>{tr("发布时的文件")}</p>}
+        <FileReferenceView origin={{ kind: "node", id: node.id }} embedded />
+        {node.kind === "image" && (
+          <EditableField
+            value={node.alt ?? ""}
+            ariaLabel={tr("图片说明")}
+            onCommit={(alt) => void props.onSave(node.id, { alt })}
+          />
+        )}
+        {node.text && node.text !== node.resource.path && (
+          <DocumentEditor
+            id={node.id}
+            value={node.text}
+            version={node.revision}
+            fileOrigin={{ kind: "node", id: node.id }}
+            onSave={(text, version) => props.onSave(node.id, { text }, version)}
+          />
+        )}
+        <Button onClick={() => props.onOpenResource?.(node.resource!)}>
+          {tr("查看当前源文件")}
+        </Button>
+        {metadata}
+      </div>
+    );
   if (node.kind === "agent" && node.agent)
     return (
       <div className="panel-body agent-inspector">
@@ -186,6 +220,7 @@ export function InspectorPanel(props: InspectorPanelProps) {
   if (node.kind === "image")
     return (
       <div className="panel-body image-inspector">
+        <FileReferenceView origin={{ kind: "node", id: node.id }} label={tr("预览与下载原文件")} />
         <section className="detail-title" aria-label={tr("图片名称")}>
           <span className="sr-only">{tr("图片名称")}</span>
           <EditableField
@@ -195,19 +230,13 @@ export function InspectorPanel(props: InspectorPanelProps) {
             onCommit={(title) => void props.onSave(node.id, { title })}
           />
         </section>
-        {node.resource?.type === "file" && isImagePath(node.resource.path) ? (
-          <WorkspaceImagePreview
-            path={node.resource.path}
-            alt={node.alt ?? node.title ?? node.resource.path}
-            className="detail-local-image"
-          />
-        ) : (
+        {
           <ImagePreview
             key={`${node.assetId}:${node.assetVersion}`}
             assetId={node.assetId}
             alt={node.alt ?? node.title ?? tr("图片")}
           />
-        )}
+        }
         <details className="detail-meta">
           <summary>
             {tr("图片说明")}
@@ -244,6 +273,7 @@ export function InspectorPanel(props: InspectorPanelProps) {
           />
         </section>
         <DocumentEditor
+          fileOrigin={{ kind: "node", id: node.id }}
           taskList
           id={`${node.id}-todo`}
           value={node.text ?? ""}
@@ -282,14 +312,8 @@ export function InspectorPanel(props: InspectorPanelProps) {
       )}
       {node.kind === "text" && (
         <section aria-label={tr("完整内容")}>
-          {presentation.type === "path-image" && (
-            <WorkspaceImagePreview
-              path={presentation.path}
-              alt={node.title ?? presentation.path}
-              className="detail-local-image"
-            />
-          )}
           <DocumentEditor
+            fileOrigin={{ kind: "node", id: node.id }}
             key={node.id}
             id={node.id}
             value={node.text ?? ""}
@@ -301,6 +325,7 @@ export function InspectorPanel(props: InspectorPanelProps) {
       {node.kind === "group" && (
         <section aria-label={tr("摘要")}>
           <DocumentEditor
+            fileOrigin={{ kind: "node", id: node.id }}
             id={node.id}
             value={node.summary ?? ""}
             version={node.revision}

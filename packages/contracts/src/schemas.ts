@@ -23,6 +23,18 @@ export const LocalResourceSchema = Type.Object(
   {
     type: Type.Union([Type.Literal("directory"), Type.Literal("file")]),
     path: Type.String({ minLength: 1, maxLength: 4096 }),
+    snapshot: Type.Optional(
+      Type.Object(
+        {
+          assetId: Type.String({ pattern: "^asset-[a-f0-9]{64}$" }),
+          hash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+          bytes: Type.Integer({ minimum: 0 }),
+          mime: Type.String(),
+          name: Type.String(),
+        },
+        { additionalProperties: false },
+      ),
+    ),
   },
   { additionalProperties: false },
 );

@@ -120,8 +120,8 @@ export class GraphMutation {
     if (input.kind === "pdf" && !input.assetId && input.resource?.type !== "file")
       throw new DomainError("VALIDATION", "PDF 节点需要 PDF 附件或服务器文件");
     if (input.assetId) {
-      if (!["image", "pdf"].includes(input.kind))
-        throw new DomainError("VALIDATION", "只有图片和 PDF 节点可以使用附件");
+      if (!["image", "pdf"].includes(input.kind) && input.resource?.type !== "file")
+        throw new DomainError("VALIDATION", "文件附件需要文件资源");
       const asset = (
         await this.tx.query("select mime from assets where id=$1 and state='ready'", [
           input.assetId,
@@ -129,7 +129,8 @@ export class GraphMutation {
       ).rows[0];
       if (
         !asset ||
-        (input.kind === "pdf" ? asset.mime !== "application/pdf" : !asset.mime.startsWith("image/"))
+        (input.kind === "pdf" && asset.mime !== "application/pdf") ||
+        (input.kind === "image" && !asset?.mime.startsWith("image/"))
       )
         throw new DomainError("VALIDATION", "节点类型与附件类型不匹配");
     }
@@ -162,6 +163,8 @@ export class GraphMutation {
       throw new DomainError("VALIDATION", "Agent 配置无效");
     if (input.resource && !Value.Check(schemas.LocalResourceSchema, input.resource))
       throw new DomainError("VALIDATION", "资源路径无效");
+    if (input.resource?.snapshot && input.resource.snapshot.assetId !== input.assetId)
+      throw new DomainError("VALIDATION", "文件版本与附件不一致");
     await this.tx.query(
       "insert into nodes(id,canvas_id,parent_id,sort_key,kind,body,x,y,w,h,origin,asset_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
       [

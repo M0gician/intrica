@@ -217,6 +217,13 @@ export async function intentBasis(sql: Sql, subject: string, intent: AccessInten
     }
   }
   if (intent.kind === "collaboration") {
+    if (intent.fileIds?.length)
+      base.files = (
+        await sql.query(
+          "select id,asset_id,body->'resource'->'snapshot' as snapshot from nodes where id=any($1::text[]) and canvas_id=$2 order by id",
+          [intent.fileIds, identity.canvas_id],
+        )
+      ).rows;
     if (intent.messageKind === "report") base.managerId = identity.manager_id;
     base.participants = await Promise.all(
       [subject, ...intent.recipients].sort().map(async (id) => {

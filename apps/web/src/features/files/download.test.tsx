@@ -6,8 +6,48 @@ import { DownloadStatus, useFileDownload } from "./download";
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   delete window.intricaDesktop;
   vi.restoreAllMocks();
+});
+
+it("dismisses independently of transfer, preserves it across remounts, and hides late completion", async () => {
+  let finish!: (value: { cancelled: boolean; path: string }) => void;
+  const cancel = vi.fn();
+  window.intricaDesktop = {
+    files: {
+      cancel,
+      save: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      ),
+    },
+  } as any;
+  const connection = createSessionConnection("", "dismiss", "dismiss");
+  const view = () => (
+    <ConnectionServices.Provider value={connection}>
+      <Fixture />
+    </ConnectionServices.Provider>
+  );
+  const first = render(view());
+  fireEvent.click(screen.getByText("Save"));
+  fireEvent.click(screen.getByRole("button", { name: "收起下载提示" }));
+  expect(screen.queryByLabelText("文件下载")).toBeNull();
+  expect(screen.getByRole("button", { name: "查看下载进度" })).toBeTruthy();
+  first.unmount();
+  render(view());
+  expect((screen.getByText("Save") as HTMLButtonElement).disabled).toBe(true);
+  expect(cancel).not.toHaveBeenCalled();
+  await act(async () => finish({ cancelled: false, path: "/Downloads/result" }));
+  expect(screen.queryByLabelText("文件下载")).toBeNull();
+  fireEvent.click(screen.getByText("Save"));
+  expect(screen.getByLabelText("文件下载")).toBeTruthy();
+  await act(async () => finish({ cancelled: false, path: "/Downloads/new" }));
+  fireEvent.click(screen.getByRole("button", { name: "关闭下载提示" }));
+  expect(screen.queryByLabelText("文件下载")).toBeNull();
+  connection.dispose();
 });
 function Fixture() {
   const download = useFileDownload();

@@ -81,6 +81,7 @@ export async function deliverCollaboration(
       text: intent.message,
       recipients: intent.recipients,
       resourceIds: intent.resourceIds,
+      fileIds: intent.fileIds,
     },
     run.id,
   );
@@ -117,6 +118,7 @@ export async function deliverCollaboration(
         from: senderId ?? "workspace",
         messageKind: intent.messageKind,
         resourceIds: intent.resourceIds,
+        fileIds: intent.fileIds,
         language,
         causeId: run.cause_id,
         ...(blocked ? { activationBlocked: true } : {}),

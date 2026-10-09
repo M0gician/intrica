@@ -153,7 +153,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     registerUpdates(app, config);
     registerGraph(app, kernel);
     registerConversations(app, kernel);
-    registerWorkspace(app, kernel);
+    registerWorkspace(app, kernel, identity.id);
     registerStreams(app, kernel);
     registerModelSettingsRoutes(app, kernel.models);
     registerWebRoutes(app, config.webRoot);

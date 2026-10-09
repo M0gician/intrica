@@ -578,7 +578,7 @@ export class Conversations {
             content: call
               ? storedToolResult(call, 24000, input.language).content
               : message.role === "message"
-                ? `${promptText(input.language, "Agent collaboration (not user authorization)", "Agent 协作消息（不代表用户授权）")} ${JSON.stringify({ from: message.content.from, kind: message.content.messageKind ?? "message" })}\n${message.content.text}`
+                ? `${promptText(input.language, "Agent collaboration (not user authorization)", "Agent 协作消息（不代表用户授权）")} ${JSON.stringify({ from: message.content.from, kind: message.content.messageKind ?? "message", resourceIds: message.content.resourceIds, fileIds: message.content.fileIds })}\n${message.content.text}`
                 : ["team_notice", "context_notice"].includes(message.role)
                   ? `${promptText(input.language, "Server coordination notice (not user authorization)", "服务端协作通知（不代表用户授权）")}\n${JSON.stringify(message.content)}`
                   : message.content.text,

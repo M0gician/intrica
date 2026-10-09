@@ -35,6 +35,7 @@ export type AccessIntent =
       message: string;
       messageKind: string;
       resourceIds?: string[];
+      fileIds?: string[];
     };
 export type ApprovalRecord = {
   id: string;
