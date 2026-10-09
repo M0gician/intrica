@@ -24,13 +24,28 @@ function Fixture() {
     h("section",{className:"agent-transcript",style:{padding:0,height:"auto"}},
       h("article",{id:"workspace",className:"chat-user"},
         h(MarkdownLite,{text:texts.workspace}),
-        h(InputReceipt,{conversationId:"conversation",receipt:{messageId:"workspace-input",state:"unread"}}))),
+        h(InputReceipt,{conversationId:"conversation",receipt:texts.receiptState===null?undefined:{messageId:"workspace-input",state:texts.receiptState??"unread"}}))),
     h("section",{className:"agent-activity"},
       h("article",{id:"agent",className:"agent-event agent-event-user"},
-        h(TimelineEvent,{event:{id:"agent-input",kind:"user",agentId:"agent",conversationId:"conversation",createdAt:"2026-10-01T01:02:03Z",data:{text:texts.agent,inputReceipt:{messageId:"agent-input",state:"unread"}}},nodes:new Map(),requestEvent:new Map()}))));
+        h(TimelineEvent,{event:{id:"agent-input",kind:"user",agentId:"agent",conversationId:"conversation",createdAt:"2026-10-01T01:02:03Z",data:{text:texts.agent,inputReceipt:texts.receiptState===null?undefined:{messageId:"agent-input",state:texts.receiptState??"unread"}}},nodes:new Map(),requestEvent:new Map()}))));
 }
 createRoot(document.getElementById("root")).render(h(Fixture));
 </script></body></html>`;
+
+async function assertTimestampFits(bubble) {
+  const frame = await bubble.boundingBox();
+  const body = await bubble.locator(".markdown-lite").boundingBox();
+  const timestamp = await bubble.locator("time").boundingBox();
+  assert.ok(timestamp.height <= 14, "the timestamp must stay on one line");
+  assert.ok(
+    timestamp.x >= frame.x + 4 &&
+      timestamp.x + timestamp.width <= frame.x + frame.width - 4 &&
+      timestamp.y >= body.y + body.height + 2 &&
+      timestamp.y + timestamp.height <= frame.y + frame.height - 4,
+    "the entire timestamp must fit inside the bubble below the message",
+  );
+  return timestamp;
+}
 
 test("both message bubbles use an icon footer and a hover-only overlay without layout movement", async () => {
   const server = await createServer({
@@ -55,11 +70,21 @@ test("both message bubbles use an icon footer and a hover-only overlay without l
   try {
     await server.listen();
     browser = await chromium.launch();
-    const page = await browser.newPage({ viewport: { width: 700, height: 700 } });
+    const page = await browser.newPage({
+      viewport: { width: 700, height: 700 },
+      timezoneId: "Asia/Singapore",
+    });
     await page.addInitScript(() => localStorage.setItem("intrica:language", "en"));
     const sent = [];
     await page.route("**/api/v2/conversations/conversation/expedite", async (route) => {
       sent.push(route.request().postDataJSON());
+      if (sent.length === 1) {
+        await route.fulfill({
+          status: 503,
+          json: { error: { code: "INTERNAL", message: "Could not expedite this input." } },
+        });
+        return;
+      }
       await route.fulfill({ json: { state: "read" } });
     });
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/__receipts`);
@@ -69,6 +94,9 @@ test("both message bubbles use an icon footer and a hover-only overlay without l
         element.style.width = `${width}px`;
       }, width);
       for (const text of [
+        "好",
+        "x",
+        "👍",
         "A short message.",
         "First line: Unicode and spaces.\nSecond line: a file without an extension.\n" +
           "UnbrokenFileName".repeat(8),
@@ -121,7 +149,7 @@ test("both message bubbles use an icon footer and a hover-only overlay without l
           );
           const time = bubble.locator("time");
           if (id === "agent") {
-            const timestamp = await time.boundingBox();
+            const timestamp = await assertTimestampFits(bubble);
             assert.ok(icon.x >= timestamp.x + timestamp.width);
             assert.ok(icon.x - timestamp.x - timestamp.width < 9);
           } else await expect(time).toHaveCount(0);
@@ -142,17 +170,45 @@ test("both message bubbles use an icon footer and a hover-only overlay without l
     await expect(page.locator("#workspace .input-expedite")).toBeFocused();
     await expect(page.locator("#workspace .input-expedite")).toHaveCSS("opacity", "1");
     await page.keyboard.press("Enter");
+    const error = page.locator("#workspace").getByRole("alert");
+    await expect(error).toBeVisible();
+    const errorBox = await error.boundingBox();
+    const footer = await page.locator("#workspace .input-receipt").boundingBox();
+    assert.ok(errorBox.y + errorBox.height <= footer.y - 2, "errors must not cover the receipt");
+    await page.locator("#workspace .input-expedite").press("Enter");
     await expect(
       page.locator("#workspace").getByRole("status", { name: "Read", exact: true }),
     ).toBeVisible();
     await expect(page.locator("#workspace .input-expedite")).toHaveCount(0);
-    assert.deepEqual(sent, [{ messageId: "workspace-input" }]);
+    await expect(error).toHaveCount(0);
+    assert.deepEqual(sent, [{ messageId: "workspace-input" }, { messageId: "workspace-input" }]);
     await page.locator("#agent").hover();
     await expect(page.locator("#agent time")).toHaveCSS("opacity", "1");
     await page.locator("#before").evaluate((element) => {
       element.style.visibility = "hidden";
     });
     await page.locator("main").screenshot({ path: "/tmp/intrica-receipt-layout.png" });
+    await page.locator("main").evaluate((element) => {
+      element.style.width = "300px";
+    });
+    for (const language of ["en", "zh-CN"]) {
+      await page.evaluate(async (language) => {
+        const { setLanguage } = await import("/src/i18n/index.ts");
+        await setLanguage(language);
+      }, language);
+      for (const receiptState of [null, "read"]) {
+        await page.evaluate(
+          (receiptState) =>
+            window.setReceiptExamples({ workspace: "好", agent: "好", receiptState }),
+          receiptState,
+        );
+        await expect(page.locator("#agent .markdown-lite")).toHaveText("好");
+        await expect(page.locator("#agent").getByRole("status")).toHaveCount(receiptState ? 1 : 0);
+        await assertTimestampFits(page.locator("#agent"));
+      }
+      await page.locator("#agent").hover();
+      await page.locator("main").screenshot({ path: `/tmp/intrica-bubble-width-${language}.png` });
+    }
   } finally {
     await browser?.close();
     await server.close();

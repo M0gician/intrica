@@ -3,19 +3,21 @@
   position: relative;
 }
 .input-receipt {
-  position: absolute;
-  right: 7px;
-  bottom: 6px;
-  display: inline-flex;
+  /* Let the footer set the bubble's minimum width while keeping its corner inset. */
+  display: flex;
   justify-content: flex-end;
   align-items: center;
   gap: 4px;
   height: 12px;
+  margin: 4px -9px -16px;
+  line-height: 12px;
+  white-space: nowrap;
   color: var(--text-secondary, #5f646c);
 }
 .input-receipt [role="status"] {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
 }
 .input-receipt .agent-event-time {
   margin: 0;
@@ -59,5 +61,6 @@
 }
 .input-receipt-error {
   display: block;
+  margin-top: 4px;
   font-size: 12px;
 }

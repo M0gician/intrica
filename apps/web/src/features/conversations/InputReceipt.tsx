@@ -54,6 +54,11 @@ export function InputReceipt({
   };
   return (
     <>
+      {error && (
+        <span role="alert" className="input-receipt-error">
+          {error}
+        </span>
+      )}
       <span className="input-receipt">
         {time}
         <span
@@ -112,11 +117,6 @@ export function InputReceipt({
             <path d="M11 1 4 13h4l-1 10 7-13h-4l1-9Z" />
           </svg>
         </Button>
-      )}
-      {error && (
-        <span role="alert" className="input-receipt-error">
-          {error}
-        </span>
       )}
     </>
   );
