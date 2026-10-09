@@ -93,14 +93,8 @@ export function TimelineEvent({
         {event.kind === "team_notice"
           ? ` · ${name(event.data.subjectId, event.data.subjectName)}`
           : ""}
-        {<EventTime value={event.createdAt} />}
+        {event.kind !== "user" && <EventTime value={event.createdAt} />}
       </small>
-      {event.kind === "user" && (
-        <InputReceipt
-          conversationId={event.conversationId}
-          receipt={event.data.inputReceipt as Receipt | undefined}
-        />
-      )}
       {event.kind === "broadcast" && (
         <DeferredDetails className="broadcast-scope" summary={tr("接收者与共享资源")}>
           {() => (
@@ -179,6 +173,13 @@ export function TimelineEvent({
               </Button>
             )}
         </>
+      )}
+      {event.kind === "user" && (
+        <InputReceipt
+          time={<EventTime value={event.createdAt} />}
+          conversationId={event.conversationId}
+          receipt={event.data.inputReceipt as Receipt | undefined}
+        />
       )}
     </>
   );

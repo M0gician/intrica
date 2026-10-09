@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import { tr } from "../../i18n";
 import { Button } from "../../ui/button";
@@ -12,14 +12,16 @@ export type Receipt = {
 export function InputReceipt({
   conversationId,
   receipt,
+  time,
 }: {
   conversationId?: string | undefined;
   receipt?: Receipt | undefined;
+  time?: ReactNode;
 }) {
   const { transport, activity, signal } = useSessionConnection();
   const [expediting, setExpediting] = useState<"expediting" | "read" | null>(null),
     [error, setError] = useState("");
-  if (!receipt) return null;
+  if (!receipt) return time ? <span className="input-receipt">{time}</span> : null;
   const state = expediting && receipt.state === "unread" ? expediting : receipt.state;
   const label = {
     sending: tr("发送中"),
@@ -51,24 +53,40 @@ export function InputReceipt({
     }
   };
   return (
-    <span className="input-receipt">
-      <span
-        role="status"
-        aria-label={label}
-        title={state === "read" ? tr("已加入模型上下文") : label}
-      >
-        <svg
-          width="18"
-          height="14"
-          viewBox="0 0 20 14"
-          fill="none"
-          stroke="currentColor"
-          aria-hidden="true"
+    <>
+      <span className="input-receipt">
+        {time}
+        <span
+          role="status"
+          aria-label={label}
+          title={state === "read" ? tr("已加入模型上下文") : label}
         >
-          <path d="m1 7 4 4 8-9" />
-          {state === "read" && <path d="m7 7 4 4 8-9" />}
-        </svg>
-        {label}
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 20 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {["read", "unread"].includes(state) ? (
+              <>
+                <path d="m1 7 4 4 8-9" />
+                {state === "read" && <path d="m7 7 4 4 8-9" />}
+              </>
+            ) : (
+              <>
+                <circle cx="10" cy="7" r="5.5" />
+                <path
+                  d={["sending", "expediting"].includes(state) ? "M10 3v4l3 2" : "M10 3v5m0 2v1"}
+                />
+              </>
+            )}
+          </svg>
+        </span>
       </span>
       {conversationId && ["unread", "expediting"].includes(state) && (
         <Button
@@ -80,12 +98,16 @@ export function InputReceipt({
           title={state === "expediting" ? tr("加急中") : tr("加急")}
           onClick={() => void expedite()}
         >
-          <svg width="17" height="19" viewBox="0 0 18 22" fill="currentColor" aria-hidden="true">
+          <svg width="12" height="12" viewBox="0 0 18 22" fill="currentColor" aria-hidden="true">
             <path d="M10.5 1 2 12h5l-1 9 10-13h-6l.5-7Z" />
           </svg>
         </Button>
       )}
-      {error && <span role="alert">{error}</span>}
-    </span>
+      {error && (
+        <span role="alert" className="input-receipt-error">
+          {error}
+        </span>
+      )}
+    </>
   );
 }

@@ -2,35 +2,65 @@
 .agent-event-user {
   position: relative;
 }
-.chat-user:has(.input-expedite),
-.agent-event-user:has(.input-expedite) {
-  padding-top: 34px;
+:is(.chat-user, .agent-event-user):has(.input-receipt) {
+  padding-bottom: 22px;
 }
 .input-receipt {
+  position: absolute;
+  right: 7px;
+  bottom: 6px;
   display: inline-flex;
+  justify-content: flex-end;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--text-muted, #777);
+  gap: 4px;
+  height: 12px;
+  color: var(--text-secondary, #5f646c);
 }
 .input-receipt [role="status"] {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
 }
-.input-receipt .input-expedite {
+.input-receipt .agent-event-time {
+  margin: 0;
+  color: inherit;
+  font-size: 10px;
+}
+.input-expedite.ui-button {
   position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 28px;
-  height: 28px;
+  top: -7px;
+  left: -7px;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 3px;
+  border: 1px solid var(--card-border);
+  border-radius: 50%;
+  background: var(--card-bg, #fffefa);
   color: #dc2626;
+  opacity: 0;
+  pointer-events: none;
 }
-.input-receipt .input-expedite:hover {
+.input-expedite::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+}
+:is(.chat-user, .agent-event-user):hover .input-expedite,
+.input-expedite:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.input-expedite.ui-button:hover {
   color: #b91c1c;
-  background: rgb(220 38 38 / 10%);
+  background: #fff0ef;
 }
-.input-receipt .input-expedite:focus-visible {
+.input-expedite:focus-visible {
   outline: 2px solid #dc2626;
   outline-offset: 1px;
+}
+.input-receipt-error {
+  display: block;
+  font-size: 12px;
 }

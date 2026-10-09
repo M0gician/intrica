@@ -14,6 +14,7 @@ it("uses distinct durable IDs, disables repeat expedite and explains the read st
   );
   const { rerender } = render(view("unread"));
   expect(screen.getByRole("status", { name: "未读" })).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toBe("");
   fireEvent.click(screen.getByRole("button", { name: "加急" }));
   expect(screen.queryByRole("button", { name: "加急" })).toBeNull();
   await screen.findByRole("status", { name: "已读" });
@@ -24,4 +25,5 @@ it("uses distinct durable IDs, disables repeat expedite and explains the read st
   );
   rerender(view("read"));
   expect(screen.getByRole("status").title).toBe("已加入模型上下文");
+  expect(screen.getByRole("status").textContent).toBe("");
 });
