@@ -7,7 +7,7 @@ export default async function signMac(options) {
   const trusted = Boolean(options.identity && options.identity !== "-");
   if (process.env.INTRICA_REQUIRE_TRUSTED_MAC === "1" && !trusted)
     throw new Error(
-      "Trusted macOS releases require a Developer ID certificate and Apple notarization credentials. Configure the release secrets or explicitly publish an ad-hoc build with first-launch instructions.",
+      "Trusted macOS releases require a Developer ID certificate and Apple notarization credentials. Configure the release secrets before publishing.",
     );
   await signAsync({
     ...options,

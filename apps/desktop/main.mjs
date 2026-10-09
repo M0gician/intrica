@@ -21,10 +21,20 @@ import { createConnections } from "./connections.mjs";
 import { createFileDownloads } from "./files.mjs";
 import { registerAppProtocol } from "./protocol.mjs";
 import { createSshManager } from "./ssh.mjs";
+import { createUpdateInstaller } from "./update-installer.mjs";
+import { markUpdateStartup, readUpdateOperation } from "./update-journal.mjs";
+import { runMacTransition } from "./update-transition.mjs";
 import { createUpdater } from "./updates.mjs";
 import { createWebPreview } from "./web-preview.mjs";
 
 const directory = dirname(fileURLToPath(import.meta.url));
+const version = JSON.parse(readFileSync(resolve(directory, "package.json"), "utf8")).version;
+const schemaFile = app.isPackaged
+  ? resolve(process.resourcesPath, "db/schema.sql")
+  : resolve(directory, "../../db/schema.sql");
+const schemaVersion = Number(
+  readFileSync(schemaFile, "utf8").match(/INSERT INTO schema_info\(version\) VALUES \((\d+)\)/)[1],
+);
 let build;
 try {
   build = JSON.parse(readFileSync(resolve(directory, "assets/build.json"), "utf8"));
@@ -161,11 +171,10 @@ async function start() {
   });
   process.env.INTRICA_BROWSER_PORT = String(server.address().port);
   process.env.INTRICA_BROWSER_TOKEN = browserToken;
+  await markUpdateStartup(app.getPath("userData"), version);
   backend = await startLocalBackend({
     userData: app.getPath("userData"),
-    schemaFile: app.isPackaged
-      ? resolve(process.resourcesPath, "db/schema.sql")
-      : resolve(directory, "../../db/schema.sql"),
+    schemaFile,
 
     webRoot: app.isPackaged
       ? resolve(process.resourcesPath, "renderer")
@@ -185,7 +194,7 @@ async function start() {
     releaseSsh: (alias) => sshManager.release(alias),
   });
   sshManager = createSshManager({
-    version: JSON.parse(readFileSync(resolve(directory, "package.json"), "utf8")).version,
+    version,
     userData: app.getPath("userData"),
     activateManaged: async (id) => {
       const state = await connections.activate(id);
@@ -232,9 +241,27 @@ async function start() {
   updater = await createUpdater({
     build,
     userData: app.getPath("userData"),
-    version: JSON.parse(readFileSync(resolve(directory, "package.json"), "utf8")).version,
+    version,
     packaged: app.isPackaged,
-    shell,
+    installer: createUpdateInstaller({ app }),
+    beforeInstall: async () => {
+      const previous = await localIdentity();
+      previous.profileId = connections.get().profileId;
+      // Drafts persist on each edit. Flush Chromium storage before stopping local services.
+      await session.fromPartition("persist:intrica-app").flushStorageData();
+      await session.fromPartition("persist:intrica-browser").flushStorageData();
+      quitting = true;
+      await closeServices();
+      shutdownComplete = true;
+      return previous;
+    },
+    recoverAfterFailure: async () => {
+      // The installer has not launched new code. This executable still matches the data.
+      await closeServices();
+      app.relaunch();
+      shutdownComplete = true;
+      app.quit();
+    },
   });
   for (const method of [
     "state",
@@ -242,6 +269,7 @@ async function start() {
     "download",
     "cancel",
     "open",
+    "install",
     "configure",
     "dismissNotice",
   ]) {
@@ -254,6 +282,18 @@ async function start() {
         throw new Error("Unknown renderer");
       return updater[method](input);
     });
+  }
+  const updateOperation = await readUpdateOperation(app.getPath("userData"));
+  if (
+    updateOperation?.phase === "validating" &&
+    updateOperation.profileId &&
+    updateOperation.profileId !== "local"
+  ) {
+    try {
+      await connections.activate(updateOperation.profileId);
+    } catch {
+      /* Settings retain the connection for retry. */
+    }
   }
   updater.start();
   const files = createFileDownloads(
@@ -490,6 +530,32 @@ async function start() {
     mainWindow = undefined;
   });
   await window.loadURL("intrica://app/");
+  if (updater.state().phase === "validating") await updater.verifyStartup(await localIdentity());
+}
+async function localIdentity() {
+  const request = async (path) => {
+    const response = await fetch(`${backend.apiUrl}/api/v2/${path}`, {
+      headers: { Authorization: `Bearer ${backend.authToken}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error("UPDATE_START_FAILED");
+    return response.json();
+  };
+  const [info, version] = await Promise.all([
+    request("server"),
+    request("settings/version"),
+    request("bootstrap"),
+  ]);
+  return { serverId: info.id, version: version.version, schemaVersion: version.schemaVersion };
+}
+async function closeServices() {
+  server.closeAllConnections();
+  if (server.listening) await new Promise((resolve) => server.close(resolve));
+  sshManager?.cancel(sshManager.state().operation?.id);
+  await sshManager?.settle();
+  connections?.close();
+  sshManager?.close();
+  await backend?.close();
 }
 // Closing the window, Cmd/Ctrl+Q and process signals use the same shutdown path.
 app.on("before-quit", (event) => {
@@ -500,14 +566,8 @@ app.on("before-quit", (event) => {
   void (async () => {
     await startup?.catch(() => {});
     await updater?.dispose();
+    await closeServices();
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
-    server.closeAllConnections();
-    if (server.listening) await new Promise((resolve) => server.close(resolve));
-    sshManager?.cancel(sshManager.state().operation?.id);
-    await sshManager?.settle();
-    connections?.close();
-    sshManager?.close();
-    await backend?.close();
   })()
     .catch((error) => console.error("[intrica:shutdown]", error))
     .finally(() => {
@@ -518,7 +578,10 @@ app.on("before-quit", (event) => {
 app.on("window-all-closed", () => app.quit());
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => app.quit());
 
-if (!app.requestSingleInstanceLock()) {
+if (await runMacTransition({ app, dialog, version, schemaVersion })) {
+  shutdownComplete = true;
+  app.quit();
+} else if (!app.requestSingleInstanceLock()) {
   shutdownComplete = true;
   app.quit();
 } else {
@@ -528,6 +591,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   startup = start();
   void startup.catch(async (error) => {
+    await markUpdateStartup(app.getPath("userData"), version, error).catch(() => {});
     console.error(error);
     if (mainWindow && !mainWindow.isDestroyed()) {
       const message = String(error?.message ?? error)

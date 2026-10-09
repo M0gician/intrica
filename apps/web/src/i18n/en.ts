@@ -147,7 +147,7 @@ export const en = {
     "Existing tasks keep their model. Future tasks using this model will require a new selection.",
   defaultRemoved: "Deleting the default leaves this server without a default model.",
   customModel: "Enter model manually",
-  mock: "Mock model",
+  testRecords: "Test records",
   more: "Advanced",
   limitAgents: "Concurrent conversation limit",
   limitGenerations: "Concurrent generation limit",
@@ -289,12 +289,6 @@ export const en = {
   downloadUpdate: "Download & verify update",
   downloadProgress: "Update download progress",
   downloaded: "{{percent}}% downloaded",
-  openInstaller: "Open verified installer",
-  showUpdateFile: "Show verified AppImage",
-  installerHint:
-    "SHA-256 verified. Back up your local workspace, quit Intrica, then replace the app using the installer. Open Intrica again when installation finishes.",
-  appImageInstallHint:
-    "SHA-256 verified. Back up your workspace and quit Intrica, then replace your previous AppImage with this file and launch it.",
   serverUpgradeHint:
     "On the server host, pause new work, wait for active jobs to finish, then back up PostgreSQL and DATA_DIR together before upgrading.",
   protocolUpdateHint:
@@ -315,4 +309,27 @@ export const en = {
     "The download did not match its SHA-256 checksum. It will not be opened. Download again.",
   error_UPDATE_OPEN_FAILED:
     "The installer could not be opened automatically. Its folder has been opened so you can install it manually.",
+  installUpdate: "Update and restart",
+  updateStage_verifying: "Verifying update…",
+  updateStage_installing: "Installing update…",
+  updateStage_restarting: "Restarting…",
+  updateStage_validating: "Checking the new version and workspace…",
+  updateStage_complete: "Update complete.",
+  error_UPDATE_INSTALL_FAILED:
+    "Installation did not finish. The app and recovery records are retained. Try again.",
+  error_UPDATE_SIGNATURE_REQUIRED:
+    "This app lacks a trusted signature. Download the signed installer from the release page for the transition install.",
+  error_UPDATE_SIGNATURE_OR_PACKAGE_INVALID:
+    "The update signature or package is invalid. Installation stopped.",
+  error_UPDATE_IDENTITY_MISMATCH: "The update application identity or version does not match.",
+  error_UPDATE_INSTALL_LOCATION:
+    "This installation location cannot be updated. Check directory permissions and installation format.",
+  error_UPDATE_INTERRUPTED:
+    "The previous update was interrupted. Your workspace is retained. Try the update again.",
+  error_UPDATE_START_FAILED:
+    "The new version failed its startup check. Workspace and recovery records are retained. Install a compatible newer version to retry.",
+  error_UPDATE_DOWNLOAD_FAILED: "The update download did not finish. Try again.",
+  error_UPDATE_UNSUPPORTED_PLATFORM: "This installation format does not support automatic updates.",
+  error_UPDATE_VERSION_MISMATCH: "The installed version does not match the selected release.",
+  error_UPDATE_SHUTDOWN_FAILED: "The app could not shut down safely. The update stopped.",
 };

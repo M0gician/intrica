@@ -29,10 +29,9 @@ contextBridge.exposeInMainWorld("intricaDesktop", {
   ),
   preferences: { setLanguage: (value) => ipcRenderer.invoke("preferences:language", value) },
   updates: Object.fromEntries(
-    ["state", "check", "download", "cancel", "open", "configure", "dismissNotice"].map((method) => [
-      method,
-      (value) => ipcRenderer.invoke(`updates:${method}`, value),
-    ]),
+    ["state", "check", "download", "cancel", "open", "install", "configure", "dismissNotice"].map(
+      (method) => [method, (value) => ipcRenderer.invoke(`updates:${method}`, value)],
+    ),
   ),
   browser: {
     preview: (url) => ipcRenderer.invoke("browser:preview", url),

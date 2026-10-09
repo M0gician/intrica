@@ -9,7 +9,6 @@ import { useSessionConnection } from "../../api/connection";
 import { useConnection } from "../../app/connection-context";
 import { date, useTranslation } from "../../i18n";
 import { Button } from "../../ui/button";
-import { Dialog } from "../../ui/dialog";
 import { Field, Input } from "../../ui/field";
 import { BuildDetails } from "./BuildDetails";
 import { DesktopUpdateStatus } from "./DesktopUpdateStatus";
@@ -29,7 +28,6 @@ export function Updates({ ready }: { ready: boolean }) {
   const [checkingServer, setCheckingServer] = useState(false);
   const [serverError, setServerError] = useState("");
   const [error, setError] = useState("");
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const generation = useRef(0);
   useEffect(() => {
     const current = ++generation.current;
@@ -50,7 +48,7 @@ export function Updates({ ready }: { ready: boolean }) {
       generation.current++;
     };
   }, [transport, ready]);
-  const action = async (command: "check" | "download" | "cancel" | "open") => {
+  const action = async (command: "check" | "install" | "cancel") => {
     if (!bridge) return;
     setError("");
     try {
@@ -68,7 +66,11 @@ export function Updates({ ready }: { ready: boolean }) {
       setError(settingsError(error));
     }
   };
-  const active = updaterBusy || desktop?.phase === "checking" || desktop?.phase === "downloading";
+  const active =
+    updaterBusy ||
+    ["checking", "downloading", "verifying", "installing", "restarting", "validating"].includes(
+      desktop?.phase ?? "",
+    );
   const clientBuild =
     desktop?.build ??
     describeBuild(
@@ -98,14 +100,7 @@ export function Updates({ ready }: { ready: boolean }) {
         <Notice error={error} />
         {desktop ? (
           <>
-            <DesktopUpdateStatus
-              state={desktop}
-              disabled={active}
-              action={async (command) => {
-                if (command === "open") setConfirmOpen(true);
-                else await action(command);
-              }}
-            />
+            <DesktopUpdateStatus state={desktop} disabled={active} action={action} />
             {!desktop.packaged && <span>{t("developmentBuildLabel")}</span>}
             {desktop.packaged && (
               <details className="update-details">
@@ -201,28 +196,6 @@ export function Updates({ ready }: { ready: boolean }) {
           </a>
         </p>
       </section>
-      {confirmOpen && (
-        <Dialog label={t("openInstaller")} onClose={() => setConfirmOpen(false)}>
-          <h3>{t("openInstaller")}</h3>
-          <p>
-            {t(
-              desktop?.asset?.name.endsWith(".AppImage") ? "appImageInstallHint" : "installerHint",
-            )}
-          </p>
-          <div className="settings-actions settings-form-actions">
-            <Button onClick={() => setConfirmOpen(false)}>{t("cancel")}</Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                setConfirmOpen(false);
-                void action("open");
-              }}
-            >
-              {t("open")}
-            </Button>
-          </div>
-        </Dialog>
-      )}
     </>
   );
 }

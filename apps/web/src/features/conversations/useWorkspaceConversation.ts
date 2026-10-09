@@ -20,17 +20,8 @@ export function useWorkspaceConversation(
   const { transport, agentRequest, storage, api, activity } = useSessionConnection();
   const store = useStore();
   const [usage, setUsage] = useState<AgentContextUsage>();
-  const [question, setQuestion] = useState("");
   const appliedCompose = useRef<string | null>(null);
   const composer = useRef<HTMLFormElement>(null);
-  useEffect(() => {
-    if (!composeRequest || appliedCompose.current === composeRequest.id) return;
-    appliedCompose.current = composeRequest.id;
-    setQuestion((current) =>
-      current ? `${current}\n\n${composeRequest.text}` : composeRequest.text,
-    );
-    composer.current?.querySelector("textarea")?.focus();
-  }, [composeRequest]);
   const [model, setModel] = useState<ModelSelection | null>(null);
   const modelReady = useModelReady(model);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -71,6 +62,39 @@ export function useWorkspaceConversation(
   const graph = { nodes };
   const { server } = useConnection();
   const sessionKey = `intrica:conversation:${server?.id ?? location.origin}:${canvasId}`;
+  const draftKey = `${sessionKey}:draft`;
+  const readDraft = useCallback(() => {
+    try {
+      return storage.getItem(draftKey) ?? "";
+    } catch {
+      return "";
+    }
+  }, [storage, draftKey]);
+  const [draft, setDraft] = useState(() => ({ key: draftKey, text: readDraft() }));
+  const question = draft.key === draftKey ? draft.text : readDraft();
+  const setQuestion = useCallback(
+    (value: string | ((current: string) => string)) => {
+      setDraft((current) => {
+        const previous = current.key === draftKey ? current.text : readDraft();
+        const text = typeof value === "function" ? value(previous) : value;
+        try {
+          storage.setItem(draftKey, text);
+        } catch {
+          /* Keep the draft in memory. */
+        }
+        return { key: draftKey, text };
+      });
+    },
+    [draftKey, readDraft, storage],
+  );
+  useEffect(() => {
+    if (!composeRequest || appliedCompose.current === composeRequest.id) return;
+    appliedCompose.current = composeRequest.id;
+    setQuestion((current) =>
+      current ? `${current}\n\n${composeRequest.text}` : composeRequest.text,
+    );
+    composer.current?.querySelector("textarea")?.focus();
+  }, [composeRequest, setQuestion]);
   const readSession = useCallback(() => {
     try {
       const value = storage.getItem(sessionKey) || newId("conversation");
@@ -258,7 +282,6 @@ export function useWorkspaceConversation(
     const activeSession = sessionId;
     setRunId(undefined);
     setStreaming(true);
-    setQuestion("");
     setBusy(true);
     setTranscriptGeneration((value) => value + 1);
     setTurns((turns) => [
@@ -292,6 +315,7 @@ export function useWorkspaceConversation(
         (event) => {
           if (event.type === "context") setUsage(event.usage);
           if (event.type === "start") {
+            setQuestion((current) => (current.trim() === prompt ? "" : current));
             if (event.messageId)
               update((turn) => ({
                 ...turn,

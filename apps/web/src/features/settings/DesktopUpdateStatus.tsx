@@ -10,34 +10,29 @@ export function DesktopUpdateStatus({
 }: {
   state: DesktopUpdateState;
   disabled: boolean;
-  action: (command: "check" | "download" | "cancel" | "open") => Promise<void>;
+  action: (command: "check" | "install" | "cancel") => Promise<void>;
 }) {
   const { t } = useTranslation();
   const asset = state.packaged ? state.asset : null;
-  const command =
-    state.phase === "downloading"
-      ? "cancel"
-      : asset
-        ? state.phase === "ready"
-          ? "open"
-          : "download"
-        : "check";
+  const command = state.phase === "downloading" ? "cancel" : asset ? "install" : "check";
   const label =
     command === "cancel"
       ? "cancel"
-      : command === "open"
-        ? asset!.name.endsWith(".AppImage")
-          ? "showUpdateFile"
-          : "openInstaller"
-        : command === "download"
-          ? "downloadUpdate"
-          : state.phase === "checking"
-            ? "checkingUpdates"
-            : "checkUpdates";
+      : command === "install"
+        ? "installUpdate"
+        : state.phase === "checking"
+          ? "checkingUpdates"
+          : "checkUpdates";
+  const stage = ["verifying", "installing", "restarting", "validating", "complete"].includes(
+    state.phase,
+  )
+    ? state.phase
+    : null;
   return (
     <>
       <div className="settings-update-status">
         <div>
+          {stage && <p role="status">{t(`updateStage_${stage}`)}</p>}
           {state.check && (
             <p role="status">
               {t(state.check.available ? "updateAvailable" : "upToDate", {

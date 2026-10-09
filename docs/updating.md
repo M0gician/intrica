@@ -11,16 +11,36 @@ Packaged Desktop checks after startup and then every six hours. Automatic
 download is optional. Checks and downloads do not stop Agents or install
 software. Failures use bounded backoff.
 
-1. Check for updates.
-2. Download and verify the selected installer.
-3. Back up the local workspace, quit Intrica, and open the verified installer.
-4. Replace the app and reopen it.
+Select **Update and restart**. Intrica downloads the matching package, checks
+its bytes and application identity, saves drafts and connection state, stops
+its local services, replaces the application and starts it again. Background
+checks and downloads never trigger installation or exit.
 
-AppImage downloads are revealed so you can replace the existing executable.
-The app verifies file size and SHA-256 before offering an installer and again
-before opening it. Cancellation leaves no usable partial installer. Cached
-files are reused only after metadata and file verification. Installation
-still requires the operating system's normal approval.
+The update journal retains download, verification, installation, restart and
+startup-validation states across processes. Completion requires the selected
+client version, bundled server version, database schema and original server
+identity to match. Remote runs continue while the local connection closes.
+
+macOS arm64 uses a signed, notarized ZIP and a detached installer. Both the
+current app and candidate must pass strict signature checks. Their bundle
+identifier and signing team must match. Linux x64 AppImage uses a staged file
+beside the installed executable and retains the previous executable. Debian
+uses the system permission dialog and package manager, and retains the previous
+application files. The current executable must belong to the Intrica package.
+A non-writable installation location stops before local services are closed.
+
+For an old macOS client that only opens a DMG, open Intrica inside the new
+signed DMG. Its transition launcher offers **Install and restart**, closes
+the previous application, replaces it and restarts with the same data folder.
+No dragging or manual exit is required. A signed candidate can replace the
+legacy ad-hoc bundle; multiple running installation locations are rejected.
+
+Failed downloads do not replace the app. Cancellation removes partial data.
+Verified caches are checked again before installation. Installation failures
+retain recovery records and the previous executable. A fallback starts only
+before new code has launched. Once a candidate can have migrated the database,
+the installer retains the evidence and never starts an older binary against it.
+Use a compatible newer release or restore a matching full backup.
 
 Build diagnostics include version, channel, commit, build identifier and
 recorded build time, without connection credentials. Source builds use
@@ -29,8 +49,8 @@ source-update instructions and do not schedule automatic downloads.
 ## Remote services
 
 Stop new work, wait for active tools to finish and back up before applying
-a service update. In Desktop, inspect the SSH host, select a published
-stable version, and confirm its deployment plan. The archive is verified
+a service update. In Desktop, choose **Install and connect**. The client selects its own
+server version, inspects the host and shows installation progress. The archive is verified
 locally and remotely before service activation.
 
 From a built source checkout, use a configured SSH alias:
@@ -76,7 +96,9 @@ database backup and copy `DATA_DIR` together. Protect backups as credentials.
 
 ## Database migration and uncertain results
 
-Current source uses schema 10. Schema 8 and 9 upgrades reconcile persistent
+Current source uses schema 12. Schema 11 separates file and execution grants
+and persists input receipts. Schema 12 adds tracing and scoped media references.
+Schema 8 and 9 upgrades reconcile persistent
 tool receipts and execution state in one transaction. Stop the old API,
 Worker and execution processes normally before migration; stopping the
 database alone is insufficient.
