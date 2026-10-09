@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import multipart from "@fastify/multipart";
 import { type TypeBoxTypeProvider, TypeBoxValidatorCompiler } from "@fastify/type-provider-typebox";
@@ -22,7 +23,14 @@ import { loadServerIdentity } from "./identity.js";
 
 const createApp = () =>
   Fastify({
-    logger: false,
+    logger: {
+      level: "info",
+      serializers: {
+        err: (error) => ({ type: error?.name ?? "Error", message: "Request failure", stack: "" }),
+      },
+    },
+    disableRequestLogging: true,
+    genReqId: () => randomUUID(),
     bodyLimit: 2 * 1024 * 1024,
     forceCloseConnections: true,
   }).withTypeProvider<TypeBoxTypeProvider>();
@@ -60,7 +68,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
         ? e.statusCode
         : 500;
     if (status >= 500)
-      console.error("[http]", request.id, request.method, request.routeOptions.url, e.message);
+      request.log.error(
+        { method: request.method, route: request.routeOptions.url, status },
+        "Request failed",
+      );
     void reply.code(status).send({
       error: {
         code: known ? error.code : status === 400 ? "VALIDATION" : "INTERNAL",
@@ -70,6 +81,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     });
   });
   app.addHook("onRequest", async (req, reply) => {
+    reply.header("X-Request-Id", req.id);
     if (!req.url.startsWith("/api/")) return;
     const pathname = req.url.split("?", 1)[0];
     if (
@@ -86,6 +98,18 @@ export async function buildServer(options: BuildServerOptions = {}) {
         return reply.code(403).send({ error: { code: "FORBIDDEN", message: "请求来源无效" } });
       }
     }
+  });
+  app.addHook("onResponse", async (req, reply) => {
+    // Route templates omit query strings and private path/ID parameters.
+    req.log.info(
+      {
+        method: req.method,
+        route: req.routeOptions.url ?? "unmatched",
+        status: reply.statusCode,
+        durationMs: reply.elapsedTime,
+      },
+      "HTTP request",
+    );
   });
   const kernel = await createKernel(config);
   let supervisor: Awaited<ReturnType<typeof superviseWorker>> | undefined;

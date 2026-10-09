@@ -1,7 +1,34 @@
+import { applyMessage, type StreamMessage } from "@intrica/contracts";
 import { type Database, DomainError } from "../../adapters/postgres/database.js";
 export type EventRecord = { seq: string; type: string; payload: any; attemptId?: string | null };
 export class Events {
   constructor(readonly db: Database) {}
+  async messageAt(runId: string, before?: string): Promise<StreamMessage | undefined> {
+    const last = (
+      await this.db.pool.query(
+        "select seq,payload from run_events where run_id=$1 and type='message' and ($2::bigint is null or seq<=$2) order by seq desc limit 1",
+        [runId, before ?? null],
+      )
+    ).rows[0];
+    if (!last) return;
+    if (!last.payload.delta) return last.payload;
+    const snapshot = (
+      await this.db.pool.query(
+        "select seq,payload from run_events where run_id=$1 and type='message' and payload->>'id'=$2 and seq<=$3 and payload->>'delta' is distinct from 'true' order by seq desc limit 1",
+        [runId, last.payload.id, last.seq],
+      )
+    ).rows[0];
+    if (!snapshot) throw new DomainError("RESET_REQUIRED", "流内容快照已过期");
+    const updates = (
+      await this.db.pool.query(
+        "select payload from run_events where run_id=$1 and type='message' and payload->>'id'=$2 and seq>$3 and seq<=$4 order by seq",
+        [runId, last.payload.id, snapshot.seq, last.seq],
+      )
+    ).rows;
+    let message = snapshot.payload;
+    for (const update of updates) message = applyMessage(message, update.payload);
+    return message;
+  }
   async prune() {
     await this.db.pool.query(
       "delete from canvas_events where (canvas_id,seq) in(select canvas_id,seq from canvas_events where created_at<now()-interval '7 days' order by created_at limit 5000)",

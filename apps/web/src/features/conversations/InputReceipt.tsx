@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import { tr } from "../../i18n";
 import { Button } from "../../ui/button";
+import "./input-receipt.css";
 
 export type Receipt = {
   messageId: string;
@@ -69,9 +70,19 @@ export function InputReceipt({
         </svg>
         {label}
       </span>
-      {conversationId && state === "unread" && (
-        <Button size="small" onClick={() => void expedite()}>
-          {tr("加急")}
+      {conversationId && ["unread", "expediting"].includes(state) && (
+        <Button
+          variant="quiet"
+          size="icon"
+          className="input-expedite"
+          disabled={state === "expediting"}
+          aria-label={state === "expediting" ? tr("加急中") : tr("加急")}
+          title={state === "expediting" ? tr("加急中") : tr("加急")}
+          onClick={() => void expedite()}
+        >
+          <svg width="17" height="19" viewBox="0 0 18 22" fill="currentColor" aria-hidden="true">
+            <path d="M10.5 1 2 12h5l-1 9 10-13h-6l.5-7Z" />
+          </svg>
         </Button>
       )}
       {error && <span role="alert">{error}</span>}

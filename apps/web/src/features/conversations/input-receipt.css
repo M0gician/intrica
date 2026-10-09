@@ -1,0 +1,36 @@
+.chat-user,
+.agent-event-user {
+  position: relative;
+}
+.chat-user:has(.input-expedite),
+.agent-event-user:has(.input-expedite) {
+  padding-top: 34px;
+}
+.input-receipt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted, #777);
+}
+.input-receipt [role="status"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.input-receipt .input-expedite {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 28px;
+  height: 28px;
+  color: #dc2626;
+}
+.input-receipt .input-expedite:hover {
+  color: #b91c1c;
+  background: rgb(220 38 38 / 10%);
+}
+.input-receipt .input-expedite:focus-visible {
+  outline: 2px solid #dc2626;
+  outline-offset: 1px;
+}

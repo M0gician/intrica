@@ -4,6 +4,7 @@ import { contextUsage } from "../../adapters/model/context.js";
 import type { ModelRegistry } from "../../adapters/model/registry.js";
 import { type Database, DomainError, type Tx } from "../../adapters/postgres/database.js";
 import { agentIdentity } from "../access/policy.js";
+import { Events } from "../execution/events.js";
 import { CollaborationReader } from "./collaboration-reader.js";
 import { ConversationNavigation } from "./conversation-navigation.js";
 import { projectInputReceipts } from "./input-receipts.js";
@@ -145,7 +146,13 @@ export class ConversationReader {
               ? {
                   ...call.result,
                   content: call.result.content.map((p: any) =>
-                    p.type === "image" ? { type: "image", mimeType: p.mimeType } : p,
+                    p.type === "image"
+                      ? {
+                          type: "image",
+                          mimeType: p.mimeType,
+                          ...(p.intricaMedia ? { intricaMedia: p.intricaMedia } : {}),
+                        }
+                      : p,
                   ),
                 }
               : call.result,
@@ -221,19 +228,14 @@ export class ConversationReader {
       query.after === undefined &&
       query.around === undefined
     ) {
-      const live = (
-        await this.db.pool.query(
-          "select payload from run_events where run_id=$1 and type='message' order by seq desc limit 1",
-          [run.id],
-        )
-      ).rows[0];
-      if (live?.payload.streaming)
+      const live = await new Events(this.db).messageAt(run.id);
+      if (live?.streaming)
         events.push({
           conversationId: c.id,
           seq: -1,
           agentId,
           kind: "assistant",
-          data: live.payload,
+          data: live,
           createdAt: new Date().toISOString(),
         });
     }

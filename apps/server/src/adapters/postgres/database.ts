@@ -169,7 +169,13 @@ export class Database {
           );
           version = 11;
         }
-        if (version !== 11) throw new Error("不支持此数据库版本，请使用独立数据库");
+        if (version === 11) {
+          await tx.query(
+            await readFile(join(dirname(path), "migrations/0012-tracing-media.sql"), "utf8"),
+          );
+          version = 12;
+        }
+        if (version !== 12) throw new Error("不支持此数据库版本，请使用独立数据库");
         return;
       }
       await tx.query(await readFile(path, "utf8"));

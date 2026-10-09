@@ -33,6 +33,7 @@ export type Run = {
 };
 export type Lease = Run & { attemptId: string };
 export class RunStore {
+  media?: import("../../adapters/storage/media.js").MediaStore;
   readonly settings: ExecutionSettingsStore;
   constructor(
     readonly db: Database,

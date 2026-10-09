@@ -7,7 +7,7 @@ export const isLocalFile = (url: string) =>
 /** Model text must use scoped file references, never the owner's HTTP file routes. */
 export const isOwnerFileUrl = (url: string) => {
   try {
-    return /^\/api\/(?:v2\/)?(?:workspace|files|assets|nodes)(?:\/|$)/.test(
+    return /^\/api\/(?:v2\/)?(?:workspace|files|assets|nodes|media|conversations)(?:\/|$)/.test(
       new URL(url, location.href).pathname,
     );
   } catch {

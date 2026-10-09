@@ -205,7 +205,7 @@ it("atomically publishes an image result before inference fails, then consumes i
   expect(
     checkpoint
       .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
-      .some((p: any) => p.type === "image" && p.data === png),
+      .some((p: any) => p.type === "image" && p.data === "" && p.intricaMedia?.id),
   ).toBe(true);
   const registry = await k.tools.create(
     { ...ctx, run },
@@ -219,7 +219,9 @@ it("atomically publishes an image result before inference fails, then consumes i
   const retrieved = await registry
     .find((t) => t.name === "get_tool_result")!
     .execute(key(), { callId: persisted.id }, ctx.signal);
-  expect(retrieved.content.some((p) => p.type === "image" && p.data === png)).toBe(true);
+  expect(JSON.stringify(retrieved)).not.toContain(png);
+  const hydrated = await k.runs.media!.hydrate(retrieved, submitted.conversationId);
+  expect(hydrated.content.some((p) => p.type === "image" && p.data === png)).toBe(true);
   expect(calls).toBe(1);
   measurements.atomicDelivery = {
     executions: calls,

@@ -1,6 +1,6 @@
 -- Intrica protocol 2. This schema never reads or alters the previous public tables.
-CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=11), models_initialized boolean NOT NULL DEFAULT false);
-INSERT INTO schema_info(version) VALUES (11) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=12), models_initialized boolean NOT NULL DEFAULT false);
+INSERT INTO schema_info(version) VALUES (12) ON CONFLICT DO NOTHING;
 CREATE TABLE canvases (
  id text PRIMARY KEY, title text NOT NULL, graph_revision integer NOT NULL DEFAULT 0,
  event_seq bigint NOT NULL DEFAULT 0,
@@ -9,6 +9,7 @@ CREATE TABLE canvases (
 CREATE TABLE assets (
  id text PRIMARY KEY, content_hash text NOT NULL UNIQUE, storage_key text NOT NULL,
  mime text NOT NULL, bytes integer NOT NULL, width integer NOT NULL, height integer NOT NULL,
+ last_used_at timestamptz NOT NULL DEFAULT now(),
  state text NOT NULL CHECK (state IN ('ready','deleting')), created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE nodes (
@@ -99,7 +100,7 @@ CREATE TABLE tool_calls (
  effect_class text NOT NULL CHECK(effect_class IN ('read','graph','external')),
  state text NOT NULL CHECK(state IN ('prepared','dispatching','succeeded','failed','unknown','waiting')),
  is_async boolean NOT NULL DEFAULT false, delivered_at timestamptz, next_notice_at timestamptz, notice_count integer NOT NULL DEFAULT 0,
- result jsonb, approval_id text, execution_input jsonb, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+ result jsonb, approval_id text, execution_input jsonb, dispatched_at timestamptz, completed_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
  UNIQUE(run_id,logical_call_id)
 );
 CREATE INDEX tool_calls_pending ON tool_calls(run_id) WHERE is_async AND delivered_at IS NULL;
@@ -151,8 +152,18 @@ CREATE TABLE model_calls (
  endpoint_id text, profile_id text, provider text NOT NULL, model_id text NOT NULL, protocol text NOT NULL,
  purpose text NOT NULL, simulated boolean NOT NULL DEFAULT false,
  started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz,
+ provider_request_id text, response_id text, request_id text, first_response_at timestamptz,
  outcome text NOT NULL DEFAULT 'unconfirmed', usage_status text NOT NULL DEFAULT 'unavailable',
  input_tokens bigint, output_tokens bigint, cache_read_tokens bigint, cache_write_tokens bigint
 );
 CREATE INDEX model_calls_time ON model_calls(started_at);
 CREATE INDEX model_calls_canvas_time ON model_calls(canvas_id,started_at);
+
+CREATE TABLE media_references (
+ id text PRIMARY KEY, asset_id text NOT NULL REFERENCES assets(id),
+ conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+ tool_call_id text REFERENCES tool_calls(id) ON DELETE CASCADE,
+ created_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE NULLS NOT DISTINCT(asset_id,conversation_id,tool_call_id)
+);
+CREATE INDEX media_references_scope ON media_references(conversation_id);

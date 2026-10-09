@@ -43,7 +43,7 @@ for attempt in {1..60}; do
 done
 if [ "$ready" != true ]; then docker_ci logs "$scope-server"; exit 1; fi
 docker_ci exec -e "EXPECTED_VERSION=$tag" -e "EXPECTED_COMMIT=$(git rev-parse HEAD)" "$scope-server" node --input-type=module -e \
-  "const r=await fetch('http://127.0.0.1:3001/api/v2/settings/version',{headers:{Authorization:'Bearer release-check-token'}}); const v=await r.json(); if(!r.ok||v.version!==process.env.EXPECTED_VERSION||v.commit!==process.env.EXPECTED_COMMIT||v.deployment!=='container'||v.schemaVersion!==11) process.exit(1)"
+  "const r=await fetch('http://127.0.0.1:3001/api/v2/settings/version',{headers:{Authorization:'Bearer release-check-token'}}); const v=await r.json(); if(!r.ok||v.version!==process.env.EXPECTED_VERSION||v.commit!==process.env.EXPECTED_COMMIT||v.deployment!=='container'||v.schemaVersion!==12) process.exit(1)"
 printf '%s' "$GH_TOKEN" | docker_ci login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 docker_ci tag "$scope:check" "$image:$tag"
 # The push receipt is the registry's digest; local RepoDigests may start with a temporary tag.

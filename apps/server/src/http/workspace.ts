@@ -10,6 +10,19 @@ import { createStream } from "./streams.js";
 
 const path = Type.String({ maxLength: 4096 });
 export function registerWorkspace(app: AppInstance, k: Kernel, serverId: string) {
+  app.get(
+    "/api/v2/media/:id",
+    { schema: { params: Type.Object({ id: Type.String({ maxLength: 200 }) }) } },
+    async (req, reply) => {
+      const media = await k.runs.media!.ownerStream(req.params.id);
+      return reply
+        .type(media.mime)
+        .header("Content-Security-Policy", "sandbox; default-src 'none'")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Cache-Control", "private, no-store")
+        .send(media.stream);
+    },
+  );
   const host = new HostClient(k.config.dataDir);
   const files = new FileReferences(k, serverId);
   const reference = Type.String({ minLength: 1, maxLength: 24000 });

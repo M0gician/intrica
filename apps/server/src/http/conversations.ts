@@ -1,11 +1,12 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { schemas } from "@intrica/contracts";
+import { applyMessage, type StreamMessage, schemas } from "@intrica/contracts";
 import { Type } from "typebox";
 import { hostCapabilities } from "../adapters/host/executor.js";
 import { id } from "../adapters/postgres/database.js";
 import type { AppInstance } from "../app.js";
 import type { Kernel } from "../composition.js";
 import { expediteInput } from "../modules/work/input-receipts.js";
+import { conversationTrace } from "../modules/work/trace.js";
 import { promptLanguage, promptText } from "../prompt-language.js";
 import { createStream } from "./streams.js";
 
@@ -21,6 +22,10 @@ const activityFilter = (query: { selection?: string; groupId?: string }) => ({
   groupId: query.groupId,
 });
 export function registerConversations(app: AppInstance, k: Kernel) {
+  app.get("/api/v2/conversations/:id/trace", { schema: { params } }, (req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    return conversationTrace(k.db, req.params.id);
+  });
   app.post(
     "/api/v2/conversations/:id/expedite",
     {
@@ -100,6 +105,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
     async (req, reply) => {
       const c = await k.conversations.read.forAgent(req.params.id);
       const response = await k.conversations.submit({
+        requestId: req.id,
         canvasId: c.canvas_id,
         agentId: req.params.id,
         message: req.body.message,
@@ -283,6 +289,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
     },
     async (req) => {
       const submitted = await k.conversations.steer({
+        requestId: req.id,
         conversationId: req.body.sessionId,
         message: req.body.message,
         language: promptLanguage(req.headers["accept-language"]),
@@ -301,6 +308,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
       schema: {
         body: Type.Object({
           sessionId: Type.String({ minLength: 1, maxLength: 200 }),
+          streamFormat: Type.Optional(Type.Literal("delta")),
           resumeRunId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
           message: Type.String({ minLength: 1, maxLength: 8000 }),
           scopeId: Type.String(),
@@ -324,6 +332,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
             })
           ).node.id;
       const submitted = await k.conversations.submit({
+        requestId: req.id,
         canvasId,
         conversationId: req.body.sessionId,
         message: req.body.message,
@@ -335,6 +344,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
       });
       return createStream(app, reply, async function* (signal) {
         let cursor = "0";
+        let message: StreamMessage | undefined;
         yield {
           type: "start",
           runId: submitted.run.id,
@@ -352,7 +362,10 @@ export function registerConversations(app: AppInstance, k: Kernel) {
               return;
             }
             if (["message", "tool", "context", "compaction", "input.receipt"].includes(event.type))
-              yield { type: event.type, ...event.payload };
+              if (event.type === "message" && req.body.streamFormat !== "delta") {
+                message = applyMessage(message, event.payload);
+                yield { ...message, type: "message" };
+              } else yield { type: event.type, ...event.payload };
           }
           const run = await k.runs.get(submitted.run.id);
           if (

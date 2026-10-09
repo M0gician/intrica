@@ -3,7 +3,10 @@ import { ModelRegistry } from "./adapters/model/registry.js";
 import { withModelUsage } from "./adapters/model/usage.js";
 import { Database } from "./adapters/postgres/database.js";
 import { AssetStore } from "./adapters/storage/assets.js";
+import { MediaStore } from "./adapters/storage/media.js";
 import type { ApiConfig } from "./config.js";
+import { loadServerIdentity } from "./identity.js";
+import { grantsFor } from "./modules/access/policy.js";
 import { AccessService } from "./modules/access/service.js";
 import { Events } from "./modules/execution/events.js";
 import { Statistics } from "./modules/execution/statistics.js";
@@ -28,6 +31,33 @@ export async function createKernel(config: ApiConfig) {
       conversations = new Conversations(db, runs, models),
       access = new AccessService(db, graph, conversations, assets);
     const host = new HostExecutor(db, access, config.dataDir);
+    const media = new MediaStore(db, assets, loadServerIdentity(config.dataDir).id);
+    runs.media = media;
+    media.authorize = async (call) => {
+      const agentId = call.frozen_input?.agentId;
+      if (!agentId) return true;
+      try {
+        if (await access.storedReceiptAllows(call)) return true;
+        const input = call.execution_input ?? call.args;
+        if (input.target?.kind === "node")
+          return (await grantsFor(db.pool, agentId)).some(
+            (g) => g.resource_id === input.target.nodeId,
+          );
+        const path = input.input?.path ?? input.path;
+        if (path) {
+          await host.assertPath({ agentId }, path, false);
+          return true;
+        }
+        const scope = await host.scope({ agentId }, input.cwd);
+        return (
+          scope.identity.config.role === "admin" ||
+          scope.commandRoots.length > 0 ||
+          (!input.fullHost && scope.isolatedRoots.some((root) => root === scope.cwd))
+        );
+      } catch {
+        return false;
+      }
+    };
     const tools = new ToolRegistry(graph, conversations, access, host, assets);
     const generation = new GenerationService(graph, runs, models, (id) => assets.resolve(id));
     const events = new Events(db),
@@ -46,6 +76,7 @@ export async function createKernel(config: ApiConfig) {
           attemptId: ctx.run.attemptId,
           canvasId: ctx.run.canvas_id,
           conversationId: ctx.run.frozen_input.conversationId,
+          requestId: ctx.run.frozen_input.requestId,
         },
         action,
       );
@@ -65,6 +96,7 @@ export async function createKernel(config: ApiConfig) {
         if (Date.now() - lastMaintenance > 3600000) {
           lastMaintenance = Date.now();
           await events.prune();
+          await assets.prune();
         }
       },
     );

@@ -37,9 +37,12 @@ beforeAll(async () => {
       res.end(JSON.stringify({ error: { message: "401 unauthorized fixture-private-detail" } }));
       return;
     }
-    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "x-request-id": "provider-request-fixture",
+    });
     const chunk = (delta: object, finish_reason: string | null) =>
-      `data: ${JSON.stringify({ id: key(), object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
+      `data: ${JSON.stringify({ id: "provider-response-fixture", object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta, finish_reason }], usage: { prompt_tokens: 120, completion_tokens: 12, total_tokens: 132, prompt_tokens_details: { cached_tokens: 20 } } })}\n\n`;
     res.end(
       `${chunk({ role: "assistant", content: "Received." }, null)}${chunk({}, "stop")}data: [DONE]\n\n`,
     );
@@ -330,6 +333,43 @@ it("a rolled-back checkpoint never publishes a read receipt", async () => {
   expect((await k.events.read("run", run.id, "0")).some((e) => e.type === "input.receipt")).toBe(
     false,
   );
+});
+
+it("connects request, input, run, attempt and provider IDs in a prompt-free trace", async () => {
+  const member = await agent();
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/v2/canvas-agents/${member.id}/run`,
+    headers: { authorization: `Bearer ${token}` },
+    payload: { message: "private-trace-prompt", idempotencyKey: key() },
+  });
+  expect(response.statusCode).toBe(202);
+  const run = (await k.runs.claim("trace"))!;
+  await k.worker.handlers.conversation(context(run));
+  const trace = (
+    await app.inject({
+      url: `/api/v2/conversations/${run.subject_id}/trace`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+  ).json();
+  expect(trace.inputs[0]).toMatchObject({ id: response.json().messageId, consumed_run_id: run.id });
+  expect(trace.runs[0].request_id).toBe(response.headers["x-request-id"]);
+  expect(trace.models[0]).toMatchObject({
+    run_id: run.id,
+    attempt_id: run.attemptId,
+    request_id: response.headers["x-request-id"],
+    provider_request_id: "provider-request-fixture",
+    response_id: "provider-response-fixture",
+    input_tokens: "120",
+    output_tokens: "12",
+    cache_read_tokens: "20",
+  });
+  expect(Number(trace.models[0].first_response_ms)).toBeGreaterThanOrEqual(0);
+  expect(JSON.stringify(trace)).not.toContain("private-trace-prompt");
+  expect(JSON.stringify(trace)).not.toContain("fixture-only");
+  expect(
+    (await app.inject({ url: `/api/v2/conversations/${run.subject_id}/trace` })).statusCode,
+  ).toBe(401);
 });
 
 it("conversation views select the current run after cancellation or failure", async () => {

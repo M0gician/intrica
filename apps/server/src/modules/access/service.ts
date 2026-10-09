@@ -218,6 +218,16 @@ export class AccessService {
       throw error;
     }
   }
+  async storedReceiptAllows(call: { approval_id?: string; id: string }) {
+    if (!call.approval_id) return false;
+    const request = (
+      await this.db.pool.query(
+        "select * from approvals where id=$1 and origin_call_id=$2 and status='approved'",
+        [call.approval_id, call.id],
+      )
+    ).rows[0];
+    return Boolean(request && (await this.decisionAuthority(this.db.pool, request)));
+  }
 
   private async apply(
     tx: Tx,

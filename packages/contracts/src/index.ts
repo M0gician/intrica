@@ -16,6 +16,7 @@ export * from "./downloads.js";
 export * from "./files.js";
 export * from "./generation.js";
 export * from "./graph-commit.js";
+export * from "./message-stream.js";
 export * from "./model.js";
 export * from "./model-settings.js";
 export * from "./portraits.js";

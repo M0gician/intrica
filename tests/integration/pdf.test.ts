@@ -170,6 +170,69 @@ const hasImage = (result: { content: Array<{ type: string }> }) =>
   result.content.some((part) => part.type === "image");
 
 describe("PDF canvas, multimodal read and durable authorization", () => {
+  it("deduplicates private tool images without converting their hashes into cross-conversation authority", async () => {
+    const c = await canvas(),
+      reader = await agent(c);
+    const asset = await k.assets.put(PNG);
+    const image = (
+      await k.graph.createNode({
+        kind: "image",
+        assetId: asset.assetId,
+        parentId: c,
+        title: "Scoped image",
+        position,
+        idempotencyKey: key(),
+      })
+    ).node;
+    const edge = await connect(reader.id, image.id),
+      child = await session(reader.id);
+    const first = await child.call("read", { target: { kind: "node", nodeId: image.id } });
+    const second = await child.call("read", { target: { kind: "node", nodeId: image.id } });
+    expect(JSON.stringify(first.result)).not.toContain(PNG.toString("base64"));
+    const reference = (first.result.content.find((p) => p.type === "image") as any).intricaMedia.id;
+    const good = await k.runs.media!.hydrate(first.result, child.run.subject_id);
+    expect(good.content.some((p) => p.type === "image" && p.data === PNG.toString("base64"))).toBe(
+      true,
+    );
+    expect(
+      (await k.runs.media!.hydrate(first.result, "another-conversation")).content.some(
+        (p) => p.type === "image",
+      ),
+    ).toBe(false);
+    expect(
+      (
+        await k.db.pool.query(
+          "select count(distinct asset_id)::int as n from media_references where conversation_id=$1",
+          [child.run.subject_id],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+    expect((await app.inject({ url: `/api/v2/media/${reference}` })).statusCode).toBe(401);
+    expect((await app.inject({ url: `/api/v2/media/${reference}`, headers })).rawPayload).toEqual(
+      PNG,
+    );
+    await k.graph.deleteLink(edge.edge.id, { idempotencyKey: key() });
+    expect(
+      (await k.runs.media!.hydrate(second.result, child.run.subject_id)).content.some(
+        (p) => p.type === "image",
+      ),
+    ).toBe(false);
+    await k.db.pool.query("update assets set last_used_at=now()-interval '31 days' where id=$1", [
+      asset.assetId,
+    ]);
+    await k.assets.prune();
+    expect((await k.assets.resolve(asset.assetId))?.data).toEqual(PNG);
+    const orphan = await k.assets.put(
+      Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="3" height="7"><rect width="3" height="7" fill="blue"/></svg>',
+      ),
+    );
+    await k.db.pool.query("update assets set last_used_at=now()-interval '31 days' where id=$1", [
+      orphan.assetId,
+    ]);
+    await k.assets.prune();
+    await expect(k.assets.get(orphan.assetId)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
   it("published files retain bytes after overwrite/deletion and scoped references recheck grants", async () => {
     const c = await canvas(),
       writer = await agent(c, "write"),
@@ -226,7 +289,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
   });
   it("PDF01 upgrades schema 7 to 8 through buildServer while preserving existing nodes", async () => {
     expect(priorVersion).toBe(7);
-    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(11);
+    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(12);
     expect(await k.graph.queries.node("pdf-upgrade-text")).toMatchObject({
       kind: "text",
       title: "old text",

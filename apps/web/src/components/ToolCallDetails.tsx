@@ -14,6 +14,7 @@ import { DeferredDetails } from "./DeferredDetails";
 import { ExecutionTarget } from "./ExecutionTarget";
 import { ToolResultSummary } from "./ToolResultSummary";
 import "./tool-call-details.css";
+import { useSessionConnection } from "../api/connection";
 
 export type ToolNavigation = {
   onSelectNode?: ((id: string) => void) | undefined;
@@ -46,6 +47,7 @@ export function ToolCallBody({
   onOpenFile,
   nodeName,
 }: { data: Record<string, unknown> } & ToolNavigation) {
+  const { assetUrl, serverId } = useSessionConnection();
   const output = parsedToolOutput(data.result);
   const args = isRecord(data.args) ? data.args : undefined;
   const target = isRecord(args?.target) ? args.target : undefined;
@@ -104,14 +106,22 @@ export function ToolCallBody({
     );
   const name = (id: string) => nodeName?.(id) || id;
   const result = data.result as
-    | { content?: Array<{ type: string; data?: string; mimeType?: string }> }
+    | {
+        content?: Array<{
+          type: string;
+          data?: string;
+          mimeType?: string;
+          intricaMedia?: { id: string; serverId?: string };
+        }>;
+      }
     | undefined;
   const images = Array.isArray(result?.content)
     ? result.content.filter(
         (part) =>
           isRecord(part) &&
+          (!part.intricaMedia?.serverId || part.intricaMedia.serverId === serverId) &&
           part.type === "image" &&
-          typeof part.data === "string" &&
+          (Boolean(part.data) || Boolean(part.intricaMedia?.id)) &&
           typeof part.mimeType === "string" &&
           /^image\/(png|jpeg|webp|gif)$/.test(part.mimeType),
       )
@@ -213,9 +223,13 @@ export function ToolCallBody({
       {images.map((p) => (
         <img
           className="tool-result-image"
-          key={p.data}
+          key={p.intricaMedia?.id ?? p.data}
           alt={tr("工具返回的图片")}
-          src={`data:${p.mimeType};base64,${p.data}`}
+          src={
+            p.intricaMedia?.id
+              ? assetUrl(`/api/v2/media/${encodeURIComponent(p.intricaMedia.id)}`)
+              : `data:${p.mimeType};base64,${p.data}`
+          }
         />
       ))}
       <DeferredDetails summary={tr("原始参数、结果与内部标识")}>

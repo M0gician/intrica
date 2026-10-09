@@ -332,7 +332,7 @@ export async function invokeTool(
       return { state: "failed", result: busy };
     }
     await tx.query(
-      "update tool_calls set state='dispatching',attempt_id=$2,updated_at=now() where id=$1",
+      "update tool_calls set state='dispatching',attempt_id=$2,dispatched_at=now(),updated_at=now() where id=$1",
       [callId, ctx.run.attemptId],
     );
     await emit(tx, { id: logicalId, callId, name, status: "running", args });
@@ -371,6 +371,24 @@ export async function invokeTool(
     try {
       ctx.signal.throwIfAborted();
       output = await executeWithDeadline(ctx, definition!, logicalId, executionArgs);
+      if (store.media && ctx.run.kind === "conversation") {
+        try {
+          output = await store.media.pack(output, ctx.run.subject_id, callId);
+        } catch {
+          output = {
+            ...output,
+            content: output.content.map((part) =>
+              part.type === "image"
+                ? {
+                    type: "text",
+                    text: "[The tool finished, but its image could not be stored. Do not repeat a completed external operation to recover the image.]",
+                  }
+                : part,
+            ),
+            details: { ...output.details, mediaUnavailable: true },
+          };
+        }
+      }
       failed = Boolean(output.isError);
       ctx.progress();
     } catch (error) {
@@ -416,17 +434,20 @@ export async function invokeTool(
         waiting = current.state === "waiting" ? "approval" : undefined;
         return;
       }
-      await tx.query("update tool_calls set state=$2,result=$3,updated_at=now() where id=$1", [
-        callId,
-        waiting === "unknown"
-          ? "unknown"
-          : waiting === "approval"
-            ? "waiting"
-            : failed
-              ? "failed"
-              : "succeeded",
-        JSON.stringify(output),
-      ]);
+      await tx.query(
+        "update tool_calls set state=$2,result=$3,completed_at=now(),updated_at=now() where id=$1",
+        [
+          callId,
+          waiting === "unknown"
+            ? "unknown"
+            : waiting === "approval"
+              ? "waiting"
+              : failed
+                ? "failed"
+                : "succeeded",
+          JSON.stringify(output),
+        ],
+      );
       await emit(tx, {
         id: logicalId,
         callId,

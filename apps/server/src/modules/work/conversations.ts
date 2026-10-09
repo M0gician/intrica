@@ -16,6 +16,7 @@ import { type PromptLanguage, promptLanguage, promptText } from "../../prompt-la
 import { agentIdentity } from "../access/policy.js";
 import { BackgroundTools } from "../execution/background-tools.js";
 import { cancelAgents } from "../execution/cancellation.js";
+import { MessageStream } from "../execution/message-stream.js";
 import { actionableMessage, appendMessage, collaborationIdentity } from "../execution/messages.js";
 import type { RunStore } from "../execution/store.js";
 import {
@@ -29,6 +30,7 @@ import { controlTeams } from "./team-controls.js";
 import { resolveToolOutcome } from "./tool-outcomes.js";
 
 export type ConversationInput = {
+  requestId?: string;
   conversationId: string;
   agentId: string | null;
   model: FrozenModel;
@@ -114,6 +116,7 @@ export class Conversations {
   }
 
   async steer(input: {
+    requestId?: string;
     conversationId: string;
     message: string;
     key: string;
@@ -139,6 +142,7 @@ export class Conversations {
   }
 
   async submit(input: {
+    requestId?: string;
     canvasId: string;
     agentId?: string;
     conversationId?: string;
@@ -202,6 +206,7 @@ export class Conversations {
       }
       const seq = await this.append(tx, conversationId, input.key, "user", {
         text: input.message,
+        ...(input.requestId ? { requestId: input.requestId } : {}),
         language: input.language ?? "en",
       });
       const run = await this.runs.enqueue(tx, {
@@ -211,6 +216,7 @@ export class Conversations {
         ...(input.resumeRunId ? { resumeRunId: input.resumeRunId } : {}),
         kind: "conversation",
         frozen: {
+          ...(input.requestId ? { requestId: input.requestId } : {}),
           conversationId,
           agentId: input.agentId ?? null,
           model,
@@ -241,6 +247,9 @@ export class Conversations {
     const input = ctx.run.frozen_input as ConversationInput;
     const config = await this.models.materialize(input.model);
     const model = createCanvasAgent(config, ctx.run.id);
+    if (ctx.store.media)
+      model.prepareMessages = (messages) =>
+        ctx.store.media!.hydrate(messages, input.conversationId);
     const conversation = (
       await this.db.pool.query("select * from conversations where id=$1", [input.conversationId])
     ).rows[0];
@@ -314,7 +323,16 @@ export class Conversations {
         "update conversations set checkpoint=$2,consumed_message_seq=$3,context=$4 where id=$1",
         [
           input.conversationId,
-          JSON.stringify(model.state.messages),
+          JSON.stringify(
+            ctx.store.media
+              ? await ctx.store.media.pack(
+                  model.state.messages,
+                  input.conversationId,
+                  undefined,
+                  tx,
+                )
+              : model.state.messages,
+          ),
           consumed,
           JSON.stringify(info),
         ],
@@ -637,7 +655,7 @@ export class Conversations {
           });
           const summary = await summarizeContext(
             config,
-            model.state.messages,
+            await model.prepareMessages(model.state.messages),
             identity?.config.saveMemoryBeforeCompaction !== false,
             ctx.signal,
             input.language,
@@ -668,6 +686,9 @@ export class Conversations {
         }
         let lastEmission = 0;
         round++;
+        const streamingMessage = new MessageStream(`${ctx.run.attemptId}-${round}`, (payload) =>
+          ctx.store.event(ctx.run, "message", payload),
+        );
         const inferenceAbort = new AbortController();
         const stopMonitor = await background.monitorInference(async () => {
           if (await expedited()) inferenceAbort.abort(new DomainError("EXPEDITED", "有加急输入"));
@@ -680,16 +701,13 @@ export class Conversations {
               ctx.progress();
               if (Date.now() - lastEmission < 250) return;
               lastEmission = Date.now();
-              await ctx.store.event(ctx.run, "message", {
-                id: `${ctx.run.attemptId}-${round}`,
-                text: partial.content
-                  .flatMap((p) => (p.type === "text" ? [p.text] : []))
-                  .join("\n"),
-                thinking: partial.content
+              await streamingMessage.write(
+                partial.content.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n"),
+                partial.content
                   .flatMap((p) => (p.type === "thinking" ? [p.thinking] : []))
                   .join("\n"),
-                streaming: true,
-              });
+                true,
+              );
             },
           );
         } catch (error) {
@@ -759,14 +777,11 @@ export class Conversations {
           );
           await persist(tx);
         });
-        await ctx.store.event(ctx.run, "message", {
-          id: `${ctx.run.attemptId}-${round}`,
-          text: message.content.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n"),
-          thinking: message.content
-            .flatMap((p) => (p.type === "thinking" ? [p.thinking] : []))
-            .join("\n"),
-          streaming: false,
-        });
+        await streamingMessage.write(
+          message.content.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n"),
+          message.content.flatMap((p) => (p.type === "thinking" ? [p.thinking] : [])).join("\n"),
+          false,
+        );
         if (closing) {
           waitingForInput = true;
           // Keep the original executor alive for durable background results.
