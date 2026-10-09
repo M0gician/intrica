@@ -200,7 +200,7 @@ test("SSH onboarding installs the client-matched release and automatically activ
     await expect(dialog.getByLabel("目标稳定版本")).toHaveCount(0);
     const deploy = dialog.getByRole("button", { name: "安装并连接", exact: true });
     await expect(deploy).toBeDisabled();
-    await dialog.getByRole("checkbox", { name: "无沙箱模式", exact: true }).check();
+    await dialog.getByRole("radio", { name: "使用服务账号权限", exact: true }).check();
     assert.equal(installed, false);
     await deploy.click();
     await expect(dialog.getByText("安装完成，已连接服务器", { exact: true })).toBeVisible();
@@ -245,7 +245,7 @@ test("SSH onboarding installs the client-matched release and automatically activ
     await manual.getByLabel("端口", { exact: true }).fill("2222");
     await manual.getByRole("button", { name: "下一步", exact: true }).click();
     const manualSetup = page.getByRole("dialog", { name: "安装并连接", exact: true });
-    await manualSetup.getByRole("checkbox", { name: "无沙箱模式", exact: true }).check();
+    await manualSetup.getByRole("radio", { name: "使用服务账号权限", exact: true }).check();
     await manualSetup.getByRole("button", { name: "安装并连接", exact: true }).click();
     await expect(manualSetup.getByText("安装完成，已连接服务器", { exact: true })).toBeVisible();
     await manualSetup.getByRole("button", { name: "返回服务器列表", exact: true }).click();
