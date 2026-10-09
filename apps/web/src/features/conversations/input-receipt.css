@@ -2,9 +2,6 @@
 .agent-event-user {
   position: relative;
 }
-:is(.chat-user, .agent-event-user):has(.input-receipt) {
-  padding-bottom: 22px;
-}
 .input-receipt {
   position: absolute;
   right: 7px;

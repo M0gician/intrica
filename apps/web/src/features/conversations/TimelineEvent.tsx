@@ -65,36 +65,36 @@ export function TimelineEvent({
     name(id, (event.data.recipientNames as Record<string, string> | undefined)?.[id]);
   return (
     <>
-      <small>
-        {["team_notice", "run_status", "context_notice"].includes(event.kind)
-          ? tr("运行通知")
-          : event.kind === "permission_notice"
-            ? tr("系统审批通知")
-            : event.kind === "user"
-              ? tr("你")
+      {event.kind !== "user" && (
+        <small>
+          {["team_notice", "run_status", "context_notice"].includes(event.kind)
+            ? tr("运行通知")
+            : event.kind === "permission_notice"
+              ? tr("系统审批通知")
               : event.kind === "trigger"
                 ? tr("协作触发")
                 : name(
                     event.data.from ?? event.data.senderId ?? event.agentId,
                     event.data.senderName,
                   )}
-        {["message", "report"].includes(event.kind) && recipients(event).length
-          ? ` → ${recipients(event)
-              .map((id) => recipientName(event, id))
-              .join("、")}`
-          : ""}
-        {event.kind === "tool" ? " · 工具" : ""}
-        {event.kind === "broadcast"
-          ? tr(" \u00B7 广播给 {{v0}} 位 Agent", {
-              v0: Array.isArray(event.data.recipients) ? event.data.recipients.length : 0,
-            })
-          : ""}
-        {event.kind === "report" ? " · 最终报告" : ""}
-        {event.kind === "team_notice"
-          ? ` · ${name(event.data.subjectId, event.data.subjectName)}`
-          : ""}
-        {event.kind !== "user" && <EventTime value={event.createdAt} />}
-      </small>
+          {["message", "report"].includes(event.kind) && recipients(event).length
+            ? ` → ${recipients(event)
+                .map((id) => recipientName(event, id))
+                .join("、")}`
+            : ""}
+          {event.kind === "tool" ? " · 工具" : ""}
+          {event.kind === "broadcast"
+            ? tr(" \u00B7 广播给 {{v0}} 位 Agent", {
+                v0: Array.isArray(event.data.recipients) ? event.data.recipients.length : 0,
+              })
+            : ""}
+          {event.kind === "report" ? " · 最终报告" : ""}
+          {event.kind === "team_notice"
+            ? ` · ${name(event.data.subjectId, event.data.subjectName)}`
+            : ""}
+          <EventTime value={event.createdAt} />
+        </small>
+      )}
       {event.kind === "broadcast" && (
         <DeferredDetails className="broadcast-scope" summary={tr("接收者与共享资源")}>
           {() => (
