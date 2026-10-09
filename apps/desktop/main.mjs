@@ -185,6 +185,12 @@ async function start() {
     releaseSsh: (alias) => sshManager.release(alias),
   });
   sshManager = createSshManager({
+    version: JSON.parse(readFileSync(resolve(directory, "package.json"), "utf8")).version,
+    userData: app.getPath("userData"),
+    activateManaged: async (id) => {
+      const state = await connections.activate(id);
+      if (!window.isDestroyed()) window.webContents.send("connection:changed", state);
+    },
     engine: await import(
       pathToFileURL(
         app.isPackaged
@@ -290,7 +296,7 @@ async function start() {
       return connections[method](input);
     });
   }
-  for (const method of ["aliases", "connect", "inspect", "plan", "apply", "restart"]) {
+  for (const method of ["aliases", "connect", "inspect", "install", "state", "cancel", "restart"]) {
     ipcMain.handle(`ssh:${method}`, async (event, input) => {
       if (
         event.sender !== window.webContents ||
@@ -497,6 +503,8 @@ app.on("before-quit", (event) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
     server.closeAllConnections();
     if (server.listening) await new Promise((resolve) => server.close(resolve));
+    sshManager?.cancel(sshManager.state().operation?.id);
+    await sshManager?.settle();
     connections?.close();
     sshManager?.close();
     await backend?.close();

@@ -55,32 +55,56 @@ export type SshInspection = {
   sandbox?: ToolSandboxMode;
   sandboxAvailable?: boolean;
   error?: string;
+  errorCode?: string;
+  remediation?: string;
+  prerequisitesReady?: boolean;
+  linger?: "yes" | "no" | "unknown";
+  userManager?: "yes" | "no";
+  prerequisiteError?: string;
+  user?: string;
+  uid?: string;
 };
-export type SshPlan = {
+export type SshOperation = {
   id: string;
   alias: string;
-  sshTarget: string;
+  target: SshTarget;
   release: string;
-  action: string;
-  installation: string;
-  config: string;
-  currentVersion: string | null;
-  service: string;
-  healthy: boolean;
   sandbox: ToolSandboxMode;
-  currentSandbox: ToolSandboxMode | null;
-  asset: { name: string; size: number; sha256: string };
+  phase:
+    | "checking"
+    | "preparing"
+    | "downloading"
+    | "verifying"
+    | "uploading"
+    | "installing"
+    | "health"
+    | "connecting"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  startedAt: number;
+  phaseStartedAt: number;
+  updatedAt: number;
+  cancellable: boolean;
+  cancelRequested?: boolean;
+  transferredBytes?: number;
+  totalBytes?: number;
+  lingerChanged?: boolean;
+  profile?: DesktopServerProfile;
+  error?: { code: string; message?: string; remediation?: string } | null;
 };
+export type SshOperationState = { release: string | null; operation: SshOperation | null };
 export type DesktopSsh = {
+  state: (target?: SshTarget) => Promise<SshOperationState>;
+  install: (input: {
+    target: SshTarget;
+    sandbox: ToolSandboxMode;
+    operationId?: string;
+  }) => Promise<SshOperationState>;
+  cancel: (id: string) => Promise<SshOperationState>;
   aliases: () => Promise<string[]>;
   connect: (target: SshTarget) => Promise<DesktopServerProfile>;
   inspect: (target: SshTarget) => Promise<SshInspection>;
-  plan: (input: {
-    target: SshTarget;
-    release: string;
-    sandbox?: ToolSandboxMode;
-  }) => Promise<SshPlan>;
-  apply: (input: { id: string; confirm: true }) => Promise<DesktopServerProfile>;
   restart: (input: {
     target: SshTarget;
     confirm: true;
@@ -94,6 +118,7 @@ export type DesktopConnection = {
   profileId: string;
 };
 export type DesktopConnections = {
+  subscribe?: (listener: (connection: DesktopConnection) => void) => () => void;
   get: () => Promise<DesktopConnection>;
   list: () => Promise<DesktopServerProfile[]>;
   save: (input: {

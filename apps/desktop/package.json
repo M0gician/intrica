@@ -6,9 +6,9 @@
   "type": "module",
   "main": "main.mjs",
   "scripts": {
-    "build": "node scripts/build-language.mjs && node ../../scripts/build-metadata.mjs assets/build.json && node --check main.mjs && node --check preload.cjs && node --check connections.mjs && node --check ssh.mjs && node --check protocol.mjs && node --check updates.mjs && node --check files.mjs",
+    "build": "node scripts/build-language.mjs && node ../../scripts/build-metadata.mjs assets/build.json && node --check main.mjs && node --check preload.cjs && node --check connections.mjs && node --check ssh.mjs && node --check ssh-operations.mjs && node --check protocol.mjs && node --check updates.mjs && node --check files.mjs",
     "dev": "pnpm run prepare:app && electron .",
-    "test": "pnpm run prepare:app && node --test connections.test.mjs ssh.test.mjs updates.test.mjs files.test.mjs test.mjs standalone.test.mjs remote.test.mjs",
+    "test": "pnpm run prepare:app && node --test connections.test.mjs ssh.test.mjs ssh-operations.test.mjs updates.test.mjs files.test.mjs test.mjs standalone.test.mjs remote.test.mjs",
     "package": "pnpm run prepare:app && electron-builder",
     "package:dir": "pnpm run prepare:app && electron-builder --dir",
     "prepare:app": "pnpm run icons && pnpm --filter @intrica/server... --filter @intrica/web... build && pnpm run build",

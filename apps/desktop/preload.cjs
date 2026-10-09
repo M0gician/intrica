@@ -7,6 +7,11 @@ contextBridge.exposeInMainWorld("intricaDesktop", {
     reveal: (id) => ipcRenderer.invoke("files:reveal", id),
   },
   connection: {
+    subscribe: (listener) => {
+      const changed = (_event, state) => listener(state);
+      ipcRenderer.on("connection:changed", changed);
+      return () => ipcRenderer.removeListener("connection:changed", changed);
+    },
     get: () => ipcRenderer.invoke("connection:get"),
     list: () => ipcRenderer.invoke("connection:list"),
     save: (input) => ipcRenderer.invoke("connection:save", input),
@@ -17,7 +22,7 @@ contextBridge.exposeInMainWorld("intricaDesktop", {
     forgetToken: (id) => ipcRenderer.invoke("connection:forgetToken", id),
   },
   ssh: Object.fromEntries(
-    ["aliases", "connect", "inspect", "plan", "apply", "restart"].map((method) => [
+    ["aliases", "connect", "inspect", "install", "state", "cancel", "restart"].map((method) => [
       method,
       (input) => ipcRenderer.invoke(`ssh:${method}`, input),
     ]),

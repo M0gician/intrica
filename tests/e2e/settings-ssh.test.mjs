@@ -42,7 +42,7 @@ function Fixture() {
 createRoot(document.getElementById("root")).render(h(Fixture));
 </script></body></html>`;
 
-test("native connection dialogs preserve credentials drafts and require an inspected SSH deployment plan", async () => {
+test("connection dialogs preserve credential drafts and restore one-click installation progress", async () => {
   const server = await createServer({
     root: webRoot,
     configFile: `${webRoot}/vite.config.ts`,
@@ -89,28 +89,29 @@ test("native connection dialogs preserve credentials drafts and require an inspe
               sandboxAvailable: true,
             };
           },
-          plan: async (input) => {
-            window.calls.push({ name: "plan", input });
-            if (window.rejectPlan) throw Error("Namespaces unavailable; ask the administrator.");
-            return {
-              id: "plan-1",
-              alias: input.target,
-              release: input.release,
-              sshTarget: "user@research:22",
-              action: "install",
-              installation: "/home/user/.local/share/intrica-server",
-              config: "/home/user/.config/intrica/server.json",
-              currentVersion: null,
-              service: "inactive",
-              healthy: false,
+          state: async () => ({ release: "v0.2.5", operation: window.sshOperation ?? null }),
+          install: async (input) => {
+            window.calls.push({ name: "install", input });
+            window.sshOperation = {
+              id: input.operationId ?? "install-1",
+              alias: "research",
+              target: input.target,
+              release: "v0.2.5",
               sandbox: input.sandbox,
-              currentSandbox: null,
-              asset: { name: "server.tar.gz", size: 42, sha256: "a".repeat(64) },
+              phaseStartedAt: Date.now(),
+              phase: window.rejectInstall ? "failed" : "uploading",
+              cancellable: true,
+              transferredBytes: 20,
+              totalBytes: 100,
+              error: window.rejectInstall
+                ? { code: "LINGER_PERMISSION_REQUIRED", remediation: "loginctl enable-linger 1001" }
+                : null,
             };
+            return window.intricaDesktop.ssh.state();
           },
-          apply: async (input) => {
-            window.calls.push({ name: "apply", input });
-            return { id: "managed", label: "research", baseUrl: "http://127.0.0.1:12345" };
+          cancel: async () => {
+            window.sshOperation.phase = "cancelled";
+            return window.intricaDesktop.ssh.state();
           },
         },
       };
@@ -160,53 +161,40 @@ test("native connection dialogs preserve credentials drafts and require an inspe
     await page.goto(url);
     await page.getByRole("button", { name: "添加服务器", exact: true }).click();
     await page.getByRole("radio", { name: "research", exact: true }).check();
-    await page.getByRole("button", { name: "部署 Intrica…", exact: true }).click();
-    const deployment = page.getByRole("dialog", { name: "通过 SSH 部署", exact: true });
-    const release = deployment.getByLabel("目标稳定版本");
-    await release.fill("v0.2.5");
-    await page.keyboard.press("Escape");
-    const draft = page.getByRole("alertdialog", { name: "有未保存的修改", exact: true });
-    await expect(draft).toBeVisible();
-    await expect(draft.getByRole("button", { name: "保存", exact: true })).toHaveCount(0);
-    await draft.getByRole("button", { name: "继续编辑", exact: true }).click();
-    await expect(release).toHaveValue("v0.2.5");
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    const deployment = page.getByRole("dialog", { name: "安装并连接", exact: true });
+    await expect(deployment.getByLabel("目标稳定版本")).toHaveCount(0);
+    await expect(deployment.getByText("v0.2.5", { exact: true })).toBeVisible();
     await page.evaluate(() => {
-      window.rejectPlan = true;
+      window.rejectInstall = true;
     });
-    await deployment.getByRole("button", { name: "生成部署计划", exact: true }).click();
-    await expect(deployment.getByRole("alert")).toContainText("Namespaces unavailable");
+    await deployment.getByRole("button", { name: "安装并连接", exact: true }).click();
+    await expect(deployment.getByRole("alert")).toContainText("此账号无法开启后台运行");
     await expect(
-      deployment.getByRole("button", { name: "部署并保存连接", exact: true }),
-    ).toHaveCount(0);
-    await expect(release).toHaveValue("v0.2.5");
-    await page.evaluate(() => {
-      window.rejectPlan = false;
-    });
-    await deployment.getByRole("button", { name: "生成部署计划", exact: true }).click();
-    await expect(deployment.getByText("user@research:22 (research)")).toBeVisible();
-    const apply = deployment.getByRole("button", { name: "部署并保存连接", exact: true });
-    await expect(apply).toBeDisabled();
-    assert.equal(
-      await page.evaluate(() => window.calls.filter((item) => item.name === "apply").length),
-      0,
-    );
-    await deployment
-      .getByRole("checkbox", {
-        name: "我已核对服务器、版本和工具执行权限，同意部署并保存连接",
-        exact: true,
-      })
-      .check();
-    await apply.click();
-    await expect(
-      deployment.getByText("部署已验证，SSH 连接已保存。返回列表即可连接。"),
+      deployment.getByText("loginctl enable-linger 1001", { exact: true }),
     ).toBeVisible();
-    assert.deepEqual(
-      await page.evaluate(() => window.calls.find((item) => item.name === "apply").input),
-      { id: "plan-1", confirm: true },
+    await page.evaluate(() => {
+      window.rejectInstall = false;
+    });
+    await deployment.getByRole("button", { name: "重新检查并继续", exact: true }).click();
+    await expect(deployment.getByRole("progressbar")).toHaveAttribute("value", "20");
+    await page.keyboard.press("Escape");
+    await expect(deployment).toHaveCount(0);
+    await page.getByRole("button", { name: "查看服务器安装", exact: true }).click();
+    await expect(deployment.getByRole("progressbar")).toHaveAttribute("value", "20");
+    await page.evaluate(() => {
+      window.sshOperation.phase = "completed";
+    });
+    await expect(deployment.getByText("安装完成，已连接服务器", { exact: true })).toBeVisible();
+    const installs = await page.evaluate(() =>
+      window.calls.filter((item) => item.name === "install"),
     );
-    assert.equal(
-      await page.evaluate(() => window.calls.filter((item) => item.name === "refresh").length),
-      1,
+    assert.deepEqual(
+      installs.map((call) => call.input),
+      [
+        { target: "research", sandbox: "required" },
+        { target: "research", sandbox: "required", operationId: "install-1" },
+      ],
     );
     assert.deepEqual(errors, []);
   } finally {
