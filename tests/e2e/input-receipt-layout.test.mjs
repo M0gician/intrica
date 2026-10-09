@@ -38,6 +38,10 @@ async function assertTimestampFits(bubble) {
   const timestamp = await bubble.locator("time").boundingBox();
   assert.ok(timestamp.height <= 14, "the timestamp must stay on one line");
   assert.ok(
+    timestamp.x >= body.x + 8,
+    "the timestamp must be inset to the right of the message text",
+  );
+  assert.ok(
     timestamp.x >= frame.x + 4 &&
       timestamp.x + timestamp.width <= frame.x + frame.width - 4 &&
       timestamp.y >= body.y + body.height + 2 &&
