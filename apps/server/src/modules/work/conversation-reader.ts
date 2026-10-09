@@ -250,6 +250,14 @@ export class ConversationReader {
       runReason: run?.reason,
       supersededByRunId: run?.superseded_by_run_id ?? null,
       unknownTools: unknown,
+      configurationBlocked: Boolean(
+        (
+          await this.db.pool.query(
+            "select 1 from schedules where agent_id=$1 and spec->>'blockedReason'='model_not_configured' limit 1",
+            [agentId],
+          )
+        ).rowCount,
+      ),
       interrupted: run?.state === "failed" || run?.state === "cancelled",
       nextBefore: bounds.earlier ? Number(records[0].seq) : null,
       nextAfter: bounds.later ? Number(records.at(-1).seq) : null,

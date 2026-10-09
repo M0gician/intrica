@@ -45,7 +45,7 @@ test.afterEach(async ({ request }) => {
       );
   const current = await (await request.get(`${api}/api/v2/workspace/models`)).json();
   await request.post(`${api}/api/v2/workspace/models/select`, {
-    data: { id: "mock", expectedSelectedId: current.selectedId },
+    data: { id: "startup", expectedSelectedId: current.selectedId },
   });
 });
 test.afterAll(async () => {

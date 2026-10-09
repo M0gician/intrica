@@ -221,6 +221,11 @@ it("cancels a late file read when navigating to the current directory again", as
 
 it("consumes direct file targets once so a dismissed preview stays closed after switching tools", async () => {
   const remote = host("beta", "beta");
+  remote.request.mockImplementation(async (url: string) =>
+    url.startsWith("file?")
+      ? { name: "report.pdf", path: "/srv/workspace/shared/report.pdf", mime: "application/pdf" }
+      : listing,
+  );
   const props = {
     root: listing.path,
     openFileTarget: { path: "/srv/workspace/shared/report.pdf", nonce: "open-1" },
@@ -253,7 +258,7 @@ it.each(["txt", "pdf"])(
         : {
             path,
             name: `report.${extension}`,
-            mime: "text/plain",
+            mime: extension === "pdf" ? "application/pdf" : "text/plain",
             text: "report",
           },
     );

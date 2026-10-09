@@ -18,6 +18,7 @@ import { ComposerAction } from "./ComposerAction";
 import { ContextUsageRing } from "./ContextUsageRing";
 import { MentionComposerInput } from "./MentionComposerInput";
 import { ModelPicker } from "./ModelPicker";
+import { ModelRequired, useModelReady } from "./ModelRequired";
 export function AgentNodePanel({
   node,
   nodes,
@@ -76,6 +77,7 @@ export function AgentNodePanel({
     saveConfig,
     titleSave,
   } = profile;
+  const modelReady = useModelReady(draft.model);
   const [message, setMessage] = useState(() => readAgentDraft(storageKey(node.id)));
   const [draftPersistent, setDraftPersistent] = useState(true);
   const panel = useRef<HTMLDivElement>(null);
@@ -103,6 +105,7 @@ export function AgentNodePanel({
   return (
     <div className="agent-node-panel" ref={panel}>
       <ConversationPause reason={data.runReason} />
+      {data.configurationBlocked && <p role="status">{tr("自动任务等待模型配置。")}</p>}
       <UnknownTools
         calls={data.unknownTools ?? []}
         busy={busy}
@@ -191,7 +194,7 @@ export function AgentNodePanel({
         className="agent-compose"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (data.unknownTools?.length) return;
+          if (busy || !modelReady || data.unknownTools?.length) return;
           if (!message.trim() && data.supersededByRunId) return;
           const sent = message;
           if (!(await titleSave.current) || !(await saveConfig())) return;
@@ -236,6 +239,7 @@ export function AgentNodePanel({
           }}
           placeholder={tr("给这个 Agent 一个任务\u2026")}
         />
+        <ModelRequired selection={draft.model} />
         {!draftPersistent && (
           <small role="status">{tr("浏览器存储不可用，草稿仅保留在当前窗口。")}</small>
         )}
@@ -284,6 +288,7 @@ export function AgentNodePanel({
             onSelectionChange={(model) => saveConfig({ model })}
           />
           <ComposerAction
+            modelReady={modelReady}
             hasText={Boolean(message.trim())}
             running={data.running}
             interrupted={

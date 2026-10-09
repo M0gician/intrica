@@ -1,4 +1,5 @@
 import { CronExpressionParser } from "cron-parser";
+import { canvasEvent, DomainError } from "../../adapters/postgres/database.js";
 import { promptText } from "../../prompt-language.js";
 import { agentIdentity } from "../access/policy.js";
 import type { ToolRegistry } from "./tools.js";
@@ -75,6 +76,18 @@ export async function tickSchedules(registry: Pick<ToolRegistry, "graph" | "conv
         else await tx.query("update schedules set enabled=false where id=$1", [row.id]);
       });
     } catch (error) {
+      if (error instanceof DomainError && error.code === "MODEL_NOT_CONFIGURED") {
+        await registry.graph.db.canvas(schedule.canvas_id, async (tx) => {
+          await tx.query(
+            'update schedules set enabled=false,spec=spec||\'{"blockedReason":"model_not_configured"}\'::jsonb where id=$1',
+            [schedule.id],
+          );
+          await canvasEvent(tx, schedule.canvas_id, "conversation.changed", {
+            agentId: schedule.agent_id,
+          });
+        });
+        continue;
+      }
       console.error("[schedule]", schedule.id, error instanceof Error ? error.message : "failed");
       // A broken model or a full queue must not starve unrelated schedules/runs.
       await registry.graph.db.pool.query(

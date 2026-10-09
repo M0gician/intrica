@@ -17,7 +17,7 @@ export type ApiConfig = {
   accessToken: string;
   serverName: string;
   deployment: "desktop" | "container" | "service" | "source";
-  model: ModelConfig;
+  model: ModelConfig | null;
   schemaFile?: string;
   worker: boolean;
   execution?: ExecutionLimits;

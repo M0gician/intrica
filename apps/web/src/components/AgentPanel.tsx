@@ -9,6 +9,7 @@ import { ContextUsageRing } from "./ContextUsageRing";
 import { IconButton, IconPlus } from "./icons";
 import { MentionComposerInput } from "./MentionComposerInput";
 import { ModelPicker } from "./ModelPicker";
+import { ModelRequired } from "./ModelRequired";
 export function AgentPanel({
   active = true,
   composeRequest,
@@ -36,7 +37,7 @@ export function AgentPanel({
     sending,
     setSending,
     busy,
-    mock,
+    modelReady,
     selection,
     graph,
     canvasId,
@@ -82,10 +83,7 @@ export function AgentPanel({
         </p>
       )}
       <div className="agent-context">
-        <span>
-          {tr("当前画布 · 已选 {{v0}} 项", { v0: selection.size })}
-          {mock ? tr("· 模拟模型") : ""}
-        </span>
+        <span>{tr("当前画布 · 已选 {{v0}} 项", { v0: selection.size })}</span>
         <IconButton
           label={tr("新会话")}
           disabled={busy}
@@ -138,6 +136,7 @@ export function AgentPanel({
           <ContextUsageRing usage={usage} />
           <ModelPicker label={tr("对话模型")} selection={model} onSelectionChange={setModel} />
           <ComposerAction
+            modelReady={modelReady}
             hasText={Boolean(question.trim())}
             running={busy}
             interrupted={Boolean(
@@ -147,6 +146,7 @@ export function AgentPanel({
             onStop={stop}
           />
         </div>
+        <ModelRequired selection={model} />
       </form>
     </div>
   );

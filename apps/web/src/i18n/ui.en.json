@@ -1005,5 +1005,9 @@
   "文件引用缺少来源信息": "The file reference has no source context.",
   "发布时的文件": "File as published",
   "查看当前源文件": "View the current source file",
-  "预览与下载原文件": "Preview and download the original"
+  "预览与下载原文件": "Preview and download the original",
+  "所选模型已不可用。草稿已保留。": "The selected model is no longer available. Your draft is saved.",
+  "请配置端点并选择模型后发送。草稿已保留。": "Add an endpoint and select a model before sending. Your draft is saved.",
+  "添加端点和模型": "Add endpoint and model",
+  "自动任务等待模型配置。": "Automatic tasks are waiting for model configuration."
 }

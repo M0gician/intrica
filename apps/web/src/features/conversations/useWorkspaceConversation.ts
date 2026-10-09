@@ -3,6 +3,7 @@ import type { AgentContextUsage, ModelSelection, Node } from "@intrica/contracts
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import { useConnection } from "../../app/connection-context";
+import { useModelReady } from "../../components/ModelRequired";
 import { tr } from "../../i18n";
 import { useGraphValue, useStore, useViewValue } from "../../state/store";
 import type { UnknownCall } from "./UnknownTools";
@@ -30,6 +31,7 @@ export function useWorkspaceConversation(
     composer.current?.querySelector("textarea")?.focus();
   }, [composeRequest]);
   const [model, setModel] = useState<ModelSelection | null>(null);
+  const modelReady = useModelReady(model);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [transcriptGeneration, setTranscriptGeneration] = useState(0);
   const [unknown, setUnknown] = useState<UnknownCall[]>([]);
@@ -38,7 +40,6 @@ export function useWorkspaceConversation(
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const pendingStop = useRef<symbol | null>(null);
-  const [mock, setMock] = useState(false);
   const canvasId = useViewValue((view) => view.baseScopeId);
   const selection = useViewValue((view) => (active ? view.selection : emptySelection));
   const nodes = useGraphValue((graph) => (active ? graph.nodes : emptyNodes));
@@ -182,7 +183,7 @@ export function useWorkspaceConversation(
     if (runId) void cancelRun(runId, request);
   };
   const ask = async () => {
-    if (sending || pendingStop.current || unknown.length) return;
+    if (!modelReady || sending || pendingStop.current || unknown.length) return;
     const prompt = question.trim() || tr("继续之前未完成的任务。");
     if (busy) {
       if (!question.trim()) return;
@@ -243,7 +244,6 @@ export function useWorkspaceConversation(
         (event) => {
           if (event.type === "context") setUsage(event.usage);
           if (event.type === "start") {
-            setMock(event.mode === "mock");
             setRunId(event.runId);
             if (pendingStop.current && event.runId)
               void cancelRun(event.runId, pendingStop.current);
@@ -331,7 +331,7 @@ export function useWorkspaceConversation(
     sending,
     setSending,
     busy,
-    mock,
+    modelReady,
     selection,
     graph,
     canvasId,

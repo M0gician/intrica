@@ -97,13 +97,7 @@ export function ModelPicker({
         }}
       >
         <IconModel size={15} />
-        <span>
-          {missing
-            ? t("missingModel")
-            : selected?.modelId === "mock"
-              ? t("mock")
-              : selected?.modelId || t("notConfigured")}
-        </span>
+        <span>{missing ? t("missingModel") : selected?.modelId || t("notConfigured")}</span>
         {scoped && !selection && <small title={t("followDefault")}>{t("defaultLabel")}</small>}
         {level !== "off" && <small>{level}</small>}
         <span className="model-trigger-chevron">
@@ -156,7 +150,7 @@ export function ModelPicker({
                     onClick={() => void choose(profile.id)}
                   >
                     <span>
-                      <strong>{profile.modelId === "mock" ? t("mock") : profile.modelId}</strong>
+                      <strong>{profile.modelId}</strong>
                       <small>{profile.name}</small>
                     </span>
                     {selected?.id === profile.id && "✓"}
@@ -194,11 +188,5 @@ export function ModelPicker({
 export function ModelLabel() {
   const { t } = useTranslation();
   const state = useOptionalModels();
-  return (
-    <span className="model-label">
-      {state?.data?.active.modelId === "mock"
-        ? t("mock")
-        : state?.data?.active.modelId || t("notConfigured")}
-    </span>
-  );
+  return <span className="model-label">{state?.data?.active.modelId || t("notConfigured")}</span>;
 }

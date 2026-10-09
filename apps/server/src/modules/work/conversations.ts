@@ -153,7 +153,16 @@ export class Conversations {
     const agent = input.agentId ? await agentIdentity(this.db.pool, input.agentId) : null;
     if (agent && agent.canvas_id !== input.canvasId)
       throw new DomainError("FORBIDDEN", "Agent 不在此画布");
-    const model = await this.models.capture(input.model ?? agent?.config.model);
+    const savedSelection =
+      !agent && input.model === undefined && input.conversationId
+        ? (
+            await this.db.pool.query(
+              "select model from conversations where id=$1 and canvas_id=$2 and agent_id is null",
+              [input.conversationId, input.canvasId],
+            )
+          ).rows[0]?.model
+        : undefined;
+    const model = await this.models.capture(input.model ?? agent?.config.model ?? savedSelection);
     const conversationId = input.agentId
       ? (await this.read.forAgent(input.agentId)).id
       : (input.conversationId ?? id("conversation"));

@@ -17,6 +17,7 @@ type AgentFeed = {
   runId?: string;
   runState?: string;
   runReason?: string | null;
+  configurationBlocked?: boolean;
   supersededByRunId?: string | null;
   unknownTools?: UnknownCall[];
   context?: AgentContextUsage;
