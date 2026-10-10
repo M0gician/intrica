@@ -10,6 +10,7 @@ export type {
   ApprovalStatus,
   CommandPermission,
 } from "./approvals.js";
+export * from "./collaboration.js";
 export * from "./command-result.js";
 export * from "./constants.js";
 export * from "./conversation-navigation.js";

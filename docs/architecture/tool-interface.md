@@ -1,6 +1,6 @@
 # Tool contracts
 
-The registry defines 24 tools. Each model request receives the subset and
+The registry defines 23 tools. Each model request receives the subset and
 parameter schemas that match its current capabilities. Workspace sessions use
 the owner's authority. Model visibility is a discovery decision; every
 execution checks its current authority and run lease.
@@ -10,7 +10,7 @@ execution checks its current authority and run lease.
 | Content and execution | `read`, `write`, `edit`, `rg`, `bash` |
 | External capabilities | `web_search`, `mcp`, `list_capabilities` |
 | Canvas | `read_canvas`, `create_artifact`, `update_node` |
-| Collaboration | `send_message`, `report_result`, `read_conversation`, `get_agent_status`, `get_tool_result`, `wait_for_message` |
+| Collaboration | `send_message`, `read_conversation`, `get_agent_status`, `get_tool_result`, `wait_for_message` |
 | Team | `hire_agent`, `configure_agent`, `dismiss_agent`, `take_over_run` |
 | Permissions | `request_permission`, `list_access_requests`, `review_access_request` |
 
@@ -68,7 +68,7 @@ An empty PDF text layer is not OCR; page images can contain unread evidence.
   `write` replaces the complete file. Both session types share these
   contracts and the `bash({command,cwd?,timeout?,fullHost?})` contract.
 
-File artifacts persist a content-addressed snapshot. `report_result.fileIds`
+File artifacts persist a content-addressed snapshot. `send_message.fileIds`
 accepts their node IDs and checks accessible published snapshots. Text reports
 can omit attachments. Clients resolve `intrica-file:NODE_ID` within the owning
 server and conversation. Hashes and file references never grant access.
@@ -80,16 +80,20 @@ exit codes and SIGPIPE are not silently converted to success.
 
 ## Collaboration and permissions
 
-`send_message` accepts one target:
+`send_message` and structured final output share the [explicit message contract](addressed-messages.md). External messages require `target`, `kind` and `message`. The targets are:
+
+- `{kind:"request",id}` replies to the request's original user, Agent or workspace.
+- `{kind:"manager"}` selects the current direct manager. A missing manager is an error.
+- `{kind:"internal"}` saves a private work note. This branch accepts only target and message.
 
 - `{kind:"agent",agentId}` sends to one Agent.
 - `{kind:"agents",agentIds}` sends to a deduplicated set.
 - `{kind:"canvas"}` sends to all other Agents on the canvas.
 - `{kind:"resource_readers",resourceIds}` sends to readers of every selected resource.
 
-Administrators and workspace owners can use all four targets without
+Administrators and workspace owners can use the Agent audience targets without
 communication approval. Read/write members retain their existing communication
-checks and see only the single-Agent and resource-reader targets. Resource-reader
+checks. Their message schema includes request, internal, manager, single-Agent and resource-reader targets. Resource-reader
 filtering applies to administrators too. The resource list must be nonempty.
 Broadcasts exclude the sender. Resource-response settings do not disable messages.
 
@@ -102,10 +106,12 @@ the original send. Denied, expired, stopped and escalated requests retain their
 barriers. Message delivery does not grant access to nodes, files or private
 conversations, or prove input consumption or task completion.
 
-`report_result` separately records delivery to the direct manager and
-grants reported-resource access to executors of taken-over runs. Sending,
-reporting, finishing a run and verifying a business outcome remain
-different operations.
+`kind` is request, update, result or decline. A request creates a reply obligation
+for each recipient. A result or decline addressed to that request settles it only
+after delivery. A direct result is a proactive report. Internal notes and run
+completion leave open requests unchanged. `send_message.handoff` is admin-only:
+it names the exact taken-over source runs and resources to deliver. It is valid
+only on a result. There is no separate report or reply tool.
 
 `request_permission({scope,reason})` uses one scope:
 
@@ -138,7 +144,7 @@ status is recorded atomically with the context checkpoint. A message becomes
 read only after that transaction commits. Reconnect reads durable receipts.
 
 An explicit expedite request addresses the existing message ID and cancels
-only inference. Earlier unread inputs enter context in order. Started tools
+only inference. The selected task's input enters context next; unrelated work stays queued. The interrupted task then resumes in the same checkpoint. Started tools
 retain their call IDs and state; unstarted tools check new input before dispatch.
 Stopped runs and unknown outcomes keep their existing barriers.
 

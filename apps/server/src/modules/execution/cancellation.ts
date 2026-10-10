@@ -11,7 +11,7 @@ export async function cancelApprovals(tx: Tx, runIds: string[]) {
   const rows = (
     await tx.query(
       `update approvals set status='cancelled',version=version+1,decided_at=now()
-    where status='pending' and origin_call_id in(select id from tool_calls where run_id=any($1::text[])) returning *`,
+    where status='pending' and (origin_call_id in(select id from tool_calls where run_id=any($1::text[])) or origin_dispatch_id in(select id from message_dispatches where run_id=any($1::text[]))) returning *`,
       [runIds],
     )
   ).rows;
@@ -36,6 +36,15 @@ export async function cancelAgents(
   resourceReason: "stopped" | "permissions_changed" = "stopped",
 ) {
   await cancelResourceSchedules(tx, agentIds, resourceReason);
+  const conversations = (
+    await tx.query("select id from conversations where agent_id=any($1::text[])", [agentIds])
+  ).rows;
+  await stopConversationInputs(
+    tx,
+    conversations.map((c) => c.id),
+    resourceReason,
+  );
+
   await tx.query(
     "update conversations c set consumed_message_seq=message_seq,context=context-'modelBlocked' where agent_id=any($1::text[]) and not exists(select 1 from runs r where r.subject_id=c.id and r.reason='tool_contract_upgrade')",
     [agentIds],
@@ -59,4 +68,28 @@ export async function cancelAgents(
       subjectId: r.subject_id,
       kind: r.kind,
     });
+}
+
+export async function stopConversationInputs(
+  tx: Tx,
+  conversationIds: string[],
+  reason = "stopped",
+) {
+  await tx.query("update conversations set generation=generation+1 where id=any($1::text[])", [
+    conversationIds,
+  ]);
+  await tx.query(
+    `update messages m set content=content||'{"closed":true}'::jsonb
+    from conversations c where c.id=m.conversation_id and c.id=any($1::text[]) and m.consumed_run_id is null`,
+    [conversationIds],
+  );
+  await tx.query(
+    `update message_requests set work_state='stopped',blocked_reason=$2 where recipient_conversation_id=any($1::text[]) and state='open'`,
+    [conversationIds, reason],
+  );
+  await tx.query(
+    `update message_dispatches d set state='cancelled',updated_at=now() from conversations c
+    where c.id=d.conversation_id and c.id=any($1::text[]) and d.state in('prepared','waiting')`,
+    [conversationIds],
+  );
 }

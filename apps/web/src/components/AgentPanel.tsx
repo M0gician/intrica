@@ -1,5 +1,6 @@
 import { newId } from "@intrica/client";
 import { ConversationPause } from "../features/conversations/ConversationPause";
+import { MessageAssociation, PendingMessages } from "../features/conversations/MessageRouting";
 import { UnknownTools } from "../features/conversations/UnknownTools";
 import { useWorkspaceConversation } from "../features/conversations/useWorkspaceConversation";
 import { WorkspaceTranscript } from "../features/conversations/WorkspaceTranscript";
@@ -23,6 +24,8 @@ export function AgentPanel({
 } = {}) {
   useTranslation();
   const {
+    messageRequests,
+    routing,
     usage,
     setUsage,
     question,
@@ -100,6 +103,7 @@ export function AgentPanel({
           <IconPlus />
         </IconButton>
       </div>
+      <PendingMessages requests={messageRequests} />
       <WorkspaceTranscript
         key={sessionId}
         conversationId={sessionId}
@@ -117,6 +121,7 @@ export function AgentPanel({
           void ask();
         }}
       >
+        <MessageAssociation routing={routing} />
         <MentionComposerInput
           aria-label={tr("模型问题")}
           maxLength={8000}

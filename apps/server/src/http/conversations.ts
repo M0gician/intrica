@@ -1,5 +1,10 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { applyMessage, type StreamMessage, schemas } from "@intrica/contracts";
+import {
+  applyMessage,
+  inputAssociationSchema,
+  type StreamMessage,
+  schemas,
+} from "@intrica/contracts";
 import { Type } from "typebox";
 import { hostCapabilities } from "../adapters/host/executor.js";
 import { id } from "../adapters/postgres/database.js";
@@ -99,6 +104,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
         params,
         body: Type.Object({
           message: Type.String({ minLength: 1, maxLength: 8000 }),
+          association: Type.Optional(inputAssociationSchema),
           resumeRunId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
           idempotencyKey: Type.Optional(Type.String({ maxLength: 200 })),
         }),
@@ -111,6 +117,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
         canvasId: c.canvas_id,
         agentId: req.params.id,
         message: req.body.message,
+        association: req.body.association,
         ...(req.body.resumeRunId ? { resumeRunId: req.body.resumeRunId } : {}),
         language: promptLanguage(req.headers["accept-language"]),
         key: req.body.idempotencyKey ?? id("input"),
@@ -307,6 +314,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
         body: Type.Object({
           sessionId: Type.String({ maxLength: 200 }),
           message: Type.String({ minLength: 1, maxLength: 8000 }),
+          association: Type.Optional(inputAssociationSchema),
           idempotencyKey: Type.Optional(Type.String()),
         }),
       },
@@ -316,6 +324,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
         requestId: req.id,
         conversationId: req.body.sessionId,
         message: req.body.message,
+        association: req.body.association,
         language: promptLanguage(req.headers["accept-language"]),
         key: req.body.idempotencyKey ?? id("input"),
       });
@@ -335,6 +344,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
           streamFormat: Type.Optional(Type.Literal("delta")),
           resumeRunId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
           message: Type.String({ minLength: 1, maxLength: 8000 }),
+          association: Type.Optional(inputAssociationSchema),
           scopeId: Type.String(),
           selection: Type.Array(Type.String(), { maxItems: 100 }),
           model: Type.Optional(Type.Union([schemas.ModelSelectionSchema, Type.Null()])),
@@ -360,6 +370,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
         canvasId,
         conversationId: req.body.sessionId,
         message: req.body.message,
+        association: req.body.association,
         ...(req.body.resumeRunId ? { resumeRunId: req.body.resumeRunId } : {}),
         language: promptLanguage(req.headers["accept-language"]),
         key: req.body.idempotencyKey ?? id("input"),

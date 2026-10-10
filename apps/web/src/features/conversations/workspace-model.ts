@@ -1,4 +1,4 @@
-import type { AgentContextUsage } from "@intrica/contracts";
+import type { AgentContextUsage, MessageRequestView } from "@intrica/contracts";
 import { tr } from "../../i18n";
 import type { Receipt } from "./InputReceipt";
 import { coalesceToolEvents } from "./tool-display";
@@ -17,10 +17,13 @@ export type Turn = {
   question: string;
   receipt?: Receipt;
   role?: string;
+  data?: Record<string, unknown>;
   messages: Record<
     string,
     {
       text: string;
+      data?: Record<string, unknown>;
+      kind?: string;
       thinking: string;
       receipt?: Receipt;
     }
@@ -42,6 +45,7 @@ export type ConversationMessage = {
 };
 export type ConversationSnapshot = {
   messages: ConversationMessage[];
+  messageRequests?: MessageRequestView[];
   unknownTools?: UnknownCall[];
   context?: AgentContextUsage;
   run?: { id: string; state: string; reason?: string; last_event_seq: string } | null;
@@ -58,6 +62,7 @@ export function restoreTurns(value: ConversationSnapshot, sessionId: string): Tu
     })),
   );
   for (const message of records) {
+    if (message.kind === "model_output") continue;
     let turn = restored.at(-1);
     const anchor =
       [
@@ -76,6 +81,7 @@ export function restoreTurns(value: ConversationSnapshot, sessionId: string): Tu
         seq: message.seq,
         question: anchor ? String(message.data.text ?? message.data.reason ?? "") : tr("此前会话"),
         role: message.kind,
+        data: message.data,
         ...(message.data.inputReceipt ? { receipt: message.data.inputReceipt as Receipt } : {}),
         messages: {},
         tools: {},
@@ -86,9 +92,11 @@ export function restoreTurns(value: ConversationSnapshot, sessionId: string): Tu
       if (anchor) continue;
     }
     const id = String(message.seq);
-    if (message.kind === "assistant") {
+    if (["assistant", "message", "internal_note", "output_error"].includes(message.kind)) {
       turn.messages[id] = {
         text: String(message.data.text ?? ""),
+        data: message.data,
+        kind: message.kind,
         thinking: String(message.data.thinking ?? ""),
       };
       turn.timeline.push({ kind: "message", id });

@@ -64,7 +64,9 @@ export function AgentTimeline({
   const rows = useMemo(
     () =>
       coalesceToolEvents(events).filter(
-        (event) => event.kind !== "assistant" || event.data.text || event.data.thinking,
+        (event) =>
+          event.kind !== "model_output" &&
+          (event.kind !== "assistant" || event.data.text || event.data.thinking),
       ),
     [events],
   );

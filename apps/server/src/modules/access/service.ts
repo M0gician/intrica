@@ -1,10 +1,4 @@
-import type {
-  AccessIntent,
-  ApprovalDecision,
-  ApprovalPage,
-  ApprovalRecord,
-  EffectiveAgentPermissions,
-} from "@intrica/contracts";
+import type { AccessIntent, ApprovalDecision } from "@intrica/contracts";
 import {
   assertFence,
   canvasEvent,
@@ -16,26 +10,20 @@ import {
   type Tx,
 } from "../../adapters/postgres/database.js";
 import type { AssetStore } from "../../adapters/storage/assets.js";
-import { pendingInboxMessage, projectToolOutcome } from "../execution/messages.js";
+import { projectToolOutcome } from "../execution/messages.js";
 import { result, type ToolResult } from "../execution/tool-calls.js";
 import type { GraphCommands } from "../graph/commands.js";
-import { GraphMutation } from "../graph/mutation.js";
+import type { GraphMutation } from "../graph/mutation.js";
 import type { Conversations } from "../work/conversations.js";
-import { deliverCollaboration, validateDelivery } from "./collaboration.js";
-import { publishHandoffReport } from "./handoffs.js";
-import {
-  canApprove,
-  intentBasis,
-  intentSummary,
-  mayManage,
-  operation,
-  reviewerFor,
-} from "./intents.js";
+import { applyIntent } from "./apply-intent.js";
+import { validateDelivery } from "./collaboration.js";
+import { canApprove, intentBasis, mayManage, operation, reviewerFor } from "./intents.js";
 import {
   escalateApproval,
   finishApproval,
   notifyReviewer,
   reconcileApprovals,
+  wakeDispatch,
   wakeOrigin,
 } from "./lifecycle.js";
 import {
@@ -46,10 +34,10 @@ import {
   managementChain,
   OWNER,
 } from "./policy.js";
+import { describePermissions, listApprovals } from "./reader.js";
 import { coveringGrant } from "./resources.js";
 
 export class AccessService {
-  private inboxCursor = "";
   constructor(
     readonly db: Database,
     readonly graph: GraphCommands,
@@ -57,35 +45,8 @@ export class AccessService {
     readonly assets: AssetStore,
   ) {}
 
-  async describe(agentId: string): Promise<EffectiveAgentPermissions> {
-    const identity = await agentIdentity(this.db.pool, agentId);
-    const grants = await grantsFor(this.db.pool, agentId);
-    const names = new Map(
-      (
-        await this.db.pool.query(
-          "select id,body->>'title' as title from nodes where id=any($1::text[])",
-          [grants.slice(0, 200).map((grant) => grant.resource_id)],
-        )
-      ).rows.map((row) => [row.id, row.title]),
-    );
-    return {
-      role: identity.config.role,
-      permissionProtocol: 2,
-      commandExecution:
-        identity.config.role === "admin" || grants.some((g) => g.execution_mode === "host")
-          ? "host"
-          : "isolated",
-      resources: grants.slice(0, 200).map((grant) => ({
-        nodeId: grant.resource_id,
-        rootId: grant.root_resource_id,
-        title: names.get(grant.resource_id) || grant.resource_id,
-        mode: grant.mode,
-        execution: grant.execution_mode,
-        sourceLinkId: grant.source_link_id,
-        delegatedBy: grant.delegated_by ?? null,
-      })),
-      totalResources: grants.length,
-    };
+  async describe(agentId: string) {
+    return describePermissions(this.db, agentId);
   }
 
   /** The only request entry; the durable call exists before an operation can ask for permission. */
@@ -230,195 +191,14 @@ export class AccessService {
     return Boolean(request && (await this.decisionAuthority(this.db.pool, request)));
   }
 
-  private async apply(
+  private apply(
     tx: Tx,
     subject: string,
     intent: AccessIntent,
     callId: string,
     delegatedBy: string | null = null,
   ) {
-    const identity = await agentIdentity(tx, subject);
-    const mutation = new GraphMutation(tx, identity.canvas_id, OWNER, this.graph.queries);
-    const required =
-      intent.kind === "role"
-        ? intent.role
-        : "requiredRole" in intent
-          ? intent.requiredRole
-          : undefined;
-    const roleChanged = required && identity.config.role !== required;
-    if (roleChanged)
-      await mutation.update(subject, { agent: { ...identity.config, role: required } });
-    let output: Record<string, unknown> = { status: "granted" };
-    if (intent.kind === "resource") {
-      await mutation.connectGrant(
-        subject,
-        intent.nodeId,
-        intent.mode,
-        "user_link",
-        undefined,
-        delegatedBy,
-      );
-      output = { ...output, nodeId: intent.nodeId, mode: intent.mode };
-    }
-    if (intent.kind === "path") {
-      const workspaceOwner = intent.workspaceOwnerId
-        ? await this.graph.queries.node(intent.workspaceOwnerId, tx)
-        : null;
-      let resource = (
-        await tx.query(
-          "select n.id from nodes n where n.canvas_id=$1 and n.body->'resource'->>'path'=$2 order by n.created_at,n.id limit 1",
-          [identity.canvas_id, intent.path],
-        )
-      ).rows[0]?.id;
-      if (!resource)
-        resource = await mutation.insert({
-          kind: "text",
-          parentId: identity.parent_id ?? identity.canvas_id,
-          title: workspaceOwner
-            ? `${workspaceOwner.title} · ${intent.directory ? "工作目录" : intent.path.split("/").at(-1)}`
-            : intent.path.split("/").at(-1) || intent.path,
-          text: intent.path,
-          resource: { type: intent.directory ? "directory" : "file", path: intent.path },
-          position: { x: 40, y: 40, width: 260, height: 180 },
-        });
-      // Only admins already possess the host capability that a directory grant
-      // currently conveys. Never upgrade a non-admin owner as a side effect of
-      // approving its member's path request.
-      if (workspaceOwner?.agent?.role === "admin" && workspaceOwner.id !== subject)
-        await mutation.connectGrant(
-          workspaceOwner.id,
-          resource,
-          "write",
-          "user_link",
-          undefined,
-          null,
-          intent.execution ?? "none",
-        );
-      const mode =
-        intent.mode ??
-        (delegatedBy &&
-        !(await coveringGrant(
-          await grantsFor(tx, delegatedBy),
-          { resource: { path: intent.path, type: "directory" } },
-          "write",
-        ))
-          ? "read"
-          : "write");
-      await mutation.connectGrant(
-        subject,
-        resource,
-        mode,
-        "user_link",
-        undefined,
-        delegatedBy,
-        intent.execution ?? "none",
-      );
-      output = {
-        ...output,
-        path: intent.path,
-        nodeId: resource,
-        mode,
-        execution: intent.execution ?? "none",
-      };
-    }
-    if (intent.kind === "agent") {
-      const args = intent.args;
-      if (intent.operation === "hire") {
-        const run = (
-          await tx.query(
-            "select r.id,r.frozen_input from runs r join tool_calls t on t.run_id=r.id where t.id=$1",
-            [callId],
-          )
-        ).rows[0];
-        const nodeId = await mutation.insert({
-          kind: "agent",
-          parentId: subject,
-          nameLanguage: args.language ?? run.frozen_input.language ?? "en",
-          agent: { persona: args.persona, role: args.role, enabled: args.enabled },
-          position: await mutation.agentPosition(subject),
-          origin: "model",
-        });
-        const runId = run.id;
-        await mutation.connectGrant(subject, nodeId, "write", "derived_from", runId);
-        await this.grantRecruitResources(
-          mutation,
-          subject,
-          nodeId,
-          args,
-          identity.config.role === "admin" ? subject : delegatedBy,
-        );
-        const initialTask = await this.conversations.assignNewAgent(tx, runId, nodeId, args.task);
-        output = {
-          id: nodeId,
-          title: (await mutation.row(nodeId)).body.title,
-          initialTask,
-          resourceIds: args.resourceIds ?? [],
-          ...(!args.resourceIds?.length
-            ? {
-                notice:
-                  "No shared resources inherited. The member uses its own workspace; host execution may require separate approval.",
-              }
-            : {}),
-        };
-      } else if (intent.operation === "dismiss") {
-        if (args.agentId === subject) throw new DomainError("FORBIDDEN", "不能移除自己");
-        await mutation.deleteNodes([args.agentId]);
-        output = { deleted: args.agentId };
-      } else {
-        const target = await agentIdentity(tx, args.agentId);
-        if (target.canvas_id !== identity.canvas_id)
-          throw new DomainError("FORBIDDEN", "不能修改其他画布");
-        const config = { ...target.config, ...args.patch };
-        if (config.schedule === null) delete config.schedule;
-        await mutation.update(target.node_id, { agent: config }, args.expectedRevision);
-        output = { id: target.node_id, status: "updated" };
-      }
-    }
-    if (intent.kind === "collaboration") {
-      const run = (
-        await tx.query("select r.* from runs r join tool_calls t on t.run_id=r.id where t.id=$1", [
-          callId,
-        ])
-      ).rows[0];
-      for (const nodeId of intent.fileIds ?? []) {
-        const node = await this.graph.queries.node(nodeId, tx);
-        if (
-          node.canvasId !== identity.canvas_id ||
-          !node.assetId ||
-          node.resource?.snapshot?.assetId !== node.assetId
-        )
-          throw new DomainError("TARGET_CHANGED", "交付文件的发布版本已变化");
-        if (!(await grantsFor(tx, subject)).some((grant) => grant.resource_id === node.id))
-          throw new DomainError("FORBIDDEN", "交付文件的读取权限已变化");
-        await this.assets.assertAvailable(node.assetId);
-      }
-      const delivery = await deliverCollaboration(
-        tx,
-        this.conversations,
-        run,
-        subject,
-        intent,
-        callId,
-      );
-      const informedExecutors =
-        intent.messageKind === "report"
-          ? await publishHandoffReport(
-              mutation,
-              run,
-              callId,
-              intent.message,
-              intent.resourceIds ?? [],
-            )
-          : [];
-      return { ...delivery, informedExecutors };
-    }
-    if (roleChanged || ["resource", "path", "agent"].includes(intent.kind))
-      await mutation.finish("access.apply", {
-        agentId: subject,
-        runId: (await tx.query("select run_id from tool_calls where id=$1", [callId])).rows[0]
-          .run_id,
-      });
-    return output;
+    return applyIntent(this, tx, subject, intent, callId, delegatedBy);
   }
 
   async grantRecruitResources(
@@ -468,99 +248,8 @@ export class AccessService {
     }
   }
 
-  async list(
-    canvasId: string,
-    options: {
-      subjectId?: string;
-      status?: string;
-      cursor?: string;
-      limit?: number;
-      actor?: Actor;
-      requestIds?: string[];
-      participantId?: string;
-    } = {},
-  ): Promise<ApprovalPage> {
-    const actor = options.actor ?? OWNER;
-    const values = [
-      canvasId,
-      options.subjectId ?? null,
-      options.status ?? null,
-      actor.kind === "agent" ? actor.agentId : null,
-      options.requestIds ?? null,
-      options.participantId ?? null,
-    ];
-    const filter =
-      "canvas_id=$1 and ($2::text is null or subject_id=$2) and ($3::text is null or status=$3) and ($4::text is null or subject_id=$4 or assigned_reviewer_id=$4) and ($5::text[] is null or id=any($5)) and ($6::text is null or subject_id=$6 or assigned_reviewer_id=$6)";
-    const total = (
-      await this.db.pool.query(`select count(*)::int as n from approvals where ${filter}`, values)
-    ).rows[0].n;
-    const limit = Math.min(100, options.limit ?? 40);
-    const rows = (
-      await this.db.pool.query(
-        `select a.*,(select state from tool_calls where id=a.origin_call_id) as execution_state from approvals a where ${filter} and ($7::text is null or (created_at,id)<(select created_at,id from approvals where id=$7)) order by created_at desc,id desc limit $8`,
-        [...values, options.cursor ?? null, limit + 1],
-      )
-    ).rows;
-    const requests: ApprovalRecord[] = await Promise.all(
-      rows.slice(0, limit).map(async (r) => {
-        const approvable =
-          actor.kind === "owner" ||
-          (await canApprove(this.db.pool, actor.agentId, r.subject_id, r.action));
-        const summary = intentSummary(r.action, r.basis);
-        const ids = [
-          r.subject_id,
-          r.assigned_reviewer_id,
-          ...(summary.recipients ?? []),
-          ...(approvable ? (summary.resourceIds ?? []) : []),
-        ].filter(Boolean);
-        const names = Object.fromEntries(
-          (
-            await this.db.pool.query(
-              "select id,body->>'title' as title from nodes where canvas_id=$1 and id=any($2::text[])",
-              [canvasId, ids],
-            )
-          ).rows.map((n) => [n.id, n.title]),
-        );
-        return {
-          id: r.id,
-          agentId: r.subject_id,
-          toolCallId: r.origin_call_id,
-          status: r.status,
-          version: r.version,
-          reviewerId: r.assigned_reviewer_id,
-          decidedBy: r.decided_by,
-          reason: actor.kind === "owner" ? r.reason : "",
-          decisionReason: actor.kind === "owner" ? r.decision : null,
-          routeReason: r.route_reason,
-          kind: r.action.kind,
-          scope: ["host", "agent", "collaboration"].includes(r.action.kind) ? "once" : "persistent",
-          summary,
-          names,
-          ...(!approvable && actor.kind === "agent" && r.assigned_reviewer_id === actor.agentId
-            ? { blockedReason: "outside_authority" }
-            : {}),
-          ...(actor.kind === "owner" ||
-          r.subject_id === actor.agentId ||
-          (r.assigned_reviewer_id === actor.agentId && approvable)
-            ? { action: r.action }
-            : {}),
-          expiresAt: new Date(r.expires_at).toISOString(),
-          reviewDueAt: r.review_due_at ? new Date(r.review_due_at).toISOString() : null,
-          allowedActions:
-            r.status === "pending"
-              ? actor.kind === "owner"
-                ? ["approve", "deny", ...(r.assigned_reviewer_id ? ["escalate" as const] : [])]
-                : r.assigned_reviewer_id === actor.agentId
-                  ? [...(approvable ? ["approve" as const] : []), "deny", "escalate"]
-                  : []
-              : [],
-          executionState: r.execution_state,
-          createdAt: new Date(r.created_at).toISOString(),
-          decidedAt: r.decided_at ? new Date(r.decided_at).toISOString() : null,
-        };
-      }),
-    );
-    return { requests, total, nextCursor: rows.length > limit ? rows[limit - 1].id : null };
+  async list(canvasId: string, options: Parameters<typeof listApprovals>[2] = {}) {
+    return listApprovals(this.db, canvasId, options);
   }
 
   async forSubject(canvasId: string, subjectId: string, focus?: string, historyIds: string[] = []) {
@@ -629,13 +318,15 @@ export class AccessService {
           [requestId, reason, actor.kind === "owner" ? "owner" : actor.agentId],
         );
         const output = result(
-          await this.apply(
-            tx,
-            r.subject_id,
-            r.action,
-            r.origin_call_id,
-            actor.kind === "agent" ? actor.agentId : null,
-          ),
+          r.origin_dispatch_id
+            ? { status: "approved", messageId: r.origin_dispatch_id }
+            : await this.apply(
+                tx,
+                r.subject_id,
+                r.action,
+                r.origin_call_id,
+                actor.kind === "agent" ? actor.agentId : null,
+              ),
         );
         const basis = await intentBasis(
           tx,
@@ -656,6 +347,7 @@ export class AccessService {
           ],
         );
         await wakeOrigin(tx, r.origin_call_id);
+        if (r.origin_dispatch_id) await wakeDispatch(tx, r.origin_dispatch_id);
         await projectToolOutcome(tx, r.origin_call_id);
       }
       await canvasEvent(tx, before.canvas_id, "approval.changed", {
@@ -682,98 +374,5 @@ export class AccessService {
     ).rows;
     for (const c of canvases)
       await this.db.canvas(c.canvas_id, (tx) => reconcileApprovals(tx, c.canvas_id));
-    // The inbox is the durable queue. Rotate the bounded scan even when a model
-    // is unavailable, so one broken page cannot starve the next one.
-    const eligible = pendingInboxMessage;
-    const candidates = (cursor: string) =>
-      this.db.pool.query(
-        `
-      select c.id,c.canvas_id,c.agent_id,cfg.config from conversations c
-      join agent_configs cfg on cfg.node_id=c.agent_id join canvases board on board.id=c.canvas_id
-      where board.deleted_at is null and c.context->>'modelBlocked' is distinct from 'true'
-      and exists(select 1 from messages m where m.conversation_id=c.id and m.seq>c.consumed_message_seq and m.run_id is null and ${eligible})
-      and not exists(select 1 from runs r where r.subject_id=c.id and r.state in('queued','running','waiting'))
-      order by (c.id<=$1),c.id limit 128`,
-        [cursor],
-      );
-    const inboxes = (await candidates(this.inboxCursor)).rows;
-    this.inboxCursor = inboxes.at(-1)?.id ?? "";
-    for (const c of inboxes) {
-      try {
-        const model = await this.conversations.models.capture(c.config.model);
-        await this.db.canvas(c.canvas_id, async (tx) => {
-          const identity = await agentIdentity(tx, c.agent_id);
-          if (digest(identity.config) !== digest(c.config)) return;
-          if (
-            (
-              await tx.query(
-                "select 1 from runs where subject_id=$1 and state in('queued','running','waiting')",
-                [c.id],
-              )
-            ).rowCount
-          )
-            return;
-          // Recheck after acquiring the canvas lock: Stop may have consumed the
-          // inbox, or another maintainer may already have assigned these messages.
-          const groups = (
-            await tx.query(
-              `select m.content->>'causeId' as cause_id,min(m.seq) as first_seq
-            from messages m join conversations c on c.id=m.conversation_id join agent_configs cfg on cfg.node_id=c.agent_id
-            where c.id=$1 and m.seq>c.consumed_message_seq and m.run_id is null and ${eligible}
-            group by m.content->>'causeId' order by min(m.seq) limit 128`,
-              [c.id],
-            )
-          ).rows;
-          for (const group of groups) {
-            try {
-              await this.conversations.runs.enqueue(tx, {
-                ...(group.cause_id ? { causeId: group.cause_id } : {}),
-                canvasId: c.canvas_id,
-                subjectId: c.id,
-                kind: "conversation",
-                frozen: {
-                  conversationId: c.id,
-                  agentId: c.agent_id,
-                  selection: [],
-                  model,
-                  language: await this.conversations.language(c.id, tx),
-                },
-              });
-            } catch (error) {
-              if (!(error instanceof DomainError) || error.code !== "LIMIT_REACHED") throw error;
-              await tx.query(
-                `update messages set content=content||'{"activationBlocked":true}'::jsonb
-                where conversation_id=$1 and run_id is null and seq>(select consumed_message_seq from conversations where id=$1)
-                and role in ('message','team_notice') and content->>'causeId' is not distinct from $2`,
-                [c.id, group.cause_id],
-              );
-              continue;
-            }
-            break;
-          }
-        });
-      } catch (error) {
-        if (error instanceof DomainError && error.code === "QUEUE_FULL") continue;
-        await this.db.canvas(c.canvas_id, async (tx) => {
-          if (error instanceof DomainError && error.code === "MODEL_NOT_CONFIGURED") {
-            await tx.query(
-              "update conversations set context=coalesce(context,'{}')||'{\"modelBlocked\":true}'::jsonb where id=$1",
-              [c.id],
-            );
-            await canvasEvent(tx, c.canvas_id, "conversation.changed", {
-              conversationId: c.id,
-              agentId: c.agent_id,
-            });
-          }
-          const rows = (
-            await tx.query(
-              "select * from approvals where assigned_reviewer_id=$1 and status='pending' for update",
-              [c.agent_id],
-            )
-          ).rows;
-          for (const r of rows) await escalateApproval(tx, r, "manager_unavailable");
-        });
-      }
-    }
   }
 }

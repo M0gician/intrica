@@ -29,7 +29,7 @@ export function buildConversationPrompt(
       "configure_agent",
       "bash",
       "rg",
-      ...(input.agent ? ["report_result", "request_permission", "list_access_requests"] : []),
+      ...(input.agent ? ["request_permission", "list_access_requests"] : []),
       ...(role !== "read" ? ["create_artifact", "update_node"] : []),
       ...(manage ? ["hire_agent", "dismiss_agent", "review_access_request"] : []),
       ...(role === "admin" ? ["take_over_run"] : []),
@@ -150,17 +150,10 @@ export function buildConversationPrompt(
           "你通过 create_artifact 保存阶段成果，并通过 update_node 按当前版本更新内容。你根据 sharedWith 和 sharing 确认成果的共享范围。complete/partial/blocked/private 记录共享结果。交付使用工具返回的节点 ID 和附件引用。",
         )
       : "",
-    has("report_result")
-      ? text(
-          "You use report_result to report progress and results to your direct manager. Reports contain verified results, evidence gaps and blockers. Saved results remain available in the delivery record.",
-          "你通过 report_result 向直属管理者汇报进展和结果。报告包含已验证结果、待补证据和阻塞原因。已保存的成果持续保留在交付记录中。",
-        )
-      : role === "owner"
-        ? text(
-            "You report verified results, pending work and blockers to the user. Delivery uses actual node IDs and attachment references.",
-            "你向用户报告已验证结果、待处理事项和阻塞原因，并使用实际节点 ID 和附件引用交付成果。",
-          )
-        : "",
+    text(
+      `Every authored message declares its target. ${has("send_message") ? "send_message and final text use the same JSON object" : "Final text uses this JSON object"}: {"target":{"kind":"request","id":"the supplied request ID"},"kind":"result","message":"the answer"}. request creates work, update shares progress, result returns findings, and decline states the blocker for a request. A private work note is {"target":{"kind":"internal"},"message":"the note"}. Internal notes contain only target and message. A final response consists of exactly one JSON object. Final JSON remains available when work tools are unavailable. Published file IDs go in fileIds. Delivery receipts confirm sending; request IDs identify who asked. A result sent through a tool already has a receipt; further private notes use internal. Separate messages retain separate purposes and recipients.`,
+      '每条主动消息明确声明目标。send_message 与最终正文使用同一 JSON 对象：{"target":{"kind":"request","id":"服务端提供的请求 ID"},"kind":"result","message":"答复正文"}。request 发起工作，update 分享进展，result 返回结论，decline 说明无法处理的原因。内部笔记使用 {"target":{"kind":"internal"},"message":"笔记内容"}，只包含 target 和 message。最终答复直接输出 JSON 对象。工作工具不可用时仍可输出最终 JSON。fileIds 填写已发布文件节点 ID。投递回执确认发送，请求 ID 标识提问来源。已通过工具发送的结果具有回执，后续自身记录使用 internal。不同消息保留各自的用途和收件人。',
+    ),
     !manage && has("request_permission")
       ? text(
           `You use request_permission when the task requires additional authority. ${has("list_access_requests") ? "You inspect your own requests through list_access_requests. " : ""}You continue work within current permissions while the request is pending.`,

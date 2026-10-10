@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vite
 import { Agent } from "../../apps/server/dist/adapters/model/agent.js";
 import { digest } from "../../apps/server/dist/adapters/postgres/database.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
+import { addressedOutput } from "../fixtures/addressed-output.mjs";
 
 const key = () => randomUUID();
 const database = `intrica_contracts_${key().replaceAll("-", "")}`;
@@ -47,6 +48,9 @@ afterEach(async () => {
   );
   await k.db.pool.query("update schedules set enabled=false");
   await k.db.pool.query("update conversations set consumed_message_seq=message_seq");
+  await k.db.pool.query(
+    "update messages set content=content||'{\"closed\":true}'::jsonb where consumed_run_id is null",
+  );
 });
 afterAll(async () => {
   await app?.close();
@@ -400,9 +404,9 @@ it.each(["read", "write", "admin", "owner"] as const)(
     expect(visible.some((t) => t.name === "take_over_run")).toBe(role === "admin");
     expect(visible.some((t) => t.name === "create_artifact")).toBe(role !== "read");
     const send = parameters("send_message");
-    expect(Value.Check(send, { target: { kind: "canvas" }, message: "coordinate" })).toBe(
-      ["admin", "owner"].includes(role),
-    );
+    expect(
+      Value.Check(send, { kind: "update", target: { kind: "canvas" }, message: "coordinate" }),
+    ).toBe(["admin", "owner"].includes(role));
     if (role === "read" || role === "write") {
       expect(
         Value.Check(parameters("configure_agent"), {
@@ -430,7 +434,12 @@ it.each(["read", "write", "admin", "owner"] as const)(
       const descriptions = visible.map((t) => t.description).join("\n");
       expect(descriptions).not.toMatch(/take.?over|took over|hire_agent|review_access_request/);
       expect(
-        Value.Check(parameters("report_result"), { message: "progress", resourceIds: [] }),
+        Value.Check(parameters("send_message"), {
+          target: { kind: "manager" },
+          kind: "result",
+          message: "progress",
+          resourceIds: [],
+        }),
       ).toBe(false);
     }
     if (role === "admin") {
@@ -441,8 +450,13 @@ it.each(["read", "write", "admin", "owner"] as const)(
     if (role === "owner") {
       const to = await agent();
       expect(
-        (await s.call("send_message", { target: { kind: "canvas" }, message: "owner broadcast" }))
-          .value.recipients,
+        (
+          await s.call("send_message", {
+            kind: "update",
+            target: { kind: "canvas" },
+            message: "owner broadcast",
+          })
+        ).value.recipients,
       ).toEqual([to.id]);
     }
   },
@@ -478,7 +492,7 @@ it("random names are server-owned, unique across concurrent hiring and UI creati
     expect(
       (
         await k.db.pool.query(
-          "select count(*)::int as n from messages m join conversations c on c.id=m.conversation_id where c.agent_id=$1 and m.content->>'messageKind'='task'",
+          "select count(*)::int as n from messages m join conversations c on c.id=m.conversation_id where c.agent_id=$1 and m.content->>'messageKind'='request'",
           [hire.value.id],
         )
       ).rows[0].n,
@@ -626,7 +640,9 @@ it.each([
       expect(this.state.systemPrompt).toContain(`Current role: ${role}.`);
       const message = {
         ...saved,
-        content: [{ type: "text", text: "Recovery checked" }],
+        content: [
+          { type: "text", text: addressedOutput(this.state.systemPrompt, "Recovery checked") },
+        ],
         stopReason: "stop",
       } as Awaited<ReturnType<Agent["turn"]>>;
       this.state.messages.push(message);
@@ -714,7 +730,7 @@ it("each model request refreshes role, resource context and visible schemas from
       content:
         turn < 3
           ? [{ type: "toolCall", id: `round-${turn}`, name: "read_canvas", arguments: {} }]
-          : [{ type: "text", text: "verified" }],
+          : [{ type: "text", text: addressedOutput(this.state.systemPrompt, "verified") }],
       stopReason: turn < 3 ? "toolUse" : "stop",
       timestamp: Date.now(),
       usage: {
@@ -743,8 +759,10 @@ it("each model request refreshes role, resource context and visible schemas from
   expect(
     checkpoint.filter((m: any) => m.role === "toolResult" && m.toolName === "read_canvas"),
   ).toHaveLength(2);
-  expect(checkpoint.at(-1)).toMatchObject({
-    role: "assistant",
-    content: [{ type: "text", text: "verified" }],
+  expect(checkpoint.at(-1)?.role).toBe("assistant");
+  expect(JSON.parse(checkpoint.at(-1).content[0].text)).toMatchObject({
+    target: { kind: "request" },
+    kind: "result",
+    message: "verified",
   });
 });

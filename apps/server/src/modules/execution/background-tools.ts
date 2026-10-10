@@ -10,6 +10,7 @@ import type { ExecutionContext } from "./worker.js";
 
 export type ToolNotice = {
   text: string;
+  workItemId?: string | undefined;
   callId: string;
   status: string;
   progress: boolean;
@@ -153,6 +154,7 @@ export class BackgroundTools {
       : `background-${row.id}-${row.state}-${row.approval_id ?? "result"}`;
     await this.notify(tx, key, {
       callId: row.id,
+      workItemId: row.work_item_id ?? undefined,
       status: row.state,
       progress: active,
       elapsedSeconds,

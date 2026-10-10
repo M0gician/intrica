@@ -1,4 +1,5 @@
 import type { Database } from "../../adapters/postgres/database.js";
+import { projectMessageReceipts } from "../collaboration/receipts.js";
 
 export class CollaborationReader {
   constructor(private readonly db: Database) {}
@@ -17,6 +18,7 @@ export class CollaborationReader {
       )
     ).rows;
     const page = rows.slice(0, 80).reverse();
+    for (const row of page) await projectMessageReceipts(this.db.pool, [row], row.conversation_id);
     return {
       events: page.map((row) => ({
         conversationId: row.conversation_id,
@@ -28,13 +30,16 @@ export class CollaborationReader {
         ...(row.role === "message" && row.content.from === viewerId
           ? {
               receipt: {
-                status: row.content.activationBlocked
-                  ? "blocked"
-                  : row.consumed_run_id
-                    ? "consumed"
-                    : BigInt(row.seq) <= BigInt(row.consumed_message_seq)
-                      ? "closed"
-                      : "queued",
+                status: row.content.closed
+                  ? "closed"
+                  : row.content.activationBlocked
+                    ? "blocked"
+                    : row.consumed_run_id
+                      ? "consumed"
+                      : !row.content.workItemId &&
+                          BigInt(row.seq) <= BigInt(row.consumed_message_seq)
+                        ? "closed"
+                        : "queued",
                 runId: row.consumed_run_id ?? row.run_id,
                 runState: row.run_state,
               },

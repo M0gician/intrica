@@ -19,9 +19,9 @@ export class Activity {
         r.id as run_id,r.state,r.reason,r.cancel_requested_at,r.updated_at,r.superseded_by_run_id,
         (select coalesce(jsonb_agg(jsonb_build_object('id',p.id,'reviewerId',p.assigned_reviewer_id,'kind',p.action->>'kind','expiresAt',p.expires_at)), '[]'::jsonb) from approvals p where p.subject_id=n.id and p.status='pending') as pending_requests,
         (select coalesce(jsonb_agg(jsonb_build_object('id',t.id,'name',t.name,'elapsedSeconds',greatest(0,extract(epoch from now()-t.updated_at)::int))), '[]'::jsonb) from tool_calls t where t.run_id=r.id and t.state='dispatching') as active_tools,
-        (select count(*)::int from messages m where m.conversation_id=c.id and m.seq>c.consumed_message_seq
+        (select count(*)::int from messages m where m.conversation_id=c.id and m.consumed_run_id is null and (m.seq>c.consumed_message_seq or m.content->>'workItemId' is not null) and m.content->>'closed' is distinct from 'true'
           and (${actionableMessage} or ${currentTeamNotice} or (m.role='message' and m.content ? 'from' and not(m.content ? 'activationBlocked')))) as pending_messages,
-        (select count(*)::int from messages m where m.conversation_id=c.id and m.seq>c.consumed_message_seq
+        (select count(*)::int from messages m where m.conversation_id=c.id and m.consumed_run_id is null and (m.seq>c.consumed_message_seq or m.content->>'workItemId' is not null) and m.content->>'closed' is distinct from 'true'
           and m.role in('message','team_notice') and m.content ? 'activationBlocked') as blocked_messages
       from nodes n join agent_configs a on a.node_id=n.id
       join canvases board on board.id=n.canvas_id and board.deleted_at is null

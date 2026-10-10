@@ -1,6 +1,6 @@
 # RFC acceptance map
 
-This map covers RFCs #2 through #13, #17 and #18 under #1, and #19–#23 under #16, plus #24. Assertions check observable
+This map covers RFCs #2 through #13, #17 and #18 under #1, and #19–#23 under #16, plus #24–#26. Assertions check observable
 results and durable state. Test model responses come from dependency injection
 or an isolated compatible HTTP endpoint. Production configuration cannot enable
 the built-in test model.
@@ -22,6 +22,8 @@ the built-in test model.
 | #18 | Prompt and tool-contract tests compare read/write/admin/owner instructions and visible parameters, including excluded management operations. Real conversation tests change role and resource access between model turns and recover old checkpoint-only hires under current authority. Name tests cover language fallback, concurrent UI/tool creation, pool exhaustion, rollback, new-field rejection, legacy restore, receipt reuse and human renaming. A controlled Worker scenario reuses an original conversation, recruits an independent member, holds both tasks in flight, exchanges peer evidence and verifies two real file writes with no duplicate hiring, tasks or reports. Shared Web/Electron recruitment uses generated names and actual member IDs. |
 
 | #24 | `sandbox-network.test.ts` runs a real isolated process against a local HTTP server, resolves a hostname, writes the response to its workspace, and checks private, ungranted and read-only file boundaries. It skips when platform isolation or Linux user namespaces are unavailable. A separate macOS probe verified external DNS and certificate-verified HTTPS to PyPI; Linux runtime verification remains pending. |
+
+| #26 | `addressed-messages.test.ts` verifies tool-free replies, explicit recipients, independent requests in one context, user clarification, requester/manager differences, workspace return addresses, strict internal notes, finite repair, persistent native approvals, generation invalidation, deletion, stop, takeover, and exact reply deduplication. Collaboration, coordination and long-tool suites exercise frozen audiences, expiry/denial, rollback, late results, expedite, continuous context and real Worker recovery with the new contract. `addressed-messages.spec.ts` checks private-note disclosure, unpublished drafts, task selection and a 320 px panel. Runtime import cycles and execution dependency direction are checked by `check-boundaries.mjs`. |
 
 ## Test layers
 

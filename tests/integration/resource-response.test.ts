@@ -13,6 +13,7 @@ import { DEFAULT_LIMITS } from "../../apps/server/dist/modules/execution/limits.
 import { resourceResponse } from "../../apps/server/dist/modules/execution/schedules.js";
 import { tickSchedules } from "../../apps/server/dist/modules/work/agent-schedules.js";
 import { retryResourceResponse } from "../../apps/server/dist/modules/work/resource-response.js";
+import { removeAddressedSchema } from "../fixtures/remove-addressed-schema.mjs";
 
 const key = () => randomUUID();
 const name = `intrica_responses_${key().replaceAll("-", "")}`;
@@ -853,6 +854,7 @@ it("migrates ambiguous legacy blocks without reviving stopped work", async () =>
       );
     }
     // Reconstruct the v12 schedules table exactly, then use the real migration runner.
+    await removeAddressedSchema(db.pool);
     await db.pool.query(
       "alter table schedules drop column revision, drop column dispatch_state, drop column blocked_reason, drop column delivery_seq, drop column delivery_run_id",
     );

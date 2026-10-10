@@ -4,6 +4,11 @@ import { useSessionConnection } from "../api/connection";
 import { AgentProfile } from "../features/conversations/AgentProfile";
 import { AgentTimeline } from "../features/conversations/AgentTimeline";
 import { ConversationPause } from "../features/conversations/ConversationPause";
+import {
+  MessageAssociation,
+  PendingMessages,
+  useMessageAssociation,
+} from "../features/conversations/MessageRouting";
 import { activityRecipient } from "../features/conversations/model";
 import { ResourceResponse } from "../features/conversations/ResourceResponse";
 import { UnknownTools } from "../features/conversations/UnknownTools";
@@ -68,6 +73,7 @@ export function AgentNodePanel({
     interrupted,
     act,
   } = useAgentActivity(node.id, active, focusRequest);
+  const routing = useMessageAssociation(data.messageRequests);
   const profile = useAgentProfile({ node, onSave, onRename, setError });
   const {
     draft,
@@ -177,6 +183,7 @@ export function AgentNodePanel({
               setError={setError}
             />
             {context}
+            <PendingMessages requests={data.messageRequests} />
           </>
         }
         events={data.events.filter((e) => e.agentId === node.id || activityRecipient(e, node.id))}
@@ -209,6 +216,7 @@ export function AgentNodePanel({
           const sent = message;
           if (!(await titleSave.current) || !(await saveConfig())) return;
           const ok = await act(`canvas-agents/${node.id}/run`, {
+            association: routing.association,
             ...(data.runId &&
             (data.runReason === "tool_contract_upgrade" ||
               (!message.trim() && (interrupted || data.runState === "waiting")))
@@ -231,6 +239,7 @@ export function AgentNodePanel({
           }
         }}
       >
+        <MessageAssociation routing={routing} />
         <MentionComposerInput
           aria-label={tr("Agent 任务")}
           value={message}

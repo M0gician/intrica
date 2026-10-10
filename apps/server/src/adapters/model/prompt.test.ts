@@ -58,7 +58,8 @@ describe("buildSystemPrompt", () => {
       });
       expect(conversation).toContain("USER_PERSONA 保留原文");
       expect(conversation).toContain("n-1");
-      expect(conversation).toContain("report_result");
+      expect(conversation).toContain("send_message");
+      expect(conversation).not.toContain("report_result");
       expect(conversation).toContain("30");
       expect(conversation).toContain(
         language === "en" ? "write has a verified result" : "写入确认成功后",

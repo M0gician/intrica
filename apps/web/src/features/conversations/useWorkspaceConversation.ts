@@ -1,5 +1,10 @@
 import { newId } from "@intrica/client";
-import type { AgentContextUsage, ModelSelection, Node } from "@intrica/contracts";
+import type {
+  AgentContextUsage,
+  MessageRequestView,
+  ModelSelection,
+  Node,
+} from "@intrica/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import { useConnection } from "../../app/connection-context";
@@ -7,6 +12,7 @@ import { useModelReady } from "../../components/ModelRequired";
 import { tr } from "../../i18n";
 import { useGraphValue, useStore, useViewValue } from "../../state/store";
 import type { Receipt } from "./InputReceipt";
+import { useMessageAssociation } from "./MessageRouting";
 import type { UnknownCall } from "./UnknownTools";
 import { useRunEvents } from "./useRunEvents";
 import { type ConversationSnapshot, restoreTurns, type Turn } from "./workspace-model";
@@ -19,6 +25,8 @@ export function useWorkspaceConversation(
 ) {
   const { transport, agentRequest, storage, api, activity } = useSessionConnection();
   const store = useStore();
+  const [messageRequests, setMessageRequests] = useState<MessageRequestView[]>([]);
+  const routing = useMessageAssociation(messageRequests);
   const [usage, setUsage] = useState<AgentContextUsage>();
   const appliedCompose = useRef<string | null>(null);
   const composer = useRef<HTMLFormElement>(null);
@@ -111,6 +119,7 @@ export function useWorkspaceConversation(
   useEffect(() => {
     setSessionId(readSession());
     setTurns([]);
+    setMessageRequests([]);
     receipts.current.clear();
     setRunId(undefined);
     setUnknown([]);
@@ -148,6 +157,7 @@ export function useWorkspaceConversation(
     const value = await activity.request(path, () => transport.request<ConversationSnapshot>(path));
     if (!showing.current || sessionRef.current !== sessionId || abort.current) return null;
     setUnknown(value.unknownTools ?? []);
+    setMessageRequests(value.messageRequests ?? []);
     setTurns(restoreTurns(value, sessionId));
     const running = Boolean(
       value.run && ["queued", "running", "waiting"].includes(value.run.state),
@@ -158,7 +168,7 @@ export function useWorkspaceConversation(
       setSending(false);
     }
     setBusy(running && !paused);
-    setWaitingReason(paused ? value.run?.reason : undefined);
+    setWaitingReason(value.run?.state === "waiting" ? value.run.reason : undefined);
     setRunId(running || paused ? value.run!.id : undefined);
     runCursor.current = String(value.run?.last_event_seq ?? "0");
     if (value.context) setUsage(value.context);
@@ -243,6 +253,7 @@ export function useWorkspaceConversation(
         const submitted = await agentRequest<{ messageId: string }>("agent/steer", {
           sessionId,
           message: prompt,
+          association: routing.association,
         });
         const id = newId();
         setTurns((turns) =>
@@ -309,6 +320,7 @@ export function useWorkspaceConversation(
           ...(waitingReason === "tool_contract_upgrade" && runId ? { resumeRunId: runId } : {}),
           model,
           message: prompt,
+          association: routing.association,
           selection: [...selection],
           scopeId: view.overlaySpace?.containerId ?? canvasId,
         },
@@ -401,6 +413,8 @@ export function useWorkspaceConversation(
   };
 
   return {
+    messageRequests,
+    routing,
     usage,
     setUsage,
     question,

@@ -13,6 +13,8 @@ type Scope = {
   canvasId?: string;
   conversationId?: string;
   requestId?: string;
+  generationId?: string;
+  workItemId?: string | undefined;
 };
 const scope = new AsyncLocalStorage<Scope>();
 export const withModelUsage = <T>(context: Scope, action: () => T): T => scope.run(context, action);
@@ -20,13 +22,21 @@ export const withModelPurpose = <T>(purpose: string, action: () => T): T => {
   const current = scope.getStore();
   return current ? scope.run({ ...current, purpose }, action) : action();
 };
+export const withModelTurn = <T>(
+  generationId: string,
+  workItemId: string | undefined,
+  action: () => T,
+): T => {
+  const current = scope.getStore();
+  return current ? scope.run({ ...current, generationId, workItemId }, action) : action();
+};
 export async function startModelCall() {
   const current = scope.getStore();
   if (!current) return null;
   const callId = id("model-call"),
     config = current.model.config;
   await current.db.pool.query(
-    `insert into model_calls(id,run_id,attempt_id,canvas_id,conversation_id,endpoint_id,profile_id,provider,model_id,protocol,purpose,simulated,request_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    `insert into model_calls(id,run_id,attempt_id,canvas_id,conversation_id,endpoint_id,profile_id,provider,model_id,protocol,purpose,simulated,request_id,generation_id,work_item_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
     [
       callId,
       current.runId,
@@ -41,6 +51,8 @@ export async function startModelCall() {
       current.purpose,
       config.kind === "mock",
       current.requestId,
+      current.generationId,
+      current.workItemId,
     ],
   );
   return { callId, db: current.db };

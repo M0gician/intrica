@@ -57,7 +57,7 @@ export const currentTeamNotice = `(m.role='team_notice' and not(m.content ? 'act
     and (newer.created_at,newer.id)>(source.created_at,source.id))
 ))`;
 
-export const actionableMessage = `(
+export const actionableMessage = `(m.content->>'closed' is distinct from 'true' and m.content->>'passive' is distinct from 'true' and (
   m.role in ('user','trigger')
   or (m.role='message' and m.content ? 'from' and m.run_id is not null and not(m.content ? 'activationBlocked'))
   or (${currentTeamNotice} and m.run_id is not null)
@@ -69,11 +69,11 @@ export const actionableMessage = `(
     and a.assigned_reviewer_id=inbox.agent_id
     and m.client_message_id='approval-'||a.id||'-'||a.version::text
   ))
-)`;
+))`;
 
-export const pendingInboxMessage = `((m.role='message' and m.content ? 'from' and not(m.content ? 'activationBlocked'))
+export const pendingInboxMessage = `(m.content->>'closed' is distinct from 'true' and m.content->>'passive' is distinct from 'true' and ((m.role='message' and m.content ? 'from' and not(m.content ? 'activationBlocked'))
   or ${currentTeamNotice}
-  or (m.role='permission_notice' and ${actionableMessage}))`;
+  or (m.role='permission_notice' and ${actionableMessage})))`;
 
 /** Durable inbox append; caller holds the canvas transaction. */
 export async function appendMessage(

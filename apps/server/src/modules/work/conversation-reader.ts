@@ -4,6 +4,7 @@ import { contextUsage } from "../../adapters/model/context.js";
 import type { ModelRegistry } from "../../adapters/model/registry.js";
 import { type Database, DomainError, digest, type Tx } from "../../adapters/postgres/database.js";
 import { agentIdentity } from "../access/policy.js";
+import { conversationRequests, projectMessageReceipts } from "../collaboration/receipts.js";
 import { Events } from "../execution/events.js";
 import { resourceResponse } from "../execution/schedules.js";
 import { CollaborationReader } from "./collaboration-reader.js";
@@ -14,6 +15,10 @@ import { canRetryUnknown } from "./tool-outcomes.js";
 function publicContext(context: Record<string, unknown> | null) {
   if (!context) return null;
   const {
+    pendingOutput: _pendingOutput,
+    messageRepairAttempts: _repairs,
+    messageProtocolBlocked: _blocked,
+    outputGeneration: _generation,
     pendingTurnId: _pendingTurnId,
     toolSchemaVersion: _toolSchemaVersion,
     turnsSinceInput: _turns,
@@ -82,7 +87,7 @@ export class ConversationReader {
   async history(conversationId: string, before?: string, around?: number) {
     const records = (
       await this.db.pool.query(
-        `select seq,role,content,md5(content::text) as record_version,run_id,created_at from messages where conversation_id=$1 and ($2::bigint is null or seq<$2)
+        `select seq,role,content,md5(content::text) as record_version,run_id,created_at from messages where role<>'model_output' and conversation_id=$1 and ($2::bigint is null or seq<$2)
          and ($3::bigint is null or seq>=$3) order by seq ${around === undefined ? "desc" : "asc"} limit 80`,
         [conversationId, before ?? null, around ?? null],
       )
@@ -106,6 +111,7 @@ export class ConversationReader {
       for (const record of records)
         record.content = { ...record.content, truncated: false, truncatedFields: {} };
     await projectInputReceipts(this.db, records, conversationId);
+    await projectMessageReceipts(this.db.pool, records, conversationId);
     const ids = records
       .filter((r) => ["tool", "tool_update"].includes(r.role))
       .map((r) => r.content.callId)
@@ -208,7 +214,13 @@ export class ConversationReader {
         }
       : null;
     const unknownTools = await this.unknownTools(conversationId);
-    return { messages, run, context: publicContext(row.context), unknownTools };
+    return {
+      messages,
+      run,
+      context: publicContext(row.context),
+      unknownTools,
+      messageRequests: await conversationRequests(this.db.pool, conversationId),
+    };
   }
   async feed(agentId: string, query: { before?: number; after?: number; around?: number } = {}) {
     const c = await this.forAgent(agentId);
@@ -219,7 +231,7 @@ export class ConversationReader {
         'result',case when length(content->>'result')>4000 then to_jsonb(left(content->>'result',4000)) else content->'result' end,
         'truncated',coalesce(length(content->>'text'),0)>2000 or coalesce(length(content->>'thinking'),0)>2000 or coalesce(length(content->>'result'),0)>4000,
         'truncatedFields',jsonb_build_object('text',coalesce(length(content->>'text'),0)>2000,'thinking',coalesce(length(content->>'thinking'),0)>2000,'result',coalesce(length(content->>'result'),0)>4000)) as content
-       from messages where conversation_id=$1 and ($2::bigint is null or seq<$2) and ($3::bigint is null or seq>$3)
+       from messages where role<>'model_output' and conversation_id=$1 and ($2::bigint is null or seq<$2) and ($3::bigint is null or seq>$3)
        and ($4::bigint is null or seq>=$4) order by seq ${query.after !== undefined || query.around !== undefined ? "asc" : "desc"} limit 80`,
         [c.id, query.before ?? null, query.after ?? null, query.around ?? null],
       )
@@ -264,6 +276,7 @@ export class ConversationReader {
     const unknown = await this.unknownTools(c.id);
     return {
       events,
+      messageRequests: await conversationRequests(this.db.pool, c.id),
       conversationId: c.id,
       lastEventSeq: String(run?.last_event_seq ?? "0"),
       context:

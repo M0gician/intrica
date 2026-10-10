@@ -1,8 +1,5 @@
 import type { AccessIntent } from "@intrica/contracts";
-import { canvasEvent, DomainError, type Sql, type Tx } from "../../adapters/postgres/database.js";
-import { collaborationIdentity } from "../execution/messages.js";
-import type { Run } from "../execution/store.js";
-import type { Conversations } from "../work/conversations.js";
+import { DomainError, type Sql } from "../../adapters/postgres/database.js";
 import { agentIdentity } from "./policy.js";
 import { canvasPermissions, coveringGrant } from "./resources.js";
 
@@ -35,10 +32,7 @@ export async function validateDelivery(
   );
   if (targets.rowCount !== intent.recipients.length)
     throw new DomainError("TARGET_CHANGED", "接收者已删除或不在当前画布，消息未发送");
-  if (
-    intent.messageKind === "broadcast" &&
-    (!intent.targetKind || intent.targetKind === "resource_readers")
-  ) {
+  if (intent.targetKind === "resource_readers") {
     const current = await resourceAudience(sql, canvasId, intent.resourceIds ?? [], senderId);
     if (intent.recipients.some((id) => !current.includes(id)))
       throw new DomainError("TARGET_CHANGED", "广播接收者权限已变化，请重新确认接收范围");
@@ -50,6 +44,7 @@ async function resourceAudience(
   resourceIds: string[],
   senderId: string | null,
 ) {
+  resourceIds = [...new Set(resourceIds)];
   if (!resourceIds.length) throw new DomainError("VALIDATION", "资源读者广播必须指定至少一个资源");
   const resources = (
     await sql.query(
@@ -97,85 +92,4 @@ export async function selectRecipients(
           )
         ).rows.map((row) => row.id as string);
   return [...new Set(ids)].filter((id) => id !== senderId).sort();
-}
-
-/** Frozen recipients are checked as a whole before any history or inbox write. */
-export async function deliverCollaboration(
-  tx: Tx,
-  conversations: Conversations,
-  run: Run,
-  senderId: string | null,
-  intent: Delivery,
-  callId: string,
-) {
-  await validateDelivery(tx, run.canvas_id, senderId, intent);
-  const targets = [];
-  for (const id of intent.recipients) {
-    const c = await conversations.read.forAgent(id, tx);
-    if (c.canvas_id !== run.canvas_id) throw new DomainError("FORBIDDEN", "不能跨画布发送");
-    targets.push(c);
-  }
-  const language = await conversations.language(run.subject_id, tx);
-  const participants = await collaborationIdentity(tx, run.canvas_id, senderId, intent.recipients);
-  await conversations.append(
-    tx,
-    run.subject_id,
-    `send-${callId}`,
-    intent.messageKind,
-    {
-      ...participants,
-      text: intent.message,
-      recipients: intent.recipients,
-      resourceIds: intent.resourceIds,
-      fileIds: intent.fileIds,
-    },
-    run.id,
-  );
-  for (const c of targets) {
-    const active = (
-      await tx.query(
-        "select * from runs where subject_id=$1 and state in('queued','running','waiting') and cancel_requested_at is null",
-        [c.id],
-      )
-    ).rows[0];
-    let blocked = false;
-    if (active?.state === "waiting" && ["message", "approval"].includes(active.reason)) {
-      try {
-        await conversations.runs.enqueue(tx, {
-          canvasId: run.canvas_id,
-          subjectId: c.id,
-          kind: "conversation",
-          frozen: active.frozen_input,
-          causeId: run.cause_id,
-        });
-      } catch (error) {
-        if (!(error instanceof DomainError) || error.code !== "LIMIT_REACHED") throw error;
-        blocked = true;
-      }
-    }
-    await conversations.append(
-      tx,
-      c.id,
-      `delivery-${callId}-${c.agent_id}`,
-      "message",
-      {
-        ...participants,
-        text: intent.message,
-        from: senderId ?? "workspace",
-        messageKind: intent.messageKind,
-        resourceIds: intent.resourceIds,
-        fileIds: intent.fileIds,
-        language,
-        causeId: run.cause_id,
-        ...(blocked ? { activationBlocked: true } : {}),
-      },
-      active?.id,
-    );
-  }
-  await canvasEvent(tx, run.canvas_id, "conversation.changed", {
-    conversationId: run.subject_id,
-    agentId: senderId,
-    recipients: intent.recipients,
-  });
-  return { delivered: intent.recipients.length, recipients: intent.recipients };
 }

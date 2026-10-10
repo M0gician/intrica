@@ -1,4 +1,8 @@
-import type { AgentContextUsage, ResourceResponseStatus } from "@intrica/contracts";
+import type {
+  AgentContextUsage,
+  MessageRequestView,
+  ResourceResponseStatus,
+} from "@intrica/contracts";
 import { type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import type { AccessRecord } from "../../components/AgentAccessCard";
@@ -10,6 +14,7 @@ import { useRunEvents } from "./useRunEvents";
 
 type AgentFeed = {
   events: Activity[];
+  messageRequests?: MessageRequestView[];
   running: boolean;
   requests: AccessRecord[];
   conversationId: string | null;

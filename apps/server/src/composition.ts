@@ -8,6 +8,7 @@ import type { ApiConfig } from "./config.js";
 import { loadServerIdentity } from "./identity.js";
 import { grantsFor } from "./modules/access/policy.js";
 import { AccessService } from "./modules/access/service.js";
+import { MessageService } from "./modules/collaboration/send-message.js";
 import { Events } from "./modules/execution/events.js";
 import { Statistics } from "./modules/execution/statistics.js";
 import { RunStore } from "./modules/execution/store.js";
@@ -16,6 +17,7 @@ import { GraphCommands } from "./modules/graph/commands.js";
 import { Activity } from "./modules/work/activity.js";
 import { Conversations } from "./modules/work/conversations.js";
 import { GenerationService } from "./modules/work/generation.js";
+import { InboxScheduler } from "./modules/work/inbox-scheduler.js";
 import { ToolRegistry } from "./modules/work/tools.js";
 
 export async function createKernel(config: ApiConfig) {
@@ -30,6 +32,12 @@ export async function createKernel(config: ApiConfig) {
     const assets = new AssetStore(db, config.dataDir),
       conversations = new Conversations(db, runs, models),
       access = new AccessService(db, graph, conversations, assets);
+    conversations.messaging = new MessageService(db, conversations, graph, assets);
+    const inbox = new InboxScheduler(db, conversations);
+    const maintain = async () => {
+      await access.maintain();
+      await inbox.maintain();
+    };
     const host = new HostExecutor(db, access, config.dataDir);
     const media = new MediaStore(db, assets, loadServerIdentity(config.dataDir).id);
     runs.media = media;
@@ -91,7 +99,7 @@ export async function createKernel(config: ApiConfig) {
           ),
       },
       async () => {
-        await access.maintain();
+        await maintain();
         await tools.tickSchedules();
         if (Date.now() - lastMaintenance > 3600000) {
           lastMaintenance = Date.now();
@@ -117,6 +125,8 @@ export async function createKernel(config: ApiConfig) {
       models,
       assets,
       access,
+      inbox,
+      maintain,
       host,
       conversations,
       tools,

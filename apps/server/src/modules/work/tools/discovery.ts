@@ -52,18 +52,13 @@ export function adaptToolDiscovery(
         ...send.parameters.properties,
         target: Type.Union(
           send.parameters.properties.target.anyOf.filter((s: any) =>
-            ["agent", "resource_readers"].includes(s.properties.kind.const),
+            ["agent", "resource_readers", "request", "manager", "internal"].includes(
+              s.properties.kind.const,
+            ),
           ),
         ),
       },
     };
-    const report = find("report_result");
-    report.description = text(
-      "Record a progress or result report and notify your direct manager. fileIds may reference accessible published file nodes; the server verifies their snapshots. Reporting does not end a run or certify task completion.",
-      "记录进展或结果报告并通知直属管理者。fileIds 可引用有权访问的已发布文件节点，服务端验证其快照。提交报告不结束运行，也不证明任务完成。",
-    );
-    const { resourceIds: _handoffResources, ...reportFields } = report.parameters.properties;
-    report.modelParameters = { ...report.parameters, properties: reportFields };
   }
   const hire = find("hire_agent");
   if (caps.role === "owner") {

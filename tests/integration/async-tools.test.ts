@@ -16,6 +16,7 @@ import {
   invokeTool,
   result,
 } from "../../apps/server/dist/modules/execution/tool-calls.js";
+import { addressedOutput } from "../fixtures/addressed-output.mjs";
 
 const key = () => randomUUID();
 const adminUrl = process.env.INTRICA_TEST_ADMIN_URL ?? "postgres://127.0.0.1:5432/postgres";
@@ -463,8 +464,8 @@ it("keeps ordinary progress visible without waking inference and waits without c
     expect(before).toBe(1);
     gate.resolve();
     await execution;
-    const after = (await k.conversations.read.history(submitted.conversationId)).filter(
-      (m) => m.role === "assistant",
+    const after = (await k.conversations.read.history(submitted.conversationId)).filter((m) =>
+      ["assistant", "internal_note"].includes(m.role),
     ).length;
     expect(after).toBe(2);
     measurements.progress = {
@@ -562,7 +563,16 @@ it("summarizes before background work ends and reports the late result without n
                 arguments: { value: String(turns) },
               },
             ]
-          : [{ type: "text", text: "完成汇总" }],
+          : [
+              {
+                type: "text",
+                text: addressedOutput(
+                  this.state.systemPrompt,
+                  "完成汇总",
+                  turns === 33 ? "update" : "result",
+                ),
+              },
+            ],
       stopReason: turns <= 32 ? "toolUse" : "stop",
     };
     this.state.messages.push(message);

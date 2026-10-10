@@ -50,6 +50,9 @@ beforeAll(async () => {
 });
 afterEach(async () => {
   await k.db.pool.query("update conversations set consumed_message_seq=message_seq");
+  await k.db.pool.query(
+    "update messages set content=content||'{\"closed\":true}'::jsonb where consumed_run_id is null",
+  );
   await k.db.pool.query("update schedules set enabled=false");
   await k.db.pool.query("update approvals set status='cancelled' where status='pending'");
   await k.db.pool.query(
@@ -344,6 +347,7 @@ describe("origin-bound approval lifecycle", () => {
     const child = await start(a.id);
     await k.conversations.stop(m.id);
     const delivery = await child.call("send_message", {
+      kind: "update",
       target: { kind: "agent", agentId: m.id },
       message: "new work after stop",
     });
@@ -401,11 +405,18 @@ describe("origin-bound approval lifecycle", () => {
         .content,
     ).toBe("verified");
     expect(
-      (await child.call("report_result", { message: "review delivered" })).value.delivered,
+      (
+        await child.call("send_message", {
+          kind: "result",
+          target: { kind: "manager" },
+          message: "review delivered",
+        })
+      ).value.delivered,
     ).toBe(1);
     expect(
       (
         await child.call("send_message", {
+          kind: "update",
           target: { kind: "agent", agentId: m.id },
           message: "follow up",
         })
@@ -448,7 +459,15 @@ describe("origin-bound approval lifecycle", () => {
     expect(report.value.sharedWith).toEqual([]);
     expect(report.value.sharing.skippedManagers).toEqual([m.id]);
     expect(report.value.sharing.status).toBe("blocked");
-    expect((await child.call("report_result", { message: "PRIVATE" })).waiting).toBe("approval");
+    expect(
+      (
+        await child.call("send_message", {
+          kind: "result",
+          target: { kind: "manager" },
+          message: "PRIVATE",
+        })
+      ).waiting,
+    ).toBe("approval");
   });
   it("T42 applicants can inspect an escalated expired request without retrying its action", async () => {
     const c = await canvas(),
@@ -464,7 +483,7 @@ describe("origin-bound approval lifecycle", () => {
     await k.db.pool.query("update approvals set expires_at=now()-interval '1 second' where id=$1", [
       pending.value.requestId,
     ]);
-    await k.access.maintain();
+    await k.maintain();
     const history = await child.call("list_access_requests", {
       requestId: pending.value.requestId,
     });
@@ -607,12 +626,21 @@ describe("origin-bound approval lifecycle", () => {
       expect(
         (
           await from!.call("send_message", {
+            kind: "update",
             target: { kind: "agent", agentId: to!.actor.agentId },
             message: "follow up",
           })
         ).waiting,
       ).toBeUndefined();
-    expect((await author.call("report_result", { message: "delivered" })).waiting).toBeUndefined();
+    expect(
+      (
+        await author.call("send_message", {
+          kind: "result",
+          target: { kind: "manager" },
+          message: "delivered",
+        })
+      ).waiting,
+    ).toBeUndefined();
     const command = await author.call("bash", { command: "printf reviewed", fullHost: true });
     expect(command.waiting).toBe("approval");
     await decide(command.value.requestId, manager.actor);
@@ -661,6 +689,7 @@ describe("origin-bound approval lifecycle", () => {
     const manager = await start(m.id),
       child = await start(a.id);
     const pending = await child.call("send_message", {
+      kind: "update",
       target: { kind: "agent", agentId: m.id },
       message: "PRIVATE-BODY",
     });
@@ -683,7 +712,7 @@ describe("origin-bound approval lifecycle", () => {
     });
     const denied = await child.call(
       "send_message",
-      { target: { kind: "agent", agentId: m.id }, message: "PRIVATE-BODY" },
+      { kind: "update", target: { kind: "agent", agentId: m.id }, message: "PRIVATE-BODY" },
       pending.logical,
     );
     expect(denied.value.message).toBe("Wait for a revised assignment");
@@ -773,6 +802,7 @@ describe("origin-bound approval lifecycle", () => {
       for (const to of members)
         if (from !== to) {
           const sent = await from.call("send_message", {
+            kind: "update",
             target: { kind: "agent", agentId: to.actor.agentId },
             message: "team coordination",
           });
@@ -780,6 +810,7 @@ describe("origin-bound approval lifecycle", () => {
           expect(sent.value.delivered).toBe(1);
         }
     const broadcast = await members[1]!.call("send_message", {
+      kind: "update",
       target: { kind: "resource_readers", resourceIds: [left.id] },
       message: "shared evidence",
     });
@@ -809,7 +840,13 @@ describe("origin-bound approval lifecycle", () => {
       expect(read.value.content).toBe("verified evidence");
     }
     expect(
-      (await child.call("report_result", { message: "findings saved" })).waiting,
+      (
+        await child.call("send_message", {
+          kind: "result",
+          target: { kind: "manager" },
+          message: "findings saved",
+        })
+      ).waiting,
     ).toBeUndefined();
     const links = (
       await k.db.pool.query("select * from edges where kind='user_link' and to_id=$1", [
@@ -843,6 +880,7 @@ describe("origin-bound approval lifecycle", () => {
     expect(
       (
         await child.call("send_message", {
+          kind: "update",
           target: { kind: "agent", agentId: m.id },
           message: "private evidence",
         })
@@ -1178,7 +1216,13 @@ describe("origin-bound approval lifecycle", () => {
     await connect(m.id, extra.id);
     const child = await start(b.id);
     expect(
-      (await child.call("report_result", { message: "blocked on another resource" })).waiting,
+      (
+        await child.call("send_message", {
+          kind: "result",
+          target: { kind: "manager" },
+          message: "blocked on another resource",
+        })
+      ).waiting,
     ).toBeUndefined();
     expect(
       (await k.conversations.read.history((await k.conversations.read.forAgent(m.id)).id)).some(
@@ -1312,7 +1356,7 @@ describe("origin-bound approval lifecycle", () => {
       reason: "outside manager scope",
     });
     await k.runs.finish(child.run, "waiting", undefined, "approval");
-    await k.access.maintain();
+    await k.maintain();
     const review = await k.conversations.activeRun((await k.conversations.read.forAgent(m.id)).id);
     expect(review).toBeTruthy();
     expect((await k.runs.get(review!)).state).toBe("queued");
@@ -1410,10 +1454,10 @@ describe("origin-bound approval lifecycle", () => {
       "update approvals set review_due_at=now()-interval '1 second' where id=$1",
       [pending.value.requestId],
     );
-    await k.access.maintain();
+    await k.maintain();
     expect((await request(pending.value.requestId)).assigned_reviewer_id).toBe(top.id);
     await decide(pending.value.requestId, undefined, "escalate");
-    await k.access.maintain();
+    await k.maintain();
     expect((await request(pending.value.requestId)).assigned_reviewer_id).toBeNull();
     await decide(pending.value.requestId);
     expect((await k.graph.queries.node(b.id)).agent!.role).toBe("admin");
@@ -1740,6 +1784,7 @@ describe("origin-bound approval lifecycle", () => {
     expect(replay.value.id).toBe(b.id);
     expect((await k.graph.queries.node(b.id)).revision).toBe(b.revision + 1);
     const message = await caller.call("send_message", {
+      kind: "update",
       target: { kind: "agent", agentId: b.id },
       message: "do work",
     });
@@ -1747,7 +1792,7 @@ describe("origin-bound approval lifecycle", () => {
     await decide(message.value.requestId);
     await caller.call(
       "send_message",
-      { target: { kind: "agent", agentId: b.id }, message: "do work" },
+      { kind: "update", target: { kind: "agent", agentId: b.id }, message: "do work" },
       message.logical,
     );
     expect(
@@ -1786,7 +1831,7 @@ describe("origin-bound approval lifecycle", () => {
     await k.graph.undoGraphOp(move.graphOpId);
     expect((await request(original.id)).assigned_reviewer_id).toBe(m.id);
     await decide(original.id, undefined, "escalate");
-    await k.access.maintain();
+    await k.maintain();
     expect((await request(original.id)).assigned_reviewer_id).toBeNull();
     const sanitized = await k.access.list(c, { actor: { ...child.actor, agentId: m.id } });
     expect(JSON.stringify(sanitized)).not.toContain("private reason");
@@ -1805,7 +1850,7 @@ describe("origin-bound approval lifecycle", () => {
     await k.db.pool.query("update approvals set expires_at=now()-interval '1 second' where id=$1", [
       pending.value.requestId,
     ]);
-    await k.access.maintain();
+    await k.maintain();
     expect((await request(pending.value.requestId)).status).toBe("expired");
     expect((await k.runs.get(x.run.id)).state).toBe("queued");
     const req = await y.call("request_permission", {
@@ -1828,19 +1873,19 @@ describe("origin-bound approval lifecycle", () => {
     });
     const settings = await k.runs.settings.read();
     await k.runs.settings.save(settings.revision, { ...settings.policy, pendingPerCanvas: 1 });
-    await k.access.maintain();
+    await k.maintain();
     expect(
       await k.conversations.activeRun((await k.conversations.read.forAgent(m.id)).id),
     ).toBeUndefined();
     const current = await k.runs.settings.read();
     await k.runs.settings.save(current.revision, settings.policy);
-    await k.access.maintain();
+    await k.maintain();
     expect(
       await k.conversations.activeRun((await k.conversations.read.forAgent(m.id)).id),
     ).toBeTruthy();
     const reviewRun = (await k.runs.claim("notice-consumer"))!;
     await k.runs.fail(reviewRun, new Error("fixture model failure"));
-    await k.access.maintain();
+    await k.maintain();
     expect(
       await k.conversations.activeRun((await k.conversations.read.forAgent(m.id)).id),
     ).toBeUndefined();
@@ -1848,7 +1893,7 @@ describe("origin-bound approval lifecycle", () => {
       "update approvals set review_due_at=now()-interval '1 second' where id=$1",
       [pending.value.requestId],
     );
-    await k.access.maintain();
+    await k.maintain();
     expect(await request(pending.value.requestId)).toMatchObject({
       assigned_reviewer_id: null,
       route_reason: "manager_timeout",

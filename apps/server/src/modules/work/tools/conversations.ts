@@ -104,7 +104,12 @@ export function conversationTools(context: ToolContext) {
             ),
           );
         }
-        return result(await registry.conversations.read.feed(target, { before: args.before }));
+        const feed = await registry.conversations.read.feed(target, { before: args.before });
+        if (target !== input.agentId)
+          feed.events = feed.events.filter(
+            (e) => !["internal_note", "output_error", "model_output"].includes(e.kind),
+          );
+        return result(feed);
       },
     ),
   ];

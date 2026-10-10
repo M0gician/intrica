@@ -225,11 +225,10 @@ export class GraphMutation {
         config.enabled,
       ]);
       await this.syncSchedule(nodeId, config);
-      await this.tx.query("insert into conversations(id,canvas_id,agent_id) values($1,$2,$3)", [
-        id("conversation"),
-        this.canvasId,
-        nodeId,
-      ]);
+      await this.tx.query(
+        "insert into conversations(id,canvas_id,agent_id,identity_kind) values($1,$2,$3,'agent')",
+        [id("conversation"), this.canvasId, nodeId],
+      );
     }
     if (this.actor.kind === "agent") {
       // Capture qualified recipients before granting the new output to its author.

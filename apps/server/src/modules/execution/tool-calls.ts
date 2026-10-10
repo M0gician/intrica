@@ -221,7 +221,7 @@ export async function invokeTool(
     if (!row) {
       callId = id("tool");
       await tx.query(
-        "insert into tool_calls(id,run_id,attempt_id,logical_call_id,name,args,args_hash,effect_class,state) values($1,$2,$3,$4,$5,$6,$7,$8,'prepared')",
+        "insert into tool_calls(id,run_id,attempt_id,logical_call_id,name,args,args_hash,effect_class,state,work_item_id,generation) values($1,$2,$3,$4,$5,$6,$7,$8,'prepared',$9,$10)",
         [
           callId,
           ctx.run.id,
@@ -231,6 +231,8 @@ export async function invokeTool(
           JSON.stringify(args),
           hash,
           definition.effect,
+          ctx.run.frozen_input.workItemId ?? null,
+          ctx.run.frozen_input.generation ?? null,
         ],
       );
     }
@@ -238,12 +240,17 @@ export async function invokeTool(
     try {
       const expedited = (
         await tx.query(
-          "select 1 from messages m join conversations c on c.id=m.conversation_id where m.conversation_id=$1 and m.seq>c.consumed_message_seq and m.expedite_run_id=$2 and m.consumed_run_id is null limit 1",
+          "select 1 from messages m join conversations c on c.id=m.conversation_id where m.conversation_id=$1 and (m.seq>c.consumed_message_seq or m.content->>'workItemId' is not null) and m.content->>'closed' is distinct from 'true' and m.expedite_run_id=$2 and m.consumed_run_id is null limit 1",
           [ctx.run.subject_id, ctx.run.id],
         )
       ).rowCount;
-      if (expedited) {
-        if (row?.is_async) return { state: "prepared", result: null };
+      const generation = row?.generation ?? ctx.run.frozen_input.generation;
+      const currentGeneration = (
+        await tx.query("select generation from conversations where id=$1", [ctx.run.subject_id])
+      ).rows[0]?.generation;
+      const stale = generation != null && Number(generation) !== Number(currentGeneration);
+      if (expedited || stale) {
+        if (row?.is_async && !stale) return { state: "prepared", result: null };
         const output = {
           ...result({
             executed: false,
@@ -292,7 +299,14 @@ export async function invokeTool(
     } catch (error) {
       if (!(error instanceof DomainError)) throw error;
       await tx.query("rollback to savepoint tool_preflight");
-      const output = { ...result(error.message), isError: true };
+      const output = {
+        ...result(
+          error.code === "REQUEST_CLOSED"
+            ? { error: error.code, message: error.message, existingReply: error.details }
+            : error.message,
+        ),
+        isError: true,
+      };
       await tx.query("update tool_calls set state='failed',result=$2 where id=$1", [
         callId,
         JSON.stringify(output),

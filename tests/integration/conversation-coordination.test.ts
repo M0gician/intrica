@@ -13,6 +13,7 @@ import type { Lease } from "../../apps/server/dist/modules/execution/store.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { Worker } from "../../apps/server/dist/modules/execution/worker.js";
 import { expediteInput } from "../../apps/server/dist/modules/work/input-receipts.js";
+import { wireOutput } from "../fixtures/addressed-output.mjs";
 
 const key = () => randomUUID();
 const database = `intrica_coordination_${key().replaceAll("-", "")}`;
@@ -44,7 +45,7 @@ beforeAll(async () => {
     const chunk = (delta: object, finish_reason: string | null) =>
       `data: ${JSON.stringify({ id: "provider-response-fixture", object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta, finish_reason }], usage: { prompt_tokens: 120, completion_tokens: 12, total_tokens: 132, prompt_tokens_details: { cached_tokens: 20 } } })}\n\n`;
     res.end(
-      `${chunk({ role: "assistant", content: "Received." }, null)}${chunk({}, "stop")}data: [DONE]\n\n`,
+      `${chunk({ role: "assistant", content: wireOutput(input.messages, "Received.") }, null)}${chunk({}, "stop")}data: [DONE]\n\n`,
     );
   });
   await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
@@ -78,6 +79,9 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const worker of workers.splice(0)) await worker.close();
   await k.db.pool.query("update conversations set consumed_message_seq=message_seq");
+  await k.db.pool.query(
+    "update messages set content=content||'{\"closed\":true}'::jsonb where consumed_run_id is null",
+  );
   await k.db.pool.query(
     "update runs set state='cancelled',cancel_requested_at=now() where state in('queued','running','waiting')",
   );
@@ -183,12 +187,14 @@ it("ordinary input stays unread during inference; explicit expedite consumes dis
       canvasId: board,
       agentId: member.id,
       message: "Same text",
+      association: { kind: "append", requestId: run.frozen_input.workItemId },
       key: key(),
     });
     const second = await k.conversations.submit({
       canvasId: board,
       agentId: member.id,
       message: "Same text",
+      association: { kind: "append", requestId: run.frozen_input.workItemId },
       key: key(),
     });
     await delay(150);
@@ -530,7 +536,7 @@ it("delivers a real provider failure through the worker to the manager exactly o
   const received = inputs.find((input) => JSON.stringify(input.messages).includes(source.id));
   expect(JSON.stringify(received)).toContain("not user authorization");
   expect(JSON.stringify(received)).not.toContain("fixture-private-detail");
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(manager)).toHaveLength(1);
 });
 
@@ -548,7 +554,7 @@ it("measures manager activation with and without a durable inbox notice", async 
         [c.id],
       );
     }
-    await k.access.maintain();
+    await k.maintain();
     activations.push((await runs(manager)).length);
     expect((await history(member)).filter((m) => m.role === "run_status")).toHaveLength(1);
   }
@@ -581,7 +587,7 @@ it("ignores stale notices and enforces automatic activation budgets", async () =
   const failed = await start(member);
   await k.runs.fail(failed, new Error("timeout"));
   await submit(member, "New independent task");
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(manager)).toHaveLength(0);
   const next = (await k.runs.claim("next"))!;
   await k.db.pool.query("update runs set activation_count=$2 where id=$1", [
@@ -589,7 +595,7 @@ it("ignores stale notices and enforces automatic activation budgets", async () =
     k.runs.limits.collaborationActivations,
   ]);
   await k.runs.fail(next, new Error("timeout"));
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(manager)).toHaveLength(0);
   const notices = (await history(manager)).filter((m) => m.role === "team_notice");
   expect(notices.at(-1).content.activationBlocked).toBe(true);
@@ -658,6 +664,7 @@ it("distinguishes closed inbox entries from input persisted in model context", a
     member = await agent(manager.id);
   const managerRun = await start(manager);
   await call(managerRun, "send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: member.id },
     message: "First assignment",
   });
@@ -667,10 +674,11 @@ it("distinguishes closed inbox entries from input persisted in model context", a
   const stopped = (await call(managerRun, "read_conversation", { agentId: member.id })).value;
   expect(stopped.events.at(-1).receipt.status).toBe("closed");
   await call(managerRun, "send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: member.id },
     message: "Second assignment",
   });
-  await k.access.maintain();
+  await k.maintain();
   const memberRun = (await k.runs.claim("member"))!;
   await k.worker.handlers.conversation(context(memberRun));
   const after = (await call(managerRun, "read_conversation", { agentId: member.id })).value;
@@ -699,7 +707,7 @@ it("writes one status for a stopped turn-limited run and notifies only its curre
     moves: [{ nodeId: member.id, x: 0, y: 0, expectedLayoutVersion: member.layoutVersion }],
     idempotencyKey: key(),
   });
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(manager)).toHaveLength(0);
 });
 
@@ -731,9 +739,11 @@ it("transfers stopped work atomically, blocks stale continuation and delivers re
     title: "Verified result",
     text: "Authoritative result",
   });
-  const report = await call(managerRun, "report_result", {
+  const report = await call(managerRun, "send_message", {
+    kind: "result",
+    target: { kind: "request", id: accepted.value.requestIds[0] },
     message: "Completed with verified result",
-    resourceIds: [artifact.value.id],
+    handoff: { sourceRunIds: [source.id], resourceIds: [artifact.value.id] },
   });
   expect(report.result.isError).not.toBe(true);
   expect(report.value.informedExecutors).toEqual([member.id]);
@@ -745,7 +755,7 @@ it("transfers stopped work atomically, blocks stale continuation and delivers re
     ),
   ).toBe(true);
   await k.runs.finish(managerRun, "succeeded");
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(member)).toHaveLength(1);
   await k.conversations.stop(member.id);
   const next = await submit(

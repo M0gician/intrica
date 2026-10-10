@@ -29,6 +29,13 @@ export async function finishApproval(
     "update tool_calls set state='failed',result=$2,delivered_at=null,updated_at=now() where id=$1 and state in('waiting','prepared')",
     [request.origin_call_id, JSON.stringify(output)],
   );
+  if (request.origin_dispatch_id) {
+    await tx.query(
+      "update message_dispatches set state='failed',result=$2,updated_at=now() where id=$1 and state in('prepared','waiting')",
+      [request.origin_dispatch_id, JSON.stringify(output)],
+    );
+    await wakeDispatch(tx, request.origin_dispatch_id);
+  }
   await wakeOrigin(tx, request.origin_call_id);
   await projectToolOutcome(tx, request.origin_call_id);
   await canvasEvent(tx, request.canvas_id, "approval.changed", {
@@ -40,12 +47,23 @@ export async function finishApproval(
 export async function wakeOrigin(tx: Tx, callId: string) {
   await tx.query(
     `update runs set state='queued',reason=null,available_at=now() where id=(select run_id from tool_calls where id=$1)
-    and state='waiting' and reason in('approval','message') and cancel_requested_at is null`,
+    and state='waiting' and reason in('approval','message','reply_required','message_protocol') and cancel_requested_at is null`,
     [callId],
   );
   await tx.query("select pg_notify('intrica_run_wake',run_id) from tool_calls where id=$1", [
     callId,
   ]);
+}
+export async function wakeDispatch(tx: Tx, dispatchId: string) {
+  await tx.query(
+    `update runs set state='queued',reason=null,available_at=now() where id=(select run_id from message_dispatches where id=$1)
+    and state='waiting' and reason in('approval','message','reply_required') and cancel_requested_at is null`,
+    [dispatchId],
+  );
+  await tx.query(
+    "select pg_notify('intrica_run_wake',run_id) from message_dispatches where id=$1",
+    [dispatchId],
+  );
 }
 export async function notifyReviewer(tx: Tx, request: any) {
   if (!request.assigned_reviewer_id) return;
@@ -80,7 +98,7 @@ export async function notifyReviewer(tx: Tx, request: any) {
     active?.id,
   );
   await tx.query(
-    "update runs set state='queued',reason=null,available_at=now() where subject_id=$1 and state='waiting' and reason in('message','approval') and cancel_requested_at is null",
+    "update runs set state='queued',reason=null,available_at=now() where subject_id=$1 and state='waiting' and reason in('message','approval','reply_required','message_protocol') and cancel_requested_at is null",
     [c.id],
   );
   await canvasEvent(tx, request.canvas_id, "conversation.changed", {
@@ -113,7 +131,7 @@ export async function escalateApproval(tx: Tx, request: any, reason = "escalated
 export async function reconcileApprovals(tx: Tx, canvasId: string) {
   const rows = (
     await tx.query(
-      "select a.*,t.state as tool_state,r.subject_id as conversation_id,r.state as run_state,r.cancel_requested_at from approvals a left join tool_calls t on t.id=a.origin_call_id left join runs r on r.id=t.run_id where a.canvas_id=$1 and a.status='pending' for update of a",
+      "select a.*,coalesce(t.state,d.state) as tool_state,r.subject_id as conversation_id,r.state as run_state,r.cancel_requested_at from approvals a left join tool_calls t on t.id=a.origin_call_id left join message_dispatches d on d.id=a.origin_dispatch_id left join runs r on r.id=coalesce(t.run_id,d.run_id) where a.canvas_id=$1 and a.status='pending' for update of a",
       [canvasId],
     )
   ).rows;
@@ -145,8 +163,7 @@ export async function reconcileApprovals(tx: Tx, canvasId: string) {
       role: undefined,
       delta: undefined,
       grant: undefined,
-      ...(r.action.kind === "collaboration" &&
-      ["message", "broadcast"].includes(r.action.messageKind)
+      ...(r.action.kind === "collaboration" && r.action.messageKind !== "internal"
         ? { participants: value.participants?.map((p: { id: string }) => p.id) }
         : {}),
     });
@@ -178,6 +195,13 @@ export async function reconcileApprovals(tx: Tx, canvasId: string) {
           complete ? JSON.stringify(output) : null,
         ],
       );
+      if (r.origin_dispatch_id) {
+        await tx.query(
+          "update message_dispatches set state='prepared' where id=$1 and state='waiting'",
+          [r.origin_dispatch_id],
+        );
+        await wakeDispatch(tx, r.origin_dispatch_id);
+      }
       await wakeOrigin(tx, r.origin_call_id);
       await projectToolOutcome(tx, r.origin_call_id);
       await canvasEvent(tx, r.canvas_id, "approval.changed", {

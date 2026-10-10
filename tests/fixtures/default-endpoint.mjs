@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
+import { addressedOutput } from "./addressed-output.mjs";
 
 /** A test-owned compatible endpoint. The product uses its normal configuration and HTTP path. */
 export async function createDefaultEndpoint() {
@@ -54,7 +55,7 @@ export async function createDefaultEndpoint() {
           "tool_calls",
         );
       } else {
-        let output = `模拟会话第 ${turns} 轮。\n${system}`;
+        let output = addressedOutput(system, `模拟会话第 ${turns} 轮。\n${system}`);
         if (!input.tools?.length && system.includes('{"items"')) {
           const snapshot = JSON.parse(text(latest));
           const name =

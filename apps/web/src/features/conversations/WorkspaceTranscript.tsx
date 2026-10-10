@@ -6,7 +6,9 @@ import { MarkdownLite } from "../../components/MarkdownLite";
 import { ToolCallDetails } from "../../components/ToolCallDetails";
 import { tr } from "../../i18n";
 import { Button } from "../../ui/button";
+import { FileReferenceView } from "../files/FileReferenceView";
 import { InputReceipt } from "./InputReceipt";
+import { MessageStatus } from "./MessageRouting";
 import { useTranscriptScroll } from "./navigation/use-transcript-scroll";
 import { type ConversationSnapshot, restoreTurns, type Turn } from "./workspace-model";
 
@@ -94,10 +96,16 @@ export function WorkspaceTranscript({
               tabIndex={-1}
             >
               <article className={turn.role && turn.role !== "user" ? "chat-notice" : "chat-user"}>
+                {turn.role === "message" && (
+                  <small>
+                    {String(turn.data?.senderName || tr("Agent"))} → {tr("工作区助手")}
+                  </small>
+                )}
                 <MarkdownLite
                   text={turn.question}
                   origin={{ kind: "conversation", id: conversationId }}
                 />
+                <MessageStatus data={turn.data ?? {}} />
                 <InputReceipt conversationId={conversationId} receipt={turn.receipt} />
               </article>
               <article className="chat-assistant">
@@ -129,8 +137,44 @@ export function WorkspaceTranscript({
                     );
                   }
                   const message = turn.messages[item.id]!;
+                  if (["internal_note", "output_error"].includes(message.kind ?? ""))
+                    return (
+                      <DeferredDetails
+                        key={item.id}
+                        summary={
+                          message.kind === "internal_note"
+                            ? tr("内部笔记 · 未发送")
+                            : tr("输出未发布")
+                        }
+                      >
+                        {() => (
+                          <>
+                            {message.data?.reason && <p>{String(message.data.reason)}</p>}
+                            <MarkdownLite
+                              text={message.text}
+                              origin={{ kind: "conversation", id: conversationId }}
+                            />
+                          </>
+                        )}
+                      </DeferredDetails>
+                    );
                   return (
                     <div key={`message-${item.id}`}>
+                      {message.kind === "message" && (
+                        <small>
+                          {tr("发送给")} ·{" "}
+                          {(message.data?.recipientNames as Record<string, string>)
+                            ? Object.values(
+                                message.data!.recipientNames as Record<string, string>,
+                              ).join("、")
+                            : tr("Agent")}
+                        </small>
+                      )}
+                      {message.kind === "assistant" && (
+                        <small>
+                          {String(message.data?.senderName || tr("工作区助手"))} → {tr("用户")}
+                        </small>
+                      )}
                       {message.thinking && (
                         <DeferredDetails className="agent-thinking" summary={tr("思考过程")}>
                           {() => (
@@ -147,6 +191,17 @@ export function WorkspaceTranscript({
                           origin={{ kind: "conversation", id: conversationId }}
                         />
                       )}
+                      <MessageStatus data={message.data ?? {}} />
+                      {Array.isArray(message.data?.fileIds) &&
+                        message.data.fileIds.map((id) =>
+                          typeof id === "string" ? (
+                            <FileReferenceView
+                              key={id}
+                              origin={{ kind: "node", id }}
+                              label={tr("查看文件")}
+                            />
+                          ) : null,
+                        )}
                     </div>
                   );
                 })}

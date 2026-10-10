@@ -1,3 +1,5 @@
+import type { ExternalMessage, MessageAddress } from "./collaboration.js";
+
 export type AgentRole = "read" | "write" | "admin";
 export type CommandPermission = "none" | "isolated" | "host";
 export type ApprovalDecision = "approve" | "deny" | "escalate";
@@ -41,8 +43,23 @@ export type AccessIntent =
       recipients: string[];
       message: string;
       messageKind: string;
-      /** Missing on legacy resource-reader broadcasts. Recipients remain frozen. */
-      targetKind?: "agent" | "agents" | "canvas" | "resource_readers";
+      targetKind?:
+        | "agent"
+        | "agents"
+        | "canvas"
+        | "resource_readers"
+        | "request"
+        | "manager"
+        | "internal";
+      dispatchId?: string;
+      addresses?: MessageAddress[];
+      requestId?: string | undefined;
+      requestVersion?: number | undefined;
+      causeId?: string | undefined;
+      workItemId?: string | undefined;
+      reportToManager?: boolean;
+      fileVersions?: Record<string, string>;
+      handoff?: ExternalMessage["handoff"];
       resourceIds?: string[];
       fileIds?: string[];
     };

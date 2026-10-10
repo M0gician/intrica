@@ -151,7 +151,7 @@ export async function canApprove(
         !(await coveringGrant(
           grants,
           { id: g.resource_id, resource: g.resource },
-          intent.messageKind === "report" ? "read" : g.mode,
+          intent.reportToManager === true ? "read" : g.mode,
         ))
       )
         return false;
@@ -166,8 +166,7 @@ export async function intentCovered(sql: Sql, subject: string, intent: AccessInt
   if (intent.kind === "role")
     return identity.config.role === intent.role ? { role: intent.role } : null;
   if (intent.kind === "collaboration") {
-    if (identity.config.role !== "admin" || !["message", "broadcast"].includes(intent.messageKind))
-      return null;
+    if (identity.config.role !== "admin" || intent.messageKind === "internal") return null;
     try {
       await validateDelivery(sql, identity.canvas_id, subject, intent);
       return { role: "admin", recipients: intent.recipients };
@@ -305,7 +304,7 @@ export async function intentBasis(sql: Sql, subject: string, intent: AccessInten
           [intent.fileIds, identity.canvas_id],
         )
       ).rows;
-    if (intent.messageKind === "report") base.managerId = identity.manager_id;
+    if (intent.reportToManager === true) base.managerId = identity.manager_id;
     base.participants = await Promise.all(
       [subject, ...intent.recipients].sort().map(async (id) => {
         const a = await agentIdentity(sql, id);

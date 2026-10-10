@@ -56,6 +56,7 @@ export function createApiClient(
         message: string;
         sessionId: string;
         resumeRunId?: string;
+        association?: import("@intrica/contracts").InputAssociation;
         selection: string[];
         scopeId: string;
         model?: import("@intrica/contracts").ModelSelection | null;

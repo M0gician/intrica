@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { Agent } from "../../apps/server/dist/adapters/model/agent.js";
 import { DEFAULT_LIMITS } from "../../apps/server/dist/modules/execution/limits.js";
 import { type ExecutionTool, result } from "../../apps/server/dist/modules/execution/tool-calls.js";
+import { addressedOutput } from "../fixtures/addressed-output.mjs";
 
 // Characterization of a KNOWN LIMITATION, not a safety/regression guarantee:
 // effect=external prevents parallel read batching, but a background receipt does
@@ -59,6 +60,9 @@ afterEach(async () => {
   await Promise.allSettled(executions.splice(0));
   vi.restoreAllMocks();
   await k.db.pool.query("update conversations set consumed_message_seq=message_seq");
+  await k.db.pool.query(
+    "update messages set content=content||'{\"closed\":true}'::jsonb where consumed_run_id is null",
+  );
   await k.db.pool.query(
     "update runs set state='cancelled',cancel_requested_at=now() where state in('queued','running','waiting')",
   );
@@ -145,7 +149,12 @@ it.each(["same-batch", "next-model-turn"] as const)(
         ...template,
         content: issueSecond
           ? [toolCall("second", path)]
-          : [{ type: "text", text: "Observe durable tool outcomes." }],
+          : [
+              {
+                type: "text",
+                text: addressedOutput(this.state.systemPrompt, "Observe durable tool outcomes."),
+              },
+            ],
         stopReason: issueSecond ? "toolUse" : "stop",
       };
       this.state.messages.push(message);

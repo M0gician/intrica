@@ -84,6 +84,9 @@ beforeAll(async () => {
 afterEach(async () => {
   if (!k) return;
   await k.db.pool.query("update conversations set consumed_message_seq=message_seq");
+  await k.db.pool.query(
+    "update messages set content=content||'{\"closed\":true}'::jsonb where consumed_run_id is null",
+  );
   await k.db.pool.query("update schedules set enabled=false");
   await k.db.pool.query("update approvals set status='cancelled' where status='pending'");
   await k.db.pool.query(
@@ -281,7 +284,9 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
       title: "No attachment",
       text: "plain report",
     });
-    const invalid = await fresh.call("report_result", {
+    const invalid = await fresh.call("send_message", {
+      kind: "result",
+      target: { kind: "manager" },
       message: "missing file",
       fileIds: [textOnly.value.id],
     });
@@ -289,7 +294,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
   });
   it("PDF01 upgrades schema 7 to 8 through buildServer while preserving existing nodes", async () => {
     expect(priorVersion).toBe(7);
-    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(13);
+    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(14);
     expect(await k.graph.queries.node("pdf-upgrade-text")).toMatchObject({
       kind: "text",
       title: "old text",

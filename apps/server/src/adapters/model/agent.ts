@@ -11,6 +11,7 @@ import { meteredStream } from "./usage.js";
 
 /** One provider turn only. Durable orchestration and tool execution belong to execution. */
 export class Agent {
+  explicitMessages = false;
   prepareMessages: (messages: AgentMessage[]) => Promise<AgentMessage[]> = async (messages) =>
     messages;
   readonly state: {
@@ -52,6 +53,14 @@ export class Agent {
       : this.abortController.signal;
     combined.throwIfAborted();
     const options: any = { signal: combined, apiKey: this.apiKey ?? "intrica-keyless" };
+    if (this.explicitMessages)
+      options.onPayload = (payload: any, model: Model<Api>) => {
+        if (model.api === "openai-completions")
+          return { ...payload, response_format: { type: "json_object" } };
+        if (["openai-responses", "azure-openai-responses"].includes(model.api))
+          return { ...payload, text: { ...payload.text, format: { type: "json_object" } } };
+        return payload;
+      };
     if (this.state.thinkingLevel !== "off") options.reasoning = this.state.thinkingLevel;
     const source = await this.stream(
       this.state.model,
@@ -113,7 +122,23 @@ export function createCanvasAgent(
     const turns = context.messages.filter((message) => message.role === "user").length;
     const response: AssistantMessage = {
       role: "assistant",
-      content: [{ type: "text", text: `模拟会话第 ${turns} 轮。\n${context.systemPrompt ?? ""}` }],
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            ...(context.systemPrompt?.match(/Current work item: (request-[\w-]+)/)?.[1]
+              ? {
+                  target: {
+                    kind: "request",
+                    id: context.systemPrompt.match(/Current work item: (request-[\w-]+)/)![1],
+                  },
+                  kind: "result",
+                }
+              : { target: { kind: "internal" } }),
+            message: `模拟会话第 ${turns} 轮。\n${context.systemPrompt ?? ""}`,
+          }),
+        },
+      ],
       api: model.api,
       provider: model.provider,
       model: model.id,

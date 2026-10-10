@@ -181,7 +181,15 @@ export class Database {
           );
           version = 13;
         }
-        if (version !== 13) throw new Error("不支持此数据库版本，请使用独立数据库");
+        if (version === 13) {
+          await tx.query(
+            await readFile(join(dirname(path), "migrations/0014-addressed-messages.sql"), "utf8"),
+          );
+          const { migrateAddressedMessages } = await import("./migrations/addressed-messages.js");
+          await migrateAddressedMessages(tx);
+          version = 14;
+        }
+        if (version !== 14) throw new Error("不支持此数据库版本，请使用独立数据库");
         return;
       }
       await tx.query(await readFile(path, "utf8"));

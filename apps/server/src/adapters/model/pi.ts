@@ -1,7 +1,9 @@
+import { type PiOptions, type ResolvedModel, resolveModel } from "./resolve-model.js";
+
+export { resolveModel } from "./resolve-model.js";
+
 import type {
-  Api,
   ImageContent,
-  Model,
   Models,
   SimpleStreamOptions,
   TextContent,
@@ -9,16 +11,11 @@ import type {
 } from "@earendil-works/pi-ai";
 import { streamSimple as compatStreamSimple } from "@earendil-works/pi-ai/compat";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import { endpointIdentity } from "@intrica/contracts";
 import { modelErrorMessage, modelThinkingLevel } from "./model-catalog.js";
 import { buildSystemPrompt, parseModelOutput, serializeContext } from "./prompt.js";
 import { retryTimedOutRequests } from "./request-retry.js";
-import type { FrozenOperation, ModelConfig, ModelEvent, ModelRunner } from "./types.js";
+import type { FrozenOperation, ModelEvent, ModelRunner } from "./types.js";
 import { meteredStream } from "./usage.js";
-
-type PiOptions = Omit<Extract<ModelConfig, { kind: "pi" }>, "kind">;
-
-type ResolvedModel = { model: Model<Api>; useCompat: boolean };
 
 export class PiRunner implements ModelRunner {
   readonly supportsVision: boolean;
@@ -144,56 +141,4 @@ export class PiRunner implements ModelRunner {
       }
     }
   }
-}
-
-export function resolveModel(
-  options: PiOptions,
-  found: Model<Api> | null,
-  supportsVision: boolean,
-): ResolvedModel | null {
-  const api = options.api ?? found?.api ?? "openai-completions";
-  const baseUrl = options.baseUrl ?? found?.baseUrl;
-  if (!baseUrl) return null;
-  const compatible = found?.api === api ? found : null;
-  const model: Model<Api> = {
-    ...(compatible ?? {
-      id: options.modelId,
-      name: options.modelId,
-      provider: options.provider,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 128_000,
-      // Directory-less endpoints must opt into an explicit limit. 32k is the
-      // broadly supported default and avoids cutting off reasoning at 8k.
-      maxTokens: 32768,
-    }),
-    contextWindow: options.contextWindow ?? compatible?.contextWindow ?? 128_000,
-    api,
-    baseUrl,
-    reasoning: options.reasoning ?? compatible?.reasoning ?? false,
-    input: supportsVision ? ["text", "image"] : ["text"],
-  };
-  if (
-    (api === "openai-completions" || api === "openai-responses") &&
-    (!found || endpointIdentity(baseUrl) !== endpointIdentity(found.baseUrl))
-  ) {
-    // Reasoning capability does not imply support for OpenAI's developer role.
-    model.compat = { ...model.compat, supportsDeveloperRole: false };
-  }
-  model.maxTokens = Math.min(
-    options.maxOutputTokens ?? model.maxTokens,
-    Math.max(256, model.contextWindow - 1024),
-  );
-  if (options.thinkingLevels) {
-    const levels = options.thinkingLevels;
-    model.thinkingLevelMap = Object.fromEntries(
-      ["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => [
-        level,
-        levels.includes(level as import("@intrica/contracts").ModelThinkingLevel)
-          ? (model.thinkingLevelMap?.[level as import("@intrica/contracts").ModelThinkingLevel] ??
-            (level === "off" ? "none" : level))
-          : null,
-      ]),
-    );
-  }
-  return { model, useCompat: options.api !== undefined || found === null };
 }

@@ -8,6 +8,7 @@ import { Button } from "../../ui/button";
 import { FileReferenceView } from "../files/FileReferenceView";
 import { isContentTruncated, recordVersion } from "./full-records";
 import { InputReceipt, type Receipt } from "./InputReceipt";
+import { MessageStatus } from "./MessageRouting";
 import { type Activity, activityKey } from "./model";
 import { ReadMore } from "./ReadMore";
 export function EventTime({ value }: { value: Activity["createdAt"] }) {
@@ -56,6 +57,8 @@ export function TimelineEvent({
     event.data.resultVersion,
   ]);
   const name = (id: unknown, historicalName?: unknown) => {
+    if (id === "user") return tr("用户");
+    if (typeof id === "string" && id.startsWith("workspace:")) return tr("工作区助手");
     if (id === "workspace") return tr("工作区助手");
     if (typeof id !== "string" || !id || id === "unknown") return tr("未知 Agent");
     const live = nodes.get(id)?.title;
@@ -74,6 +77,24 @@ export function TimelineEvent({
           : [];
   const recipientName = (event: Activity, id: string) =>
     name(id, (event.data.recipientNames as Record<string, string> | undefined)?.[id]);
+  if (["internal_note", "output_error"].includes(event.kind))
+    return (
+      <DeferredDetails
+        summary={event.kind === "internal_note" ? tr("内部笔记 · 未发送") : tr("输出未发布")}
+        load={load}
+        loadKey={version}
+      >
+        {() => (
+          <>
+            {event.kind === "output_error" && (
+              <p role="status">{String(event.data.reason ?? "")}</p>
+            )}
+            <MarkdownLite text={String(event.data.text ?? "")} />
+            <EventTime value={event.createdAt} />
+          </>
+        )}
+      </DeferredDetails>
+    );
   return (
     <>
       {event.kind !== "user" && (
@@ -88,7 +109,7 @@ export function TimelineEvent({
                     event.data.from ?? event.data.senderId ?? event.agentId,
                     event.data.senderName,
                   )}
-          {["message", "report"].includes(event.kind) && recipients(event).length
+          {["message", "assistant", "report"].includes(event.kind) && recipients(event).length
             ? ` → ${recipients(event)
                 .map((id) => recipientName(event, id))
                 .join("、")}`
@@ -192,6 +213,7 @@ export function TimelineEvent({
             )}
         </>
       )}
+      <MessageStatus data={event.data} />
       {event.kind === "user" && (
         <InputReceipt
           time={<EventTime value={event.createdAt} />}

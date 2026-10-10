@@ -1,6 +1,13 @@
 import { tr } from "../../i18n";
+import { reasonLabel } from "./MessageRouting";
 
 export function ConversationPause({ reason }: { reason?: string | null | undefined }) {
+  if (["message_protocol", "reply_required", "message"].includes(reason ?? ""))
+    return (
+      <p role="status" className="conversation-pause">
+        {reasonLabel(reason!)}
+      </p>
+    );
   if (reason !== "tool_contract_upgrade") return null;
   return (
     <p role="status" className="tool-summary-note conversation-pause">
