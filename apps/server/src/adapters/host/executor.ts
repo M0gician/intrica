@@ -407,8 +407,8 @@ export class HostExecutor {
         name: "mcp",
         label: "调用 MCP",
         description: text(
-          "Start stdio MCP; omit tool to list tools. Uses the same cwd and authorization rules as bash. Default isolation has no network; fullHost=true or unavailable isolation uses the server account's host privileges. Admins and connected directories need no further approval.",
-          "启动 stdio MCP，tool 为空时列出工具。cwd 和授权规则与 bash 相同。默认隔离不含网络；fullHost=true 或隔离不可用时使用服务账户的宿主权限。管理员及显式宿主命令授权免重复审批。",
+          "Start stdio MCP; omit tool to list tools. Uses the same cwd and authorization rules as bash. Default isolation has no network; fullHost=true uses the server account's host privileges and requires host execution authority.",
+          "启动 stdio MCP，tool 为空时列出工具。cwd 和授权规则与 bash 相同。默认隔离不含网络；fullHost=true 使用服务账户的宿主权限，需要宿主执行授权。",
         ),
         parameters: Type.Object({
           command: pathSchema,

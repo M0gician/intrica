@@ -1,8 +1,9 @@
 # Tool contracts
 
-The Agent catalog contains 24 tools. Workspace sessions expose operations
-that have a meaningful owner identity. Model visibility is a discovery
-decision; every execution checks its current authority and run lease.
+The registry defines 24 tools. Each model request receives the subset and
+parameter schemas that match its current capabilities. Workspace sessions use
+the owner's authority. Model visibility is a discovery decision; every
+execution checks its current authority and run lease.
 
 | Domain | Tools |
 | --- | --- |
@@ -12,6 +13,18 @@ decision; every execution checks its current authority and run lease.
 | Collaboration | `send_message`, `report_result`, `read_conversation`, `get_agent_status`, `get_tool_result`, `wait_for_message` |
 | Team | `hire_agent`, `configure_agent`, `dismiss_agent`, `take_over_run` |
 | Permissions | `request_permission`, `list_access_requests`, `review_access_request` |
+
+The system prompt, visible tools and their descriptions use one capability
+snapshot: identity, role, management scope, effective resource grants and
+execution authority. The snapshot refreshes before each model request, after
+input consumption and context compaction, including recovery. Persona states
+personality and responsibilities; it does not change permissions.
+
+Read/write members do not see hiring, dismissal, approval decisions or run
+takeover. Their shared tools expose their own schedule, requests and conversation.
+Only administrators see takeover. Read members do not see canvas mutation tools.
+Host execution grants retain their path scope. Internal tool definitions remain
+available for durable recovery and still enforce current permissions.
 
 ## Reading
 
@@ -63,12 +76,27 @@ exit codes and SIGPIPE are not silently converted to success.
 
 ## Collaboration and permissions
 
-`send_message` accepts a target of
-`{kind:"agent",agentId}` or
-`{kind:"resource_readers",resourceIds}`. Resource readers must have
-access to every selected resource. The server freezes recipients before
-execution and checks all of them before writing any delivery. Replay uses
-the frozen set. Empty audiences return a zero-delivery receipt.
+`send_message` accepts one target:
+
+- `{kind:"agent",agentId}` sends to one Agent.
+- `{kind:"agents",agentIds}` sends to a deduplicated set.
+- `{kind:"canvas"}` sends to all other Agents on the canvas.
+- `{kind:"resource_readers",resourceIds}` sends to readers of every selected resource.
+
+Administrators and workspace owners can use all four targets without
+communication approval. Read/write members retain their existing communication
+checks and see only the single-Agent and resource-reader targets. Resource-reader
+filtering applies to administrators too. The resource list must be nonempty.
+Broadcasts exclude the sender. Resource-response settings do not disable messages.
+
+The server freezes recipients at preparation and checks the complete set before
+any delivery. A deleted or foreign recipient fails the whole operation. Recovery
+does not add later Agents. Empty audiences return zero without starting a run.
+Completed receipts survive role changes; pending operations recheck current
+authority. Promotion can satisfy an existing communication request and resume
+the original send. Denied, expired, stopped and escalated requests retain their
+barriers. Message delivery does not grant access to nodes, files or private
+conversations, or prove input consumption or task completion.
 
 `report_result` separately records delivery to the direct manager and
 grants reported-resource access to executors of taken-over runs. Sending,
@@ -110,6 +138,27 @@ permissions, capacity and dependencies and uses the original logical call ID.
 Tool approval does not cancel inference or create a second dispatch owner.
 
 ## Configuration and execution
+
+`hire_agent({persona,task,role,respondToResources,resourceIds?,inheritResources?})`
+creates the member, grants selected resources and submits its first task in one
+canvas transaction. Agent callers cannot grant admin; workspace owners specify
+resourceIds instead of inheritance. The server randomly selects a name from the
+shared language pool, excludes existing canvas names and adds numeric suffixes
+when the pool is exhausted. Chinese languages use the Chinese pool; all others
+fall back to English. UI creation uses the same server transaction and rules.
+
+New hire calls reject `title`, `name`, `displayName` and other unknown fields.
+The saved node ID and name are returned on replay; the first task is not submitted
+again. Old durable calls and version-1 conversation checkpoints remove only the
+obsolete title before validation. The original argument digest is preserved.
+New assistant turns persist tool schema version 2. Completed receipts keep their
+historical result. Existing names and human renaming remain supported; Agent
+tools cannot rename Agent nodes.
+
+Role-specific prompts encourage early parallel work, continued use of relevant
+Agents in their original conversations and peer questions, findings and dependency
+updates. Administrators can recruit for large or independent tasks without first
+exhausting existing members. Prompt guidance does not guarantee a model's choices.
 
 `configure_agent({agentId?,expectedRevision,patch})` accepts persona,
 role, `respondToResources` and schedule fields. Only an Agent targeting

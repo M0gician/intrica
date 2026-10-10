@@ -41,6 +41,8 @@ export type AccessIntent =
       recipients: string[];
       message: string;
       messageKind: string;
+      /** Missing on legacy resource-reader broadcasts. Recipients remain frozen. */
+      targetKind?: "agent" | "agents" | "canvas" | "resource_readers";
       resourceIds?: string[];
       fileIds?: string[];
     };

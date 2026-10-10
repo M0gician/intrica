@@ -8,6 +8,7 @@ import type { AgentRole, Node } from "@intrica/contracts";
 import { buildServer, DomainError, type Kernel } from "@intrica/server";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { digest } from "../../apps/server/dist/adapters/postgres/database.js";
 import { AccessService } from "../../apps/server/dist/modules/access/service.js";
 import { DEFAULT_LIMITS } from "../../apps/server/dist/modules/execution/limits.js";
 import type { Lease } from "../../apps/server/dist/modules/execution/store.js";
@@ -778,7 +779,6 @@ it("C24 a real model-tool journey recruits, delegates, waits, reports and finish
         return {
           tool: "hire_agent",
           args: {
-            title: "journey member",
             task: "review-task-marker",
             persona: "journey-member",
             role: "write",
@@ -979,9 +979,8 @@ it("C32 concurrent recruitment reserves distinct positions and Stop drains old r
   const manager = await agent(board, "admin"),
     s = await start(manager);
   const hires = await Promise.all(
-    Array.from({ length: 4 }, (_, i) =>
+    Array.from({ length: 4 }, () =>
       s.call("hire_agent", {
-        title: `member-${i}`,
         task: "Check the assigned fixture.",
         persona: "fixture",
         role: "write",
@@ -1034,7 +1033,6 @@ it.each([true, false])(
     const manager = await agent(board, "admin"),
       s = await start(manager);
     const args = {
-      title: "hired",
       persona: "role only",
       task: "INITIAL_TASK",
       role: "read",
@@ -1067,7 +1065,6 @@ it("C34 a missing initial task cannot silently create an idle hire", async () =>
   const manager = await agent(board, "admin"),
     s = await start(manager);
   const output = await s.call("hire_agent", {
-    title: "missing",
     persona: "do work",
     role: "read",
     respondToResources: true,
@@ -1163,7 +1160,6 @@ it("C37 a failed initial-task append rolls back the member, grant and outgoing m
     return output;
   });
   const response = await s.call("hire_agent", {
-    title: "atomic failure",
     persona: "",
     task: "FIRST",
     respondToResources: true,
@@ -1183,7 +1179,6 @@ it("C38 a full run queue retains the hire task and admits it when capacity retur
   const settings = await k.runs.settings.read();
   await k.runs.settings.save(settings.revision, { ...settings.policy, pendingPerCanvas: 1 });
   const hired = await s.call("hire_agent", {
-    title: "queued hire",
     persona: "",
     task: "WAIT_FOR_CAPACITY",
     respondToResources: false,
@@ -1207,7 +1202,6 @@ it("C39 workspace recruitment submits the task once and labels the workspace sen
     tools = await k.tools.create(ctx, run.frozen_input);
   const hire = tools.find((t) => t.name === "hire_agent")!;
   const args = {
-    title: "workspace member",
     persona: "",
     task: "WORKSPACE_TASK",
     role: "read",
@@ -1269,3 +1263,225 @@ it("C40 a steer submitted just after completion persists once and starts the nex
     ).rows,
   ).toHaveLength(1);
 });
+
+it("C41 admins send across teams and resource scopes without granting resource access", async () => {
+  const sender = await agent(board, "admin"),
+    otherTeam = await agent(board, "admin"),
+    recipients = await Promise.all(
+      (["read", "write", "admin"] as const).map((role) => agent(otherTeam.id, role, false)),
+    ),
+    hidden = await resource();
+  await connect(recipients[1]!, hidden);
+  const s = await start(sender);
+  const before = (
+    await k.db.pool.query("select * from grants where canvas_id=$1 order by id", [board])
+  ).rows;
+  for (const recipient of recipients) {
+    const sent = await s.call("send_message", {
+      target: { kind: "agent", agentId: recipient.id },
+      message: key(),
+    });
+    expect(sent.value.delivered).toBe(1);
+    expect(sent.waiting).toBeUndefined();
+  }
+  const args = {
+    target: {
+      kind: "agents",
+      agentIds: [sender.id, ...recipients.map((r) => r.id), recipients[0]!.id],
+    },
+    message: key(),
+  };
+  const broadcast = await s.call("send_message", args);
+  expect(broadcast.value.recipients).toEqual(recipients.map((r) => r.id).sort());
+  expect((await s.call("send_message", args, broadcast.logical)).value).toEqual(broadcast.value);
+  for (const recipient of recipients) expect(await incoming(recipient)).toHaveLength(2);
+  expect(await incoming(sender)).toHaveLength(0);
+  const all = await s.call("send_message", { target: { kind: "canvas" }, message: key() });
+  expect(all.value.recipients).toEqual([otherTeam.id, ...recipients.map((r) => r.id)].sort());
+  expect((await k.access.list(board, { status: "pending" })).total).toBe(0);
+  expect(
+    (await k.db.pool.query("select * from grants where canvas_id=$1 order by id", [board])).rows,
+  ).toEqual(before);
+  expect((await s.call("read", { target: { kind: "node", nodeId: hidden.id } })).waiting).toBe(
+    "approval",
+  );
+});
+
+it.each(["read", "write"] as const)(
+  "C42 %s senders retain scope checks and cannot use administrator broadcast targets",
+  async (role) => {
+    const sender = await agent(board, role),
+      target = await agent(board, "write"),
+      secret = await resource();
+    await connect(target, secret);
+    const s = await start(sender);
+    for (const audience of [{ kind: "agents", agentIds: [target.id] }, { kind: "canvas" }]) {
+      expect(
+        (await s.call("send_message", { target: audience, message: key() })).result.isError,
+      ).toBe(true);
+    }
+    expect(
+      (
+        await s.call("send_message", {
+          target: { kind: "agent", agentId: target.id },
+          message: key(),
+        })
+      ).waiting,
+    ).toBe("approval");
+    expect(await incoming(target)).toHaveLength(0);
+  },
+);
+
+async function freezeSend(s: Awaited<ReturnType<typeof start>>, args: object) {
+  const logical = key(),
+    callId = key();
+  const tool = s.tools.find((t) => t.name === "send_message")!;
+  const frozen = await tool.normalize!(args);
+  await k.db.pool.query(
+    "insert into tool_calls(id,run_id,attempt_id,logical_call_id,name,args,args_hash,execution_input,effect_class,state) values($1,$2,$3,$4,'send_message',$5,$6,$7,'graph','prepared')",
+    [
+      callId,
+      s.run.id,
+      s.run.attemptId,
+      logical,
+      JSON.stringify(args),
+      digest(args),
+      JSON.stringify(frozen),
+    ],
+  );
+  return logical;
+}
+
+it("C43 broadcasts retain the frozen audience during recovery and reject removed targets atomically", async () => {
+  const sender = await agent(board, "admin"),
+    first = await agent(),
+    second = await agent(),
+    s = await start(sender);
+  const args = { target: { kind: "canvas" }, message: key() };
+  const logical = await freezeSend(s, args);
+  const late = await agent();
+  expect((await s.call("send_message", args, logical)).value.recipients).toEqual(
+    [first.id, second.id].sort(),
+  );
+  expect(await incoming(late)).toHaveLength(0);
+  const stale = { target: { kind: "agents", agentIds: [first.id, second.id] }, message: key() };
+  const staleLogical = await freezeSend(s, stale);
+  await k.graph.deleteNodes({ nodeIds: [second.id], idempotencyKey: key() });
+  expect((await s.call("send_message", stale, staleLogical)).result.isError).toBe(true);
+  expect(await incoming(first)).toHaveLength(1);
+  const foreignBoard = (await k.graph.createCanvas({ title: key(), idempotencyKey: key() })).node;
+  const foreign = await agent(foreignBoard.id);
+  expect(
+    (
+      await s.call("send_message", {
+        target: { kind: "agents", agentIds: [first.id, foreign.id] },
+        message: key(),
+      })
+    ).result.isError,
+  ).toBe(true);
+  expect(await incoming(first)).toHaveLength(1);
+  expect(await incoming(foreign)).toHaveLength(0);
+  const demoted = { target: { kind: "canvas" }, message: key() };
+  const beforeDemotion = await freezeSend(s, demoted);
+  await k.db.pool.query(
+    "update agent_configs set config=jsonb_set(config,'{role}','\"write\"') where node_id=$1",
+    [sender.id],
+  );
+  expect((await s.call("send_message", demoted, beforeDemotion)).result.isError).toBe(true);
+  expect((await s.call("send_message", args, logical)).value.delivered).toBe(2);
+  expect(await incoming(first)).toHaveLength(1);
+});
+
+it("C44 empty canvas broadcasts do not activate any conversation", async () => {
+  const sender = await agent(board, "admin"),
+    s = await start(sender);
+  for (const target of [{ kind: "canvas" }, { kind: "agents", agentIds: [sender.id, sender.id] }])
+    expect((await s.call("send_message", { target, message: key() })).value).toMatchObject({
+      delivered: 0,
+      recipients: [],
+    });
+  expect(await incoming(sender)).toHaveLength(0);
+  expect(
+    (await k.db.pool.query("select count(*)::int as n from runs where canvas_id=$1", [board]))
+      .rows[0].n,
+  ).toBe(1);
+});
+
+it("legacy resource-reader broadcasts cannot recover without their resource filter", async () => {
+  const sender = await agent(board, "admin"),
+    target = await agent(),
+    s = await start(sender),
+    args = { target: { kind: "canvas" }, message: key() };
+  const logical = await freezeSend(s, args);
+  await k.db.pool.query(
+    "update tool_calls set execution_input=execution_input-'targetKind' where run_id=$1 and logical_call_id=$2",
+    [s.run.id, logical],
+  );
+  expect((await s.call("send_message", args, logical)).result.isError).toBe(true);
+  expect(await incoming(target)).toHaveLength(0);
+});
+
+it("C45 gaining admin authority resumes the original pending send instead of dropping it", async () => {
+  const manager = await agent(board, "admin"),
+    sender = await agent(manager.id, "write"),
+    target = await agent(),
+    secret = await resource();
+  await connect(target, secret);
+  const s = await start(sender),
+    args = { target: { kind: "agent", agentId: target.id }, message: key() };
+  const pending = await s.call("send_message", args);
+  expect(pending.waiting).toBe("approval");
+  await k.db.pool.query(
+    "update agent_configs set config=jsonb_set(config,'{role}','\"admin\"') where node_id=$1",
+    [sender.id],
+  );
+  await k.access.maintain();
+  expect(
+    (await k.db.pool.query("select status from approvals where id=$1", [pending.value.requestId]))
+      .rows[0].status,
+  ).toBe("satisfied");
+  expect(
+    (
+      await k.db.pool.query("select state from tool_calls where run_id=$1 and logical_call_id=$2", [
+        s.run.id,
+        pending.logical,
+      ])
+    ).rows[0].state,
+  ).toBe("prepared");
+  expect(await incoming(target)).toHaveLength(0);
+  expect((await s.call("send_message", args, pending.logical)).value.delivered).toBe(1);
+  await s.call("send_message", args, pending.logical);
+  expect(await incoming(target)).toHaveLength(1);
+});
+
+it.each(["denied", "expired", "escalated"])(
+  "C46 admin authority does not replay a %s send",
+  async (state) => {
+    const manager = await agent(board, "admin"),
+      sender = await agent(manager.id, "write"),
+      target = await agent(),
+      secret = await resource();
+    await connect(target, secret);
+    const s = await start(sender),
+      args = { target: { kind: "agent", agentId: target.id }, message: key() };
+    const pending = await s.call("send_message", args);
+    if (state === "denied") await approve(pending.value.requestId, "deny");
+    if (state === "expired")
+      await k.db.pool.query(
+        "update approvals set expires_at=now()-interval '1 second' where id=$1",
+        [pending.value.requestId],
+      );
+    if (state === "escalated")
+      await k.access.decide(pending.value.requestId, 1, "escalate", "explicit user review");
+    await k.db.pool.query(
+      "update agent_configs set config=jsonb_set(config,'{role}','\"admin\"') where node_id=$1",
+      [sender.id],
+    );
+    await k.access.maintain();
+    expect(
+      (await k.db.pool.query("select status from approvals where id=$1", [pending.value.requestId]))
+        .rows[0].status,
+    ).not.toBe("satisfied");
+    expect(await incoming(target)).toHaveLength(0);
+  },
+);

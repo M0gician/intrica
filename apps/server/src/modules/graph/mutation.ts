@@ -1,5 +1,5 @@
 import type { GraphDelta, Node } from "@intrica/contracts";
-import { nextPortraitVariant, portraitVariant, schemas } from "@intrica/contracts";
+import { nextAgentName, nextPortraitVariant, portraitVariant, schemas } from "@intrica/contracts";
 import { CronExpressionParser } from "cron-parser";
 import { Value } from "typebox/value";
 import { canonicalPath } from "../../adapters/host/sandbox.js";
@@ -99,6 +99,7 @@ export class GraphMutation {
     kind: Node["kind"];
     parentId: string;
     title?: string;
+    nameLanguage?: string;
     text?: string;
     summary?: string;
     position: Node["position"];
@@ -144,9 +145,21 @@ export class GraphMutation {
     const canonicalResource = input.resource
       ? { ...input.resource, path: await canonicalPath(input.resource.path) }
       : undefined;
+    const title =
+      input.kind === "agent" && input.title === undefined
+        ? nextAgentName(
+            (
+              await this.tx.query(
+                "select body->>'title' as title from nodes where canvas_id=$1 and kind='agent'",
+                [this.canvasId],
+              )
+            ).rows.map((row) => row.title ?? ""),
+            input.nameLanguage,
+          )
+        : (input.title ?? "");
     const body = Object.fromEntries(
       Object.entries({
-        title: input.title ?? "",
+        title,
         text: input.text ?? "",
         summary: input.summary,
         resource: canonicalResource,

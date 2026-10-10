@@ -21,7 +21,7 @@ import { result, type ToolResult } from "../execution/tool-calls.js";
 import type { GraphCommands } from "../graph/commands.js";
 import { GraphMutation } from "../graph/mutation.js";
 import type { Conversations } from "../work/conversations.js";
-import { deliverCollaboration } from "./collaboration.js";
+import { deliverCollaboration, validateDelivery } from "./collaboration.js";
 import { publishHandoffReport } from "./handoffs.js";
 import {
   canApprove,
@@ -112,6 +112,7 @@ export class AccessService {
     if (intent.kind === "agent") allowed = await mayManage(tx, actor.agentId, intent);
     if (intent.kind === "path") allowed ||= identity.config.role === "admin";
     if (intent.kind === "collaboration") {
+      await validateDelivery(tx, identity.canvas_id, actor.agentId, intent);
       allowed = true;
       for (const target of intent.recipients)
         if (target !== actor.agentId) {
@@ -323,16 +324,21 @@ export class AccessService {
     if (intent.kind === "agent") {
       const args = intent.args;
       if (intent.operation === "hire") {
+        const run = (
+          await tx.query(
+            "select r.id,r.frozen_input from runs r join tool_calls t on t.run_id=r.id where t.id=$1",
+            [callId],
+          )
+        ).rows[0];
         const nodeId = await mutation.insert({
           kind: "agent",
           parentId: subject,
-          title: args.title,
+          nameLanguage: args.language ?? run.frozen_input.language ?? "en",
           agent: { persona: args.persona, role: args.role, enabled: args.enabled },
           position: await mutation.agentPosition(subject),
           origin: "model",
         });
-        const runId = (await tx.query("select run_id from tool_calls where id=$1", [callId]))
-          .rows[0].run_id;
+        const runId = run.id;
         await mutation.connectGrant(subject, nodeId, "write", "derived_from", runId);
         await this.grantRecruitResources(
           mutation,
@@ -344,7 +350,7 @@ export class AccessService {
         const initialTask = await this.conversations.assignNewAgent(tx, runId, nodeId, args.task);
         output = {
           id: nodeId,
-          title: args.title,
+          title: (await mutation.row(nodeId)).body.title,
           initialTask,
           resourceIds: args.resourceIds ?? [],
           ...(!args.resourceIds?.length

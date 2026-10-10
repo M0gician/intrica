@@ -99,10 +99,10 @@ export class GraphCommands {
       return { node: canvasView(row), graphRevision: row.graph_revision };
     });
   }
-  async createNode(req: CreateNodeRequest, actor: Actor = OWNER) {
+  async createNode(req: CreateNodeRequest, actor: Actor = OWNER, nameLanguage = "en") {
     const canvasId = await this.queries.canvasId(req.parentId);
     return this.command(canvasId, req.idempotencyKey, "node.create", req, actor, async (m) => {
-      const nodeId = await m.insert(req);
+      const nodeId = await m.insert({ ...req, nameLanguage });
       return { node: await this.queries.node(nodeId, m.tx) };
     });
   }

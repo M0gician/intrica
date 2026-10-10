@@ -16,16 +16,33 @@ import {
   tool,
 } from "./context.js";
 
-export function collaborationTools({ registry, ctx, input, actor, text }: ToolContext) {
+export function collaborationTools({
+  registry,
+  ctx,
+  input,
+  actor,
+  text,
+  capabilities,
+}: ToolContext) {
   const send = tool(
     "send_message",
-    text(
-      "Send a collaboration message to one Agent or to other readers of ALL selected resources. The server freezes recipients for this call. Sending does not grant access to results or submit a report.",
-      "向单个 Agent，或有权读取全部所选资源的其他 Agent 发送协作消息。服务端为本次调用冻结接收者。发送不授予结果访问权限，也不提交报告。",
-    ),
+    capabilities.broadcastCanvas
+      ? text(
+          "Send to an Agent, an explicit agents list, this canvas (excluding yourself), or readers of ALL selected resources. Same-canvas messages and broadcasts need no communication approval. Recipients are frozen for this call; sending grants no resource access and is not task completion.",
+          "向单个 Agent、指定 agents 集合、本画布其他 Agent（canvas），或全部所选资源的读者发送消息。同画布消息与广播无需通信审批。接收者按调用固定；发送不授予资源访问权限，也不代表任务完成。",
+        )
+      : text(
+          "Send a collaboration message to one Agent or to other readers of ALL selected resources. The server freezes recipients for this call. Sending does not grant access to results or submit a report.",
+          "向单个 Agent，或有权读取全部所选资源的其他 Agent 发送协作消息。服务端为本次调用冻结接收者。发送不授予结果访问权限，也不提交报告。",
+        ),
     object({
       target: Type.Union([
         object({ kind: Type.Literal("agent"), agentId: idParameter }),
+        object({
+          kind: Type.Literal("agents"),
+          agentIds: Type.Array(idParameter, { minItems: 1, maxItems: 1000 }),
+        }),
+        object({ kind: Type.Literal("canvas") }),
         object({
           kind: Type.Literal("resource_readers"),
           resourceIds: Type.Array(idParameter, { minItems: 1, maxItems: 40 }),
@@ -43,6 +60,7 @@ export function collaborationTools({ registry, ctx, input, actor, text }: ToolCo
         : args.target;
     return {
       message: args.message,
+      targetKind: target.kind,
       recipients: await selectRecipients(
         registry.graph.db.pool,
         ctx.run.canvas_id,

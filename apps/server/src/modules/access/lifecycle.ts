@@ -2,7 +2,7 @@ import { canvasEvent, digest, type Tx } from "../../adapters/postgres/database.j
 import { appendMessage, projectToolOutcome } from "../execution/messages.js";
 import { result } from "../execution/tool-calls.js";
 import { intentBasis, intentCovered, reviewerFor } from "./intents.js";
-import { managementChain } from "./policy.js";
+import { agentIdentity, managementChain } from "./policy.js";
 
 export async function finishApproval(
   tx: Tx,
@@ -140,9 +140,17 @@ export async function reconcileApprovals(tx: Tx, canvasId: string) {
     const sticky =
       !r.assigned_reviewer_id &&
       ["escalated", "manager_timeout", "manager_unavailable"].includes(r.route_reason);
-    const sameTarget =
-      digest({ ...basis, role: undefined, delta: undefined, grant: undefined }) ===
-      digest({ ...r.basis, role: undefined, delta: undefined, grant: undefined });
+    const targetBasis = (value: Record<string, any>) => ({
+      ...value,
+      role: undefined,
+      delta: undefined,
+      grant: undefined,
+      ...(r.action.kind === "collaboration" &&
+      ["message", "broadcast"].includes(r.action.messageKind)
+        ? { participants: value.participants?.map((p: { id: string }) => p.id) }
+        : {}),
+    });
+    const sameTarget = digest(targetBasis(basis)) === digest(targetBasis(r.basis));
     const unknown = (
       await tx.query(
         "select 1 from tool_calls t join runs r on r.id=t.run_id where r.subject_id=$1 and t.state='unknown' limit 1",
@@ -154,6 +162,9 @@ export async function reconcileApprovals(tx: Tx, canvasId: string) {
         ? await intentCovered(tx, r.subject_id, r.action)
         : null;
     if (authority) {
+      // A communication request is the send itself; resume its original call.
+      // Completing only the approval receipt would silently discard the message.
+      const complete = r.complete_tool && r.action.kind !== "collaboration";
       const output = result({ status: "satisfied", requestId: r.id, executed: false, authority });
       await tx.query(
         "update approvals set status='satisfied',version=version+1,decided_by=null,decided_at=now(),execution_basis=$2,result=$3 where id=$1",
@@ -163,8 +174,8 @@ export async function reconcileApprovals(tx: Tx, canvasId: string) {
         "update tool_calls set state=$2,result=$3,delivered_at=null,updated_at=now() where id=$1 and state in('waiting','prepared')",
         [
           r.origin_call_id,
-          r.complete_tool ? "succeeded" : "prepared",
-          r.complete_tool ? JSON.stringify(output) : null,
+          complete ? "succeeded" : "prepared",
+          complete ? JSON.stringify(output) : null,
         ],
       );
       await wakeOrigin(tx, r.origin_call_id);
@@ -188,7 +199,9 @@ export async function reconcileApprovals(tx: Tx, canvasId: string) {
     const chain = await managementChain(tx, r.subject_id);
     const reviewer = sticky
       ? null
-      : r.assigned_reviewer_id && chain.includes(r.assigned_reviewer_id)
+      : r.assigned_reviewer_id &&
+          chain.includes(r.assigned_reviewer_id) &&
+          (await agentIdentity(tx, r.assigned_reviewer_id)).config.role === "admin"
         ? r.assigned_reviewer_id
         : await reviewerFor(tx, r.subject_id, r.action);
     if (reviewer !== r.assigned_reviewer_id) {

@@ -2,9 +2,13 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type AgentRole, agentNamePool } from "@intrica/contracts";
 import { buildServer, type Kernel } from "@intrica/server";
 import pg from "pg";
-import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
+import { Value } from "typebox/value";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { Agent } from "../../apps/server/dist/adapters/model/agent.js";
+import { digest } from "../../apps/server/dist/adapters/postgres/database.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
 
 const key = () => randomUUID();
@@ -33,6 +37,7 @@ beforeEach(async () => {
   board = (await k.graph.createCanvas({ title: "Tool contracts", idempotencyKey: key() })).node.id;
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   await k.db.pool.query("update approvals set status='cancelled' where status='pending'");
   await k.db.pool.query(
     "update tool_calls set state='failed',delivered_at=now() where state not in ('succeeded','failed')",
@@ -49,14 +54,14 @@ afterAll(async () => {
   await admin.end();
   if (directory) await rm(directory, { recursive: true, force: true });
 });
-async function agent(parentId = board, enabled = false) {
+async function agent(parentId = board, enabled = false, role: AgentRole = "write") {
   return (
     await k.graph.createNode({
       kind: "agent",
       title: "Member",
       parentId,
       position,
-      agent: { role: "write", persona: "", enabled },
+      agent: { role, persona: "", enabled },
       idempotencyKey: key(),
     })
   ).node;
@@ -377,4 +382,369 @@ it("workspace history returns its own messages and denies cross-canvas history",
     true,
   );
   expect((await owner.call("read_conversation", { agentId: a.id })).result.isError).not.toBe(true);
+});
+
+it.each(["read", "write", "admin", "owner"] as const)(
+  "tool discovery and prompt capabilities agree for %s",
+  async (role) => {
+    const member = role === "owner" ? undefined : await agent(board, false, role);
+    const s = await start(member?.id);
+    const visible = s.tools.filter((t) => t.modelVisible !== false);
+    const parameters = (name: string) => {
+      const tool = visible.find((t) => t.name === name)!;
+      return tool.modelParameters ?? tool.parameters;
+    };
+    expect(s.tools.capabilities?.role).toBe(role);
+    for (const name of ["hire_agent", "dismiss_agent", "review_access_request"])
+      expect(visible.some((t) => t.name === name)).toBe(["admin", "owner"].includes(role));
+    expect(visible.some((t) => t.name === "take_over_run")).toBe(role === "admin");
+    expect(visible.some((t) => t.name === "create_artifact")).toBe(role !== "read");
+    const send = parameters("send_message");
+    expect(Value.Check(send, { target: { kind: "canvas" }, message: "coordinate" })).toBe(
+      ["admin", "owner"].includes(role),
+    );
+    if (role === "read" || role === "write") {
+      expect(
+        Value.Check(parameters("configure_agent"), {
+          expectedRevision: 1,
+          patch: { schedule: null },
+        }),
+      ).toBe(true);
+      expect(
+        Value.Check(parameters("configure_agent"), {
+          expectedRevision: 1,
+          patch: { persona: "manager" },
+        }),
+      ).toBe(false);
+      expect(
+        Value.Check(parameters("configure_agent"), {
+          agentId: "another-agent",
+          expectedRevision: 1,
+          patch: { schedule: null },
+        }),
+      ).toBe(false);
+      expect(Value.Check(parameters("read_conversation"), { agentId: "another-agent" })).toBe(
+        false,
+      );
+      expect(visible.find((t) => t.name === "list_access_requests")!.description).toContain("own");
+      const descriptions = visible.map((t) => t.description).join("\n");
+      expect(descriptions).not.toMatch(/take.?over|took over|hire_agent|review_access_request/);
+      expect(
+        Value.Check(parameters("report_result"), { message: "progress", resourceIds: [] }),
+      ).toBe(false);
+    }
+    if (role === "admin") {
+      const args = { persona: "role", task: "first", role: "admin", respondToResources: false };
+      expect(Value.Check(parameters("hire_agent"), args)).toBe(false);
+      expect(Value.Check(parameters("hire_agent"), { ...args, role: "write" })).toBe(true);
+    }
+    if (role === "owner") {
+      const to = await agent();
+      expect(
+        (await s.call("send_message", { target: { kind: "canvas" }, message: "owner broadcast" }))
+          .value.recipients,
+      ).toEqual([to.id]);
+    }
+  },
+);
+
+it("random names are server-owned, unique across concurrent hiring and UI creation, and stable on replay", async () => {
+  const manager = await agent(board, false, "admin"),
+    s = await start(manager.id);
+  const count = agentNamePool("en").length + 5;
+  const args = {
+    persona: "A careful reviewer; the job title is not a name",
+    task: "Inspect independent evidence",
+    role: "write",
+    respondToResources: false,
+  };
+  const hires = await Promise.all(Array.from({ length: count }, () => s.call("hire_agent", args)));
+  const manual = await Promise.all(
+    Array.from({ length: count }, () =>
+      k.graph.createNode({
+        kind: "agent",
+        parentId: board,
+        position,
+        idempotencyKey: key(),
+        agent: { role: "read", enabled: false, persona: "" },
+      }),
+    ),
+  );
+  const names = [...hires.map((h) => h.value.title), ...manual.map((r) => r.node.title)];
+  expect(new Set(names).size).toBe(count * 2);
+  for (const name of names) expect(agentNamePool("en")).toContain(name.replace(/ \d+$/, ""));
+  for (const hire of hires) {
+    expect((await s.call("hire_agent", args, hire.logical)).value).toEqual(hire.value);
+    expect(
+      (
+        await k.db.pool.query(
+          "select count(*)::int as n from messages m join conversations c on c.id=m.conversation_id where c.agent_id=$1 and m.content->>'messageKind'='task'",
+          [hire.value.id],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+  }
+  const total = (
+    await k.db.pool.query("select count(*)::int as n from nodes where canvas_id=$1", [board])
+  ).rows[0].n;
+  for (const field of ["title", "name", "displayName"]) {
+    const rejected = await s.call("hire_agent", { ...args, [field]: "A job title" });
+    expect(rejected.result.isError).toBe(true);
+  }
+  expect(
+    (await k.db.pool.query("select count(*)::int as n from nodes where canvas_id=$1", [board]))
+      .rows[0].n,
+  ).toBe(total);
+  const hired = await k.graph.queries.node(hires[0]!.value.id);
+  expect(
+    (
+      await s.call("update_node", {
+        nodeId: hired.id,
+        expectedRevision: hired.revision,
+        patch: { kind: "content", title: "Lead" },
+      })
+    ).result.isError,
+  ).toBe(true);
+  const renamed = await k.graph.updateNode(hired.id, {
+    title: "User name",
+    expectedRevision: hired.revision,
+    idempotencyKey: key(),
+  });
+  expect(renamed.node.title).toBe("User name");
+  expect((await k.conversations.read.forAgent(hired.id)).agent_id).toBe(hired.id);
+});
+
+it.each(["en", "zh-CN"] as const)(
+  "owner and recovered hiring use %s names without accepting legacy titles on new calls",
+  async (language) => {
+    const manager = await agent(board, false, "admin"),
+      s = await start(manager.id);
+    s.run.frozen_input.language = language;
+    const refreshed = await k.tools.create(s.ctx, s.run.frozen_input);
+    const hire = refreshed.find((t) => t.name === "hire_agent")!;
+    const args = {
+      title: "Legacy job title",
+      persona: "Analyst",
+      task: "First task",
+      role: "write",
+      respondToResources: false,
+    };
+    const logical = key(),
+      callId = key();
+    await k.db.pool.query(
+      "insert into tool_calls(id,run_id,attempt_id,logical_call_id,name,args,args_hash,effect_class,state) values($1,$2,$3,$4,'hire_agent',$5,$6,'graph','prepared')",
+      [callId, s.run.id, s.run.attemptId, logical, JSON.stringify(args), digest(args)],
+    );
+    const out = await invokeTool(s.ctx, hire, logical, args);
+    const value = JSON.parse((out.result.content[0] as { text: string }).text);
+    expect(out.result.isError).not.toBe(true);
+    expect(agentNamePool(language)).toContain(value.title);
+    expect(value.title).not.toBe(args.title);
+    expect(await invokeTool(s.ctx, hire, logical, args)).toEqual(out);
+    expect((await invokeTool(s.ctx, hire, key(), args)).result.isError).toBe(true);
+    expect(
+      (await invokeTool(s.ctx, hire, key(), null, undefined, undefined, 1)).result.isError,
+    ).toBe(true);
+    const owner = await start();
+    owner.run.frozen_input.language = language;
+    const ownerHire = (await k.tools.create(owner.ctx, owner.run.frozen_input)).find(
+      (t) => t.name === "hire_agent",
+    )!;
+    const { title: _title, ...current } = args;
+    const response = await invokeTool(owner.ctx, ownerHire, key(), current);
+    const created = JSON.parse((response.result.content[0] as { text: string }).text);
+    expect(agentNamePool(language)).toContain(created.title);
+    expect(created.title).not.toBe(value.title);
+  },
+);
+
+it("failed hiring rolls back the generated name, member and task before retry", async () => {
+  const manager = await agent(board, false, "admin"),
+    s = await start(manager.id),
+    logical = key();
+  const args = { persona: "Review", task: "First task", role: "read", respondToResources: false };
+  const before = (await k.db.pool.query("select id from nodes where canvas_id=$1", [board])).rows;
+  vi.spyOn(k.conversations, "assignNewAgent").mockRejectedValueOnce(
+    new Error("simulated transaction failure"),
+  );
+  await expect(s.call("hire_agent", args, logical)).rejects.toThrow(
+    "simulated transaction failure",
+  );
+  expect((await k.db.pool.query("select id from nodes where canvas_id=$1", [board])).rows).toEqual(
+    before,
+  );
+  const hired = await s.call("hire_agent", args, logical);
+  expect(hired.result.isError).not.toBe(true);
+  expect((await k.graph.queries.node(hired.value.id)).title).toBe(hired.value.title);
+  expect((await s.call("hire_agent", args, logical)).value).toEqual(hired.value);
+});
+
+it.each([
+  { version: undefined, role: "admin", expected: "succeeded" },
+  { version: 2, role: "admin", expected: "invalid" },
+  { version: undefined, role: "read", expected: "waiting" },
+] as const)(
+  "checkpoint-only hire recovery preserves version $version and current role $role",
+  async ({ version, role, expected }) => {
+    const manager = await agent(board, false, role),
+      s = await start(manager.id),
+      turnId = key(),
+      callId = key();
+    const args = {
+      title: "Legacy title",
+      persona: "Careful analysis",
+      task: "Continue the saved assignment",
+      role: "write",
+      respondToResources: false,
+    };
+    const saved = {
+      role: "assistant",
+      api: "openai-completions",
+      provider: "openai",
+      model: "fixture",
+      content: [{ type: "toolCall", id: callId, name: "hire_agent", arguments: args }],
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    };
+    await k.db.pool.query(
+      "update conversations set checkpoint=$2,consumed_message_seq=message_seq,context=$3 where id=$1",
+      [
+        s.run.subject_id,
+        JSON.stringify([saved]),
+        JSON.stringify({ pendingTurnId: turnId, toolSchemaVersion: version }),
+      ],
+    );
+    vi.spyOn(Agent.prototype, "turn").mockImplementation(async function (this: Agent) {
+      expect(this.state.systemPrompt).toContain(`Current role: ${role}.`);
+      const message = {
+        ...saved,
+        content: [{ type: "text", text: "Recovery checked" }],
+        stopReason: "stop",
+      } as Awaited<ReturnType<Agent["turn"]>>;
+      this.state.messages.push(message);
+      return message;
+    });
+    await k.conversations.execute(s.ctx, (ctx, input) => k.tools.create(ctx, input));
+    const calls = (await k.db.pool.query("select * from tool_calls where run_id=$1", [s.run.id]))
+      .rows;
+    const children = (
+      await k.db.pool.query("select body from nodes where parent_id=$1 and kind='agent'", [
+        manager.id,
+      ])
+    ).rows;
+    if (expected === "invalid") {
+      expect(calls).toHaveLength(0);
+      const history = (
+        await k.db.pool.query("select checkpoint from conversations where id=$1", [
+          s.run.subject_id,
+        ])
+      ).rows[0].checkpoint;
+      expect(history.find((m: any) => m.role === "toolResult").isError).toBe(true);
+    } else {
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        logical_call_id: `${turnId}:${callId}`,
+        args_hash: digest(args),
+        state: expected,
+      });
+      expect(calls[0].execution_input.title).toBeUndefined();
+    }
+    expect(children).toHaveLength(expected === "succeeded" ? 1 : 0);
+    if (children.length) expect(agentNamePool("en")).toContain(children[0].body.title);
+  },
+);
+
+it("each model request refreshes role, resource context and visible schemas from the same capability snapshot", async () => {
+  const member = await agent(board, false, "read"),
+    s = await start(member.id);
+  const resource = (
+    await k.graph.createNode({
+      kind: "text",
+      parentId: board,
+      position,
+      title: "Shared evidence",
+      text: "evidence",
+      idempotencyKey: key(),
+    })
+  ).node;
+  let turn = 0;
+  const roles: string[] = [];
+  vi.spyOn(Agent.prototype, "turn").mockImplementation(async function (this: Agent) {
+    turn++;
+    const expected = ["read", "admin", "write"][turn - 1]!;
+    roles.push(expected);
+    expect(this.state.systemPrompt).toContain(`Current role: ${expected}.`);
+    const names = this.state.tools.map((tool) => tool.name);
+    expect(names.includes("hire_agent")).toBe(expected === "admin");
+    expect(names.includes("review_access_request")).toBe(expected === "admin");
+    if (expected !== "admin") {
+      expect(this.state.systemPrompt).not.toContain("hire_agent");
+      expect(this.state.systemPrompt).not.toContain("take_over_run");
+      const configure = this.state.tools.find((t) => t.name === "configure_agent")!;
+      expect(
+        Value.Check(configure.parameters, { expectedRevision: 1, patch: { role: "admin" } }),
+      ).toBe(false);
+    }
+    if (turn > 1) expect(this.state.systemPrompt).toContain(resource.id);
+    if (turn === 1) {
+      await k.db.pool.query(
+        "update agent_configs set config=jsonb_set(config,'{role}','\"admin\"') where node_id=$1",
+        [member.id],
+      );
+      await k.graph.createLink({ fromId: member.id, toId: resource.id, idempotencyKey: key() });
+    } else if (turn === 2) {
+      await k.db.pool.query(
+        "update agent_configs set config=jsonb_set(config,'{role}','\"write\"') where node_id=$1",
+        [member.id],
+      );
+    }
+    const message: Awaited<ReturnType<Agent["turn"]>> = {
+      role: "assistant",
+      api: this.state.model.api,
+      provider: this.state.model.provider,
+      model: this.state.model.id,
+      content:
+        turn < 3
+          ? [{ type: "toolCall", id: `round-${turn}`, name: "read_canvas", arguments: {} }]
+          : [{ type: "text", text: "verified" }],
+      stopReason: turn < 3 ? "toolUse" : "stop",
+      timestamp: Date.now(),
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    };
+    this.state.messages.push(message);
+    return message;
+  });
+  await k.conversations.execute(s.ctx, (ctx, input) => k.tools.create(ctx, input));
+  expect(roles).toEqual(["read", "admin", "write"]);
+  const history = await k.conversations.read.forAgent(member.id);
+  const checkpoint = (
+    await k.db.pool.query("select checkpoint from conversations where id=$1", [history.id])
+  ).rows[0].checkpoint;
+  expect(
+    checkpoint.some(
+      (m: any) => m.role === "user" && JSON.stringify(m.content).includes("Contract verification"),
+    ),
+  ).toBe(true);
+  expect(
+    checkpoint.filter((m: any) => m.role === "toolResult" && m.toolName === "read_canvas"),
+  ).toHaveLength(2);
+  expect(checkpoint.at(-1)).toMatchObject({
+    role: "assistant",
+    content: [{ type: "text", text: "verified" }],
+  });
 });

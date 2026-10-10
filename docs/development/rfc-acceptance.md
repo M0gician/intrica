@@ -1,6 +1,6 @@
 # RFC acceptance map
 
-This map covers RFCs #2 through #13 under #1. Assertions check observable
+This map covers RFCs #2 through #13, #17 and #18 under #1. Assertions check observable
 results and durable state. Test model responses come from dependency injection
 or an isolated compatible HTTP endpoint. Production configuration cannot enable
 the built-in test model.
@@ -18,6 +18,8 @@ the built-in test model.
 | #11 | Tool and command suites exercise equivalent/conflicting cursor modes, extra positioning, permissions, exit codes, signals, timeout and cancellation evidence. A completed process leaves task verification explicit. |
 | #12 | `message-stream.test.ts` checks long Unicode streams, duplicates, gaps, snapshot recovery and legacy snapshots. Its fixed 240-chunk sample asserts more than 5x fewer serialized event bytes; this measures local storage, not model fees. Database suites check scoped media, delayed tool delivery, trace IDs, timing, cache accounting and excluded private fields. |
 | #13 | The shared Web/Electron matrix uses independent server identities, connection switches, drafts, files, tools and durable approvals. Filesystem, database and HTTP operations remain real. |
+| #17 | Collaboration tests cover admin sends across roles, teams and resource scopes; selected/canvas broadcasts; deduplication; self exclusion; unchanged resource grants; resource-reader filtering; frozen audiences; deletion and foreign-target rejection; demotion; zero recipients; completed replay; and promotion resuming the original send. Terminal and escalated approvals remain barriers. Existing inbox tests cover busy/on-demand Agents, missing model configuration and activation limits. |
+| #18 | Prompt and tool-contract tests compare read/write/admin/owner instructions and visible parameters, including excluded management operations. Real conversation tests change role and resource access between model turns and recover old checkpoint-only hires under current authority. Name tests cover language fallback, concurrent UI/tool creation, pool exhaustion, rollback, new-field rejection, legacy restore, receipt reuse and human renaming. A controlled Worker scenario reuses an original conversation, recruits an independent member, holds both tasks in flight, exchanges peer evidence and verifies two real file writes with no duplicate hiring, tasks or reports. Shared Web/Electron recruitment uses generated names and actual member IDs. |
 
 ## Test layers
 
@@ -35,6 +37,17 @@ pnpm test:matrix
 
 Linux UI tests need Xvfb. Release and SSH tests are listed in the CI workflow.
 A fixture passing does not establish platform signing or remote installation.
+
+## Collaboration behavior evidence
+
+The controlled model scenarios exercise the real Worker, model request contents,
+tool handlers, inboxes, database transactions, file writes and conversation
+checkpoints. They verify context retention, concurrent task execution, member
+communication and durable delivery. Decisions come from scripted model replies;
+they do not measure how a live model chooses teammates, compares experience or
+balances work. Live-model evaluation of these choices remains unverified. Record
+context reuse, parallel assignment, proactive communication and delivery
+separately, with the model configuration and uncovered scenarios.
 
 ## Real automatic-update acceptance
 

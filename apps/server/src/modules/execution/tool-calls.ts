@@ -4,6 +4,9 @@ import { assertFence, DomainError, digest, id, type Tx } from "../../adapters/po
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
 import type { ExecutionContext } from "./worker.js";
 
+// Version 2 removes caller-provided names from hire_agent.
+export const TOOL_SCHEMA_VERSION = 2;
+
 export type ToolResult = {
   content: Array<
     { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
@@ -35,6 +38,8 @@ export type ExecutionTool = {
   name: string;
   /** Discovery only; handlers still enforce identity and current permissions. */
   modelVisible?: boolean;
+  /** A narrowed discovery schema; durable recovery retains the original execution schema. */
+  modelParameters?: any;
   label: string;
   description: string;
   parameters: any;
@@ -42,6 +47,8 @@ export type ExecutionTool = {
   /** Opt in only for independent reads; permission/message/control tools remain sequential. */
   parallel?: boolean;
   normalize?: (args: any) => Promise<any>;
+  /** Adapt only persisted calls from an earlier schema; their input hash stays unchanged. */
+  restore?: (args: any) => any;
   prepare?: (
     tx: Tx,
     callId: string,
@@ -147,6 +154,7 @@ export async function invokeTool(
     afterMs: number;
     detach: (callId: string, completion: Promise<ToolExecution>) => void;
   },
+  inputVersion = TOOL_SCHEMA_VERSION,
 ): Promise<ToolExecution> {
   const name = typeof tool === "string" ? tool : tool.name;
   const definition = typeof tool === "string" ? undefined : tool;
@@ -180,6 +188,8 @@ export async function invokeTool(
     if (barrier.paused || barrier.unknown) return { state: "unknown", result: null };
     if (!definition)
       return { state: "failed", result: { ...result(`未知工具 ${name}`), isError: true } };
+    const restoring = Boolean(row) || inputVersion < TOOL_SCHEMA_VERSION;
+    const validationArgs = restoring && definition.restore ? definition.restore(args) : args;
     const parameters =
       definition.parameters.type === "object"
         ? {
@@ -188,10 +198,12 @@ export async function invokeTool(
           }
         : definition.parameters;
     const unknown =
-      args && typeof args === "object" && parameters.additionalProperties === false
-        ? Object.keys(args).filter((key) => !(key in (parameters.properties ?? {})))
+      validationArgs &&
+      typeof validationArgs === "object" &&
+      parameters.additionalProperties === false
+        ? Object.keys(validationArgs).filter((key) => !(key in (parameters.properties ?? {})))
         : [];
-    if (!Value.Check(parameters, args))
+    if (!Value.Check(parameters, validationArgs))
       return {
         state: "failed",
         result: {
@@ -248,7 +260,9 @@ export async function invokeTool(
         return { state: "failed", result: output };
       }
       executionArgs =
-        row?.execution_input ?? (definition.normalize ? await definition.normalize(args) : args);
+        row?.execution_input ??
+        (definition.normalize ? await definition.normalize(validationArgs) : validationArgs);
+      if (restoring && definition.restore) executionArgs = definition.restore(executionArgs);
       await tx.query("update tool_calls set execution_input=$2 where id=$1", [
         callId,
         JSON.stringify(executionArgs),

@@ -324,9 +324,8 @@ describe("origin-bound approval lifecycle", () => {
       scope: { kind: "path", path, access: "directory_and_commands" },
       reason: "review parent files",
     });
-    expect(
-      (await k.access.list(c, { actor: manager.actor })).requests[0]?.allowedActions,
-    ).not.toContain("approve");
+    expect((await k.access.list(c, { actor: manager.actor })).requests).toHaveLength(0);
+    expect((await request(pending.value.requestId)).assigned_reviewer_id).toBeNull();
     await decide(pending.value.requestId);
     expect(
       (await child.call("read", { target: { kind: "path", path: join(path, "evidence.txt") } }))
@@ -923,7 +922,6 @@ describe("origin-bound approval lifecycle", () => {
       reason: "Explicit host execution for this team",
     });
     const hired = await manager.call("hire_agent", {
-      title: "worker",
       persona: "",
       task: "inspect",
       role: "write",
@@ -1103,7 +1101,6 @@ describe("origin-bound approval lifecycle", () => {
     await connect(m.id, other.id);
     const manager = await start(m.id);
     const hired = await manager.call("hire_agent", {
-      title: "scoped member",
       persona: "",
       task: "read assigned resource",
       role: "write",
@@ -1197,7 +1194,6 @@ describe("origin-bound approval lifecycle", () => {
     await connect(m.id, root.id);
     const manager = await start(m.id);
     const args = {
-      title: "reader",
       persona: "",
       task: "inspect files",
       role: "read",
@@ -1230,7 +1226,6 @@ describe("origin-bound approval lifecycle", () => {
     await connect(m.id, r.id);
     const manager = await start(m.id);
     const args = {
-      title: "member",
       persona: "",
       task: "one task",
       role: "write",
@@ -1288,7 +1283,6 @@ describe("origin-bound approval lifecycle", () => {
     const edge = await connect(m.id, root.id),
       manager = await start(m.id);
     const hired = await manager.call("hire_agent", {
-      title: "member",
       persona: "",
       task: "inspect",
       role: "write",
@@ -1309,11 +1303,12 @@ describe("origin-bound approval lifecycle", () => {
   });
   it("T10 on-demand review is scheduled and the owner can decide before the manager", async () => {
     const c = await canvas(),
-      m = await agent(c, "read", false),
+      m = await agent(c, "admin", false),
       b = await agent(m.id, "write"),
       child = await start(b.id);
+    const unshared = await resource(c);
     const pending = await child.call("request_permission", {
-      scope: { kind: "path", path: area, access: "directory_and_commands" },
+      scope: { kind: "resource", nodeId: unshared.id, mode: "read" },
       reason: "outside manager scope",
     });
     await k.runs.finish(child.run, "waiting", undefined, "approval");
@@ -1339,7 +1334,6 @@ describe("origin-bound approval lifecycle", () => {
     await connect(m.id, r.id);
     const manager = await start(m.id),
       hired = await manager.call("hire_agent", {
-        title: "member",
         persona: "",
         task: "inspect",
         role: "write",
@@ -1405,7 +1399,7 @@ describe("origin-bound approval lifecycle", () => {
   it("T14 review timeout advances one level and user takeover prevents routing back", async () => {
     const c = await canvas(),
       top = await agent(c, "admin", false),
-      mid = await agent(top.id, "read", false),
+      mid = await agent(top.id, "admin", false),
       b = await agent(mid.id),
       child = await start(b.id);
     const pending = await child.call("request_permission", {
@@ -1476,7 +1470,6 @@ describe("origin-bound approval lifecycle", () => {
     const manager = await start(m.id),
       child = await start(b.id);
     const args = {
-      title: "grandchild",
       persona: "",
       task: "inspect private resource",
       role: "read",
@@ -1643,7 +1636,6 @@ describe("origin-bound approval lifecycle", () => {
       patch: { role: "admin" },
     });
     const hire = await manager.call("hire_agent", {
-      title: "privileged",
       task: "Review assigned work",
       persona: "",
       role: "admin",
@@ -1666,7 +1658,6 @@ describe("origin-bound approval lifecycle", () => {
     const repeated = await manager.call(
       "hire_agent",
       {
-        title: "privileged",
         task: "Review assigned work",
         persona: "",
         role: "admin",
@@ -1685,10 +1676,10 @@ describe("origin-bound approval lifecycle", () => {
     ).toHaveLength(0);
     expect(
       (
-        await k.db.pool.query(
-          "select count(*)::int as n from nodes where canvas_id=$1 and body->>'title'='privileged'",
-          [c],
-        )
+        await k.db.pool.query("select count(*)::int as n from nodes where canvas_id=$1 and id=$2", [
+          c,
+          repeated.value.id,
+        ])
       ).rows[0].n,
     ).toBe(1);
   });

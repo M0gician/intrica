@@ -76,6 +76,13 @@ export function EffectivePermissions({
                     : tr("只读"),
             })}
           </p>
+          {value.role === "admin" && (
+            <p className="permissions-note">
+              {tr(
+                "可向当前画布任意 Agent 发送消息和广播，无需通信审批；发送不会授予资源读取权限。",
+              )}
+            </p>
+          )}
           <h4>{tr("有效资源 {{v0}} 项", { v0: value.totalResources })}</h4>
           {value.totalResources === 0 && (
             <p className="permissions-note">{tr("当前没有资源连接授权。")}</p>

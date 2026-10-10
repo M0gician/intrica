@@ -3,15 +3,54 @@ import { canvasEvent, DomainError, type Sql, type Tx } from "../../adapters/post
 import { collaborationIdentity } from "../execution/messages.js";
 import type { Run } from "../execution/store.js";
 import type { Conversations } from "../work/conversations.js";
+import { agentIdentity } from "./policy.js";
 import { canvasPermissions, coveringGrant } from "./resources.js";
 
 export type Delivery = Extract<AccessIntent, { kind: "collaboration" }>;
+export type MessageTarget =
+  | { kind: "agent"; agentId: string }
+  | { kind: "agents"; agentIds: string[] }
+  | { kind: "canvas" }
+  | { kind: "resource_readers"; resourceIds: string[] };
+
+async function requireBroadcastAuthority(sql: Sql, canvasId: string, senderId: string | null) {
+  if (!senderId) return;
+  const sender = await agentIdentity(sql, senderId);
+  if (sender.canvas_id !== canvasId || sender.config.role !== "admin")
+    throw new DomainError("FORBIDDEN", "此广播目标需要当前画布的管理员权限");
+}
+
+/** Validate the frozen audience without adding new members during recovery. */
+export async function validateDelivery(
+  sql: Sql,
+  canvasId: string,
+  senderId: string | null,
+  intent: Delivery,
+) {
+  if (intent.targetKind === "agents" || intent.targetKind === "canvas")
+    await requireBroadcastAuthority(sql, canvasId, senderId);
+  const targets = await sql.query(
+    "select n.id from nodes n join agent_configs a on a.node_id=n.id where n.canvas_id=$1 and n.id=any($2::text[])",
+    [canvasId, intent.recipients],
+  );
+  if (targets.rowCount !== intent.recipients.length)
+    throw new DomainError("TARGET_CHANGED", "接收者已删除或不在当前画布，消息未发送");
+  if (
+    intent.messageKind === "broadcast" &&
+    (!intent.targetKind || intent.targetKind === "resource_readers")
+  ) {
+    const current = await resourceAudience(sql, canvasId, intent.resourceIds ?? [], senderId);
+    if (intent.recipients.some((id) => !current.includes(id)))
+      throw new DomainError("TARGET_CHANGED", "广播接收者权限已变化，请重新确认接收范围");
+  }
+}
 async function resourceAudience(
   sql: Sql,
   canvasId: string,
   resourceIds: string[],
   senderId: string | null,
 ) {
+  if (!resourceIds.length) throw new DomainError("VALIDATION", "资源读者广播必须指定至少一个资源");
   const resources = (
     await sql.query(
       "select id,kind,body->'resource' as resource from nodes where canvas_id=$1 and id=any($2::text[])",
@@ -42,11 +81,22 @@ export async function selectRecipients(
   sql: Sql,
   canvasId: string,
   senderId: string | null,
-  target: { kind: "agent"; agentId: string } | { kind: "resource_readers"; resourceIds: string[] },
+  target: MessageTarget,
 ) {
-  return target.kind === "agent"
-    ? [target.agentId]
-    : resourceAudience(sql, canvasId, target.resourceIds, senderId);
+  if (target.kind === "agent") return [target.agentId];
+  if (target.kind === "resource_readers")
+    return resourceAudience(sql, canvasId, target.resourceIds, senderId);
+  await requireBroadcastAuthority(sql, canvasId, senderId);
+  const ids =
+    target.kind === "agents"
+      ? target.agentIds
+      : (
+          await sql.query(
+            "select n.id from nodes n join agent_configs a on a.node_id=n.id where n.canvas_id=$1 order by n.id",
+            [canvasId],
+          )
+        ).rows.map((row) => row.id as string);
+  return [...new Set(ids)].filter((id) => id !== senderId).sort();
 }
 
 /** Frozen recipients are checked as a whole before any history or inbox write. */
@@ -58,11 +108,7 @@ export async function deliverCollaboration(
   intent: Delivery,
   callId: string,
 ) {
-  if (intent.messageKind === "broadcast") {
-    const current = await resourceAudience(tx, run.canvas_id, intent.resourceIds!, senderId);
-    if (intent.recipients.some((id) => !current.includes(id)))
-      throw new DomainError("TARGET_CHANGED", "广播接收者权限已变化，请重新确认接收范围");
-  }
+  await validateDelivery(tx, run.canvas_id, senderId, intent);
   const targets = [];
   for (const id of intent.recipients) {
     const c = await conversations.read.forAgent(id, tx);

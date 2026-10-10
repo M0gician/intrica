@@ -14,6 +14,7 @@ function publicContext(context: Record<string, unknown> | null) {
   if (!context) return null;
   const {
     pendingTurnId: _pendingTurnId,
+    toolSchemaVersion: _toolSchemaVersion,
     turnsSinceInput: _turns,
     turnLimitReached: _turnLimitReached,
     modelBlocked: _modelBlocked,

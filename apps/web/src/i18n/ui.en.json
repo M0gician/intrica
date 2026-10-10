@@ -1057,5 +1057,7 @@
   "命令超时，结果待核实": "Command timed out; verify its outcome",
   "命令已取消，结果待核实": "Command cancelled; verify its outcome",
   "命令未启动": "Command did not start",
-  "命令终止信号 {{v0}}": "Command terminated by {{v0}}"
+  "命令终止信号 {{v0}}": "Command terminated by {{v0}}",
+  "管理所属团队及成员角色；同画布消息、广播和完整宿主操作免审批，画布资源仍按授权范围读取。": "Manage your team and its roles. Same-canvas messages, broadcasts, and full host operations need no approval. Canvas resources still require read access.",
+  "可向当前画布任意 Agent 发送消息和广播，无需通信审批；发送不会授予资源读取权限。": "Send messages and broadcasts to any Agent on this canvas without communication approval. Sending does not grant resource access."
 }

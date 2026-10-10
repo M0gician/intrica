@@ -1,6 +1,7 @@
 import { type TObjectOptions, type TProperties, Type } from "typebox";
 import { modelCapabilities } from "../../../adapters/model/model-catalog.js";
 import { promptText } from "../../../prompt-language.js";
+import type { AgentCapabilities } from "../../access/capabilities.js";
 import type { Actor } from "../../access/policy.js";
 import { authorize } from "../../access/policy.js";
 import type { ExecutionTool } from "../../execution/tool-calls.js";
@@ -42,6 +43,7 @@ export function toolContext(
   registry: ToolRegistry,
   ctx: ExecutionContext,
   input: ConversationInput,
+  capabilities: AgentCapabilities,
 ) {
   const actor: Actor = input.agentId
     ? { kind: "agent", agentId: input.agentId, runId: ctx.run.id, epoch: ctx.run.epoch }
@@ -51,6 +53,7 @@ export function toolContext(
     ctx,
     input,
     actor,
+    capabilities,
     text: (en: string, zh: string) => promptText(input.language, en, zh),
     supportsVision: Boolean(modelCapabilities(input.model.config).supportsVision),
     requireResource: (nodeId: string, mode: "read" | "write") =>

@@ -1,3 +1,4 @@
+export * from "./agent-names.js";
 export * from "./agent-team.js";
 export * from "./api.js";
 export type {

@@ -36,7 +36,7 @@ export class BackgroundTools {
     tool: ExecutionTool | string,
     logicalId: string,
     args: unknown,
-    resumed = false,
+    options: { resumed?: boolean; inputVersion?: number } = {},
   ): ReturnType<typeof invokeTool> {
     const active = this.pending.get(logicalId);
     if (active)
@@ -59,7 +59,7 @@ export class BackgroundTools {
         if (row && !["prepared", "dispatching"].includes(row.state)) await this.publish(tx, row);
       },
       {
-        afterMs: resumed ? 0 : this.ctx.store.limits.toolAsyncAfterMs,
+        afterMs: options.resumed ? 0 : this.ctx.store.limits.toolAsyncAfterMs,
         detach: (callId, completion) => {
           const pending = completion
             .then(
@@ -76,6 +76,7 @@ export class BackgroundTools {
           this.pending.set(logicalId, { callId, completion: pending });
         },
       },
+      options.inputVersion,
     );
   }
   async resume(recover = true) {
@@ -94,7 +95,7 @@ export class BackgroundTools {
         );
         if (conflicts.rowCount) continue;
       }
-      await this.invoke(tool ?? row.name, row.logical_call_id, row.args, true);
+      await this.invoke(tool ?? row.name, row.logical_call_id, row.args, { resumed: true });
     }
   }
   /** Only the current lease owner dispatches. No checkpoint or model context is changed here. */

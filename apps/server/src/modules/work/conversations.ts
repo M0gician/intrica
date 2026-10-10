@@ -22,12 +22,14 @@ import type { RunStore } from "../execution/store.js";
 import {
   type ExecutionTool,
   storedToolResult,
+  TOOL_SCHEMA_VERSION,
   type ToolExecution,
 } from "../execution/tool-calls.js";
 import type { ExecutionContext } from "../execution/worker.js";
 import { ConversationReader } from "./conversation-reader.js";
 import { controlTeams } from "./team-controls.js";
 import { resolveToolOutcome } from "./tool-outcomes.js";
+import type { ToolSet } from "./tools.js";
 
 export type ConversationInput = {
   requestId?: string;
@@ -37,10 +39,7 @@ export type ConversationInput = {
   selection: string[];
   language?: PromptLanguage;
 };
-export type ToolsFactory = (
-  ctx: ExecutionContext,
-  input: ConversationInput,
-) => Promise<ExecutionTool[]>;
+export type ToolsFactory = (ctx: ExecutionContext, input: ConversationInput) => Promise<ToolSet>;
 
 export class Conversations {
   readonly read: ConversationReader;
@@ -255,7 +254,7 @@ export class Conversations {
     ).rows[0];
     if (!conversation) throw new DomainError("NOT_FOUND", "会话已删除");
     model.state.messages = conversation.checkpoint;
-    const identity = input.agentId ? await agentIdentity(this.db.pool, input.agentId) : null;
+    let identity = input.agentId ? await agentIdentity(this.db.pool, input.agentId) : null;
     const savedLanguage = (
       await this.db.pool.query(
         "select content->>'language' as language from messages where conversation_id=$1 and seq<=$2 and content ? 'language' order by seq desc limit 1",
@@ -264,24 +263,36 @@ export class Conversations {
     ).rows[0]?.language;
     input.language = promptLanguage(savedLanguage ?? input.language);
     const tools = await factory(ctx, input);
+    let capabilities = tools.capabilities;
     const modelTools = (definitions: ExecutionTool[]) =>
       definitions
         .filter((t) => t.modelVisible !== false)
         .map((t) => ({
           ...t,
+          parameters: t.modelParameters ?? t.parameters,
           execute: async () => {
             throw new Error("Tools must use the durable executor");
           },
         }));
     model.state.tools = modelTools(tools);
     const refreshTools = async () => {
-      tools.splice(0, tools.length, ...(await factory(ctx, input)));
+      const next = await factory(ctx, input);
+      capabilities = next.capabilities;
+      if (!capabilities && input.agentId)
+        identity = await agentIdentity(this.db.pool, input.agentId);
+      tools.splice(0, tools.length, ...next);
+      setPrompt();
       return modelTools(tools);
     };
     const setPrompt = () => {
       model.state.systemPrompt = buildConversationPrompt(input.language ?? "en", {
         agent: Boolean(identity),
-        persona: identity?.config.persona,
+        persona: capabilities?.persona ?? identity?.config.persona,
+        capabilities,
+        role: capabilities?.role ?? identity?.config.role ?? "owner",
+        availableTools: tools
+          .filter((tool) => tool.modelVisible !== false)
+          .map((tool) => tool.name),
         selection: input.selection,
         asyncSeconds: ctx.store.limits.toolAsyncAfterMs / 1000,
       });
@@ -291,6 +302,8 @@ export class Conversations {
     const consumedInContext = new Set<string>();
     let compactions = conversation.context?.compactions ?? 0;
     let pendingTurnId = conversation.context?.pendingTurnId ?? id("turn");
+    // This version belongs to the saved assistant turn, including calls not yet dispatched.
+    let toolSchemaVersion = conversation.context?.toolSchemaVersion ?? 1;
     let budget = Number(conversation.context?.turnsSinceInput ?? 0);
     let exhausted = conversation.context?.turnLimitReached === true;
     const persist = async (tx: Tx) => {
@@ -316,6 +329,7 @@ export class Conversations {
         ...contextUsage(model, config),
         compactions,
         pendingTurnId,
+        toolSchemaVersion,
         turnsSinceInput: budget,
         turnLimitReached: exhausted,
       };
@@ -486,6 +500,7 @@ export class Conversations {
                 tool ?? call.name,
                 `${pendingTurnId}:${call.id}`,
                 call.arguments,
+                { inputVersion: toolSchemaVersion },
               );
             }),
           );
@@ -568,8 +583,6 @@ export class Conversations {
         const closing =
           ctx.store.limits.conversationTurns > 0 && budget >= ctx.store.limits.conversationTurns;
         await waitingOnBackground(false);
-        setPrompt();
-        model.state.tools = closing ? [] : await refreshTools();
         // Progress cannot crowd out real input. Attach only the latest progress
         // per call within this batch's cursor, retaining transcript history.
         if (unread.length) {
@@ -610,8 +623,6 @@ export class Conversations {
             promptLanguage(message.content.language) !== input.language
           ) {
             input.language = promptLanguage(message.content.language);
-            setPrompt();
-            if (!closing) model.state.tools = await refreshTools();
           }
           if (
             message.role === "tool_update" &&
@@ -636,13 +647,6 @@ export class Conversations {
           });
           consumedInContext.add(String(message.seq));
         }
-        if (closing) {
-          model.state.systemPrompt += promptText(
-            input.language,
-            "\nThe tool-turn limit has been reached. Deliver a nonempty progress report now using existing results. Identify unfinished tools and blockers; do not wait for them, call tools, or claim unknown outcomes succeeded. New user input can continue this run.",
-            "\n本次执行已达到工具回合上限。现在根据已有结果输出非空阶段报告，列出未完成工具和阻塞，不等待这些工具、不调用新工具、不把未知结果说成成功。用户追加输入可继续当前运行。",
-          );
-        }
         if (!closing) budget++;
         await checkpoint();
         // Read batches remain bounded. Reach the selected expedited input before inferring again.
@@ -656,7 +660,7 @@ export class Conversations {
           const summary = await summarizeContext(
             config,
             await model.prepareMessages(model.state.messages),
-            identity?.config.saveMemoryBeforeCompaction !== false,
+            capabilities?.saveMemory ?? identity?.config.saveMemoryBeforeCompaction !== false,
             ctx.signal,
             input.language,
           );
@@ -683,6 +687,16 @@ export class Conversations {
               await persist(tx);
             });
           else await checkpoint();
+        }
+        // Refresh after input and compaction, immediately before every model request.
+        const currentTools = await refreshTools();
+        model.state.tools = closing ? [] : currentTools;
+        if (closing) {
+          model.state.systemPrompt += promptText(
+            input.language,
+            "\nThe tool-turn limit has been reached. Deliver a nonempty progress report now using existing results. Identify unfinished tools and blockers; do not wait for them, call tools, or claim unknown outcomes succeeded. New user input can continue this run.",
+            "\n本次执行已达到工具回合上限。现在根据已有结果输出非空阶段报告，列出未完成工具和阻塞，不等待这些工具、不调用新工具、不把未知结果说成成功。用户追加输入可继续当前运行。",
+          );
         }
         let lastEmission = 0;
         round++;
@@ -758,6 +772,7 @@ export class Conversations {
         }
         if (closing) exhausted = true;
         pendingTurnId = id("turn");
+        toolSchemaVersion = TOOL_SCHEMA_VERSION;
         await this.db.canvas(ctx.run.canvas_id, async (tx) => {
           await assertFence(tx, ctx.run.id, ctx.run.epoch);
           await this.append(

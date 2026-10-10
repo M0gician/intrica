@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import type { AccessIntent, AgentRole, ApprovalRecord } from "@intrica/contracts";
 import { canonicalPath, withinPath } from "../../adapters/host/sandbox.js";
 import { DomainError, type Sql } from "../../adapters/postgres/database.js";
+import { validateDelivery } from "./collaboration.js";
 import { agentIdentity, canReadAgentResources, grantsFor, managementChain } from "./policy.js";
 import { coveringExecution, coveringGrant } from "./resources.js";
 import { validWorkspaceOwner } from "./workspace-ownership.js";
@@ -63,7 +64,9 @@ export async function reviewerFor(
   after?: string,
 ) {
   const chain = await managementChain(sql, subject);
-  return chain[after ? chain.indexOf(after) + 1 : 0] ?? null;
+  for (const candidate of chain.slice(after ? chain.indexOf(after) + 1 : 0))
+    if ((await agentIdentity(sql, candidate)).config.role === "admin") return candidate;
+  return null;
 }
 /** Routing is hierarchy, approval is authority. A manager may always decline or
  * escalate its inbox; being the reviewer never creates new authority. */
@@ -162,6 +165,17 @@ export async function intentCovered(sql: Sql, subject: string, intent: AccessInt
   const grants = await grantsFor(sql, subject);
   if (intent.kind === "role")
     return identity.config.role === intent.role ? { role: intent.role } : null;
+  if (intent.kind === "collaboration") {
+    if (identity.config.role !== "admin" || !["message", "broadcast"].includes(intent.messageKind))
+      return null;
+    try {
+      await validateDelivery(sql, identity.canvas_id, subject, intent);
+      return { role: "admin", recipients: intent.recipients };
+    } catch (error) {
+      if (error instanceof DomainError) return null;
+      throw error;
+    }
+  }
   if (
     "requiredRole" in intent &&
     intent.requiredRole &&

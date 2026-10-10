@@ -130,7 +130,6 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
             reply = {
               tool: "hire_agent",
               args: {
-                title: `Acceptance member ${current + 1}`,
                 task: `Read node ${evidenceNodes[current].id}, save a report and return its ID.`,
                 persona: `acceptance-member-${current + 1}`,
                 role: "write",
@@ -452,9 +451,10 @@ export async function verifyJourney(call, journey, existingRequestIds = []) {
     "Normal team delivery must preserve approval history without creating requests",
   );
   const members = snapshot.nodes.filter(
-    (n) => n.parentId === journey.manager.id && n.title?.startsWith("Acceptance member"),
+    (n) => n.parentId === journey.manager.id && n.agent?.persona.startsWith("acceptance-member-"),
   );
   assert.equal(members.length, 2);
+  assert.equal(new Set(members.map((m) => m.title)).size, members.length);
   for (const member of members) {
     assert.equal(member.managerId, journey.manager.id);
     assert.equal(member.agent.enabled, false);
@@ -470,7 +470,7 @@ export async function verifyJourney(call, journey, existingRequestIds = []) {
       2,
     );
     assert.equal(feed.requests.length, 0);
-    const index = Number(member.title.at(-1)) - 1;
+    const index = Number(member.agent.persona.split("-").at(-1)) - 1;
     const report = snapshot.nodes.find((n) => n.title === `Acceptance report ${index + 1}`);
     assert.ok(report, "Artifact must exist on the canvas");
     assert.ok(report.resource?.path, "Delivery must attach the real file, not just a written path");

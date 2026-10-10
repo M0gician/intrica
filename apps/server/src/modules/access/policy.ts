@@ -67,6 +67,7 @@ export async function collaborationNeedsApproval(
   const sender = await agentIdentity(sql, senderId);
   const target = await agentIdentity(sql, targetId);
   if (sender.canvas_id !== target.canvas_id) return true;
+  if (!report && sender.config.role === "admin") return false;
   if (await commonTeamManager(sql, senderId, targetId)) return false;
   const left = (await grantsFor(sql, senderId)).filter((g) => g.resource_kind !== "agent");
   const right = (await grantsFor(sql, targetId)).filter((g) => g.resource_kind !== "agent");

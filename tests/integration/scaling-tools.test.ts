@@ -531,7 +531,6 @@ it("hire derives management from the enterable spatial child", async () => {
     tools.find((t) => t.name === "hire_agent")!,
     "hire",
     {
-      title: "测试工程师",
       task: "Review assigned work",
       persona: "quality",
       role: "write",

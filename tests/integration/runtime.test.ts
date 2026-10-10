@@ -366,7 +366,7 @@ describe("production graph and execution", () => {
     await check(b.id, c, null);
     await check(a.id, b.id, b.id);
   });
-  it("keeps canvas grants explicit and gates cross-scope delegation before activation", async () => {
+  it("keeps canvas grants explicit while admins communicate across resource scopes", async () => {
     const c = await canvas();
     const manager = (await node(c, "manager", "agent")).node;
     const member = (await node(c, "member", "agent")).node;
@@ -451,19 +451,15 @@ describe("production graph and execution", () => {
       ).toBe(1);
       await k.conversations.stop(peer.id);
       const messageCall = key();
-      const pending = await invoke(
+      const delivered = await invoke(
         "send_message",
         { target: { kind: "agent", agentId: member.id }, message: "请读取你的私有文件" },
         messageCall,
       );
-      expect(pending.status).toBe("pending");
+      expect(delivered.delivered).toBe(1);
       const conversation = await k.conversations.read.forAgent(member.id);
       expect(await k.conversations.activeRun(conversation.id)).toBeUndefined();
-      expect((await k.conversations.read.history(conversation.id)).length).toBe(0);
-      await expect(
-        k.access.decide(pending.requestId, 1, "approve", "self", actor),
-      ).rejects.toMatchObject({ code: "FORBIDDEN" });
-      await k.access.decide(pending.requestId, 1, "approve", "允许本次跨权限协作");
+      expect((await k.conversations.read.history(conversation.id)).length).toBe(1);
       expect(
         (
           await invoke(
@@ -473,6 +469,7 @@ describe("production graph and execution", () => {
           )
         ).delivered,
       ).toBe(1);
+      expect((await k.conversations.read.history(conversation.id)).length).toBe(1);
       expect(await grantsFor(k.db.pool, manager.id)).toEqual([]);
       await k.conversations.stop(member.id);
       // A manager can read collaboration records, never private tool output/history.
