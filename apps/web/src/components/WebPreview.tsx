@@ -80,6 +80,7 @@ export function WebPreview({ url, title }: { url: string; title: string }) {
               : tr("{{v0}} 的网站预览图", { v0: preview.title })
           }
           referrerPolicy="no-referrer"
+          draggable={false}
           onError={() => setFailed(true)}
         />
       ) : (

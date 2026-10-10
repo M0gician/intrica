@@ -59,8 +59,6 @@ export const NodeCard = memo(function NodeCard(props: NodeCardProps) {
   const presentation = nodePresentation(node);
   const definition = nodeDefinitions[presentation.type];
   const todo = presentation.type === "todo";
-  const image = presentation.type === "image";
-  const pdf = presentation.type === "pdf" || presentation.type === "path-pdf";
   const todoScroll = useRef<{
     pointerId: number;
     y: number;
@@ -181,7 +179,8 @@ export const NodeCard = memo(function NodeCard(props: NodeCardProps) {
             event.stopPropagation();
             return;
           }
-          if (image || pdf) props.onHeaderPointerDown(node.id, event);
+          if (definition.dragFromBody && !isInteractiveTarget(event.target))
+            props.onHeaderPointerDown(node.id, event);
         }}
         onPointerMove={(event) => {
           if (todoScroll.current?.pointerId !== event.pointerId) return;
