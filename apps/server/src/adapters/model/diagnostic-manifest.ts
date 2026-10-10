@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Api, Context, Model } from "@earendil-works/pi-ai";
+import { contextManifest } from "../../modules/inference/context-projection.js";
 import { type Database, digest } from "../postgres/database.js";
 import { ToolObservations } from "./diagnostic-observations.js";
 import { diagnosticPolicy } from "./diagnostic-policy.js";
@@ -25,7 +26,12 @@ export class ModelDiagnostics {
     callId: string,
     context: Context,
     model: Model<Api>,
-    input: { conversationId?: string; apiKey?: string; publicOptions?: Record<string, unknown> },
+    input: {
+      conversationId?: string;
+      apiKey?: string;
+      contextSeq?: string | undefined;
+      publicOptions?: Record<string, unknown>;
+    },
   ) {
     const policy = await diagnosticPolicy(db);
     const secrets = input.apiKey ? [input.apiKey] : [];
@@ -40,15 +46,6 @@ export class ModelDiagnostics {
         ? { responseId: message.responseId }
         : {}),
     }));
-    const consumed = input.conversationId
-      ? (
-          await db.pool.query(
-            `select seq,client_message_id,role,content->>'workItemId' as work_item_id from messages
-       where conversation_id=$1 and consumed_run_id is not null order by seq desc limit 1000`,
-            [input.conversationId],
-          )
-        ).rows.reverse()
-      : [];
     const resources = new Set<string>();
     for (const message of context.messages)
       for (const match of JSON.stringify(message).matchAll(
@@ -57,8 +54,8 @@ export class ModelDiagnostics {
         if (resources.size < 256) resources.add(match[1]!);
       }
     const manifest = {
-      version: 1,
-      adapterVersion: "intrica-model-adapter/1",
+      version: 2,
+      adapterVersion: "intrica-model-adapter/2",
       build: await build,
       source: "adapter_context",
       contextVersion: digest(context.messages),
@@ -79,10 +76,10 @@ export class ModelDiagnostics {
         options: input.publicOptions ?? {},
       },
       messages,
-      consumedInputIds: consumed,
+      ...contextManifest(context.messages, input.contextSeq),
       resourceHashes: [...resources],
       diagnosticModeAtStart: policy.enabled ? "redacted" : "metadata",
-      note: "Message hashes describe the adapter input. Consumed IDs are causal records and may include compacted history; they are not a historical wire request.",
+      note: "Input IDs and item versions come from this attempt's fixed context. Compacted coverage is recorded separately. Payload hash identifies the provider request after adapter hooks.",
     };
     await db.pool.query(
       `update model_calls set manifest=$2,diagnostics=case when exists(select 1 from diagnostic_settings where id and enabled and revision=$7) then $3::jsonb end,

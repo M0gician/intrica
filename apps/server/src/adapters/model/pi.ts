@@ -13,7 +13,7 @@ import { streamSimple as compatStreamSimple } from "@earendil-works/pi-ai/compat
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { modelErrorMessage, modelThinkingLevel } from "./model-catalog.js";
 import { buildSystemPrompt, parseModelOutput, serializeContext } from "./prompt.js";
-import { retryTimedOutRequests } from "./request-retry.js";
+import { streamTurn } from "./stream-turn.js";
 import type { FrozenOperation, ModelEvent, ModelRunner } from "./types.js";
 import { meteredStream } from "./usage.js";
 
@@ -90,30 +90,26 @@ export class PiRunner implements ModelRunner {
     if (level !== "off") requestOptions.reasoning = level;
     if (this.options.apiKey !== undefined) requestOptions.apiKey = this.options.apiKey;
     const context = { systemPrompt: buildSystemPrompt(op.type, op.language), messages: [message] };
-    const stream = await retryTimedOutRequests(
-      meteredStream(
-        useCompat ? compatStreamSimple : builtinModels().streamSimple.bind(builtinModels()),
-      ),
-    )(model, context, requestOptions);
     let text = "";
     let failed: { code: string; message: string } | null = null;
     try {
-      for await (const event of stream) {
-        if (signal.aborted) return;
-        if (event.type === "text_delta") {
-          text += event.delta;
-        } else if (event.type === "error") {
-          if (event.reason === "aborted" || signal.aborted) return;
-          failed = {
-            code: "MODEL_ERROR",
-            message: event.error.errorMessage ?? "model stream failed",
-          };
-          break;
-        }
-      }
-    } catch (err) {
+      const response = await streamTurn(
+        meteredStream(
+          useCompat ? compatStreamSimple : builtinModels().streamSimple.bind(builtinModels()),
+        ),
+        model,
+        context,
+        requestOptions,
+      );
+      text = response.content
+        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .join("\n");
+    } catch (error) {
       if (signal.aborted) return;
-      failed = { code: "MODEL_ERROR", message: (err as Error).message };
+      failed = {
+        code: "MODEL_ERROR",
+        message: error instanceof Error ? error.message : String(error),
+      };
     }
     if (signal.aborted) return;
     if (failed !== null) {

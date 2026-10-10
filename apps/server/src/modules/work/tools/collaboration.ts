@@ -73,7 +73,7 @@ export function collaborationTools({ registry, ctx, input, text, capabilities }:
           agentId: input.agentId,
           generation:
             original?.generation === null ? input.generation : Number(original.generation),
-          workItemId: original?.work_item_id ?? input.workItemId,
+          workItemId: original ? (original.work_item_id ?? undefined) : input.workItemId,
           origin: "tool",
           toolCallId: callId,
         },

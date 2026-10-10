@@ -91,8 +91,8 @@ export function buildConversationPrompt(
         )
       : "",
     text(
-      `Tools return a background receipt after ${input.asyncSeconds} seconds. Final results arrive automatically. You track each result through its original call receipt. Pending approval pauses that call while independent work continues. Operations that depend on a write start after that write has a verified result. Later writes to the same target follow the same order. You confirm the original call's actual outcome before repeating an external operation.`,
-      `工具运行超过 ${input.asyncSeconds} 秒后返回后台回执。最终结果自动送达。你通过原调用的回执跟踪结果。申请处理期间，对应调用等待处理，独立工作继续推进。依赖写入结果的操作在该写入确认成功后开始。同一目标的后续写入遵循相同顺序。外部操作再次执行前，你先确认原调用的实际结果。`,
+      `Tools return a background receipt after ${input.asyncSeconds} seconds, or earlier when expedited input interrupts the wait. Final results arrive automatically. You track each result through its original call receipt. Pending approval pauses that call while independent work continues. Operations that depend on a write start after that write has a verified result. Later writes to the same target follow the same order. You confirm the original call's actual outcome before repeating an external operation.`,
+      `工具运行超过 ${input.asyncSeconds} 秒后返回后台回执；加急输入打断等待时，可提前返回。最终结果自动送达。你通过原调用的回执跟踪结果。申请处理期间，对应调用等待处理，独立工作继续推进。依赖写入结果的操作在该写入确认成功后开始。同一目标的后续写入遵循相同顺序。外部操作再次执行前，你先确认原调用的实际结果。`,
     ),
     has("get_tool_result")
       ? text(

@@ -199,6 +199,8 @@ export function useWorkspaceConversation(
     cursor: runCursor.current,
     recover: synchronize,
     onEvent(event) {
+      if (event.type === "inference.item")
+        activity.invalidate({ canvasId, conversationId: sessionId });
       if (event.type === "input.receipt") readInputs(event.payload.messageIds);
       if (event.type === "message")
         setTurns((current) =>

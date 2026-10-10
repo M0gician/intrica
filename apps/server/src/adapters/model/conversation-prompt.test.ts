@@ -84,10 +84,17 @@ describe("capability-specific conversation guidance", () => {
           "NO_MANAGER",
           "tool_input",
           "repairsRemaining=0",
+          "running",
+          "queued",
+          "superseded_before_dispatch",
+          "executed=false",
         ])
           expect(prompt).toContain(token);
         expect(prompt).toContain(language === "en" ? "limit is 7" : "上限为 7 次");
         expect(prompt).toContain(language === "en" ? "allows 5 corrections" : "修正 5 次");
+        expect(prompt).toContain(language === "en" ? "one primary response" : "一份主要响应");
+        expect(prompt).toContain(language === "en" ? "diagnostic records" : "诊断记录");
+        expect(prompt).toContain(language === "en" ? "durable model context" : "持久模型上下文");
         expect(prompt).toContain(
           language === "en" ? "one continuous model context" : "一份持续的模型上下文",
         );

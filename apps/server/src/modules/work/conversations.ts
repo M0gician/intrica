@@ -13,9 +13,9 @@ import { MessageWaits } from "../collaboration/message-waits.js";
 import { associateUserInput, closeConversationRequests } from "../collaboration/requests.js";
 import type { MessageService } from "../collaboration/send-message.js";
 import { cancelAgents } from "../execution/cancellation.js";
-import { appendMessage } from "../execution/messages.js";
 import type { RunStore } from "../execution/store.js";
 import type { ExecutionContext } from "../execution/worker.js";
+import { acceptInput } from "../inference/input-cutover.js";
 import { ConversationReader } from "./conversation-reader.js";
 import { executeConversation } from "./conversation-runner.js";
 import { controlTeams } from "./team-controls.js";
@@ -96,7 +96,7 @@ export class Conversations {
     content: unknown,
     runId?: string,
   ) {
-    const seq = await appendMessage(tx, conversationId, key, role, content, runId);
+    const seq = await acceptInput(tx, conversationId, key, role, content, runId);
     if (["message", "trigger"].includes(role)) await this.waits.incoming(tx, conversationId);
     return seq;
   }

@@ -1,6 +1,6 @@
 # RFC acceptance map
 
-This map covers RFCs #2 through #13, #17 and #18 under #1, and #19–#23 under #16, plus #24–#26. Assertions check observable
+This map covers RFCs #2 through #13, #17 and #18 under #1, and #19–#23 under #16, plus #24–#27. Assertions check observable
 results and durable state. Test model responses come from dependency injection
 or an isolated compatible HTTP endpoint. Production configuration cannot enable
 the built-in test model.
@@ -55,6 +55,16 @@ Linux UI tests need Xvfb. Release and SSH tests are listed in the CI workflow.
 A fixture passing does not establish platform signing or remote installation.
 
 ## Collaboration behavior evidence
+
+RFC #27 adds `inference-cutover`, `inference-effects`, `inference-races`, `inference-preparation`,
+`inference-recovery`, `inference-unknown`, `inference-context`,
+`inference-migration` and `inference-anthropic` integration suites. These inspect
+the real PI adapter's successor wire payload and durable records under controlled
+events. They cover original input order, native continuation, tool and publication
+fences, retries, unknown outcomes, compaction and schema upgrade. The full-record
+browser suite restores committed/interrupted items across reload. See
+[Durable inference](../architecture/inference-items.md) for capabilities and the
+limits of controlled signature fixtures.
 
 The controlled model scenarios exercise the real Worker, model request contents,
 tool handlers, inboxes, database transactions, file writes and conversation

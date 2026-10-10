@@ -1,5 +1,8 @@
+import { removeInferenceSchema } from "./remove-inference-schema.mjs";
+
 /** Construct an actual pre-RFC-26 fixture before exercising older migrations. */
 export async function removeAddressedSchema(sql) {
+  await removeInferenceSchema(sql);
   await sql.query(`drop table execution_environments;
     drop table message_followups;
     drop table message_waits;

@@ -198,7 +198,13 @@ export class Database {
           );
           version = 15;
         }
-        if (version !== 15) throw new Error("不支持此数据库版本，请使用独立数据库");
+        if (version === 15) {
+          await tx.query(
+            await readFile(join(dirname(path), "migrations/0016-inference-items.sql"), "utf8"),
+          );
+          version = 16;
+        }
+        if (version !== 16) throw new Error("不支持此数据库版本，请使用独立数据库");
         return;
       }
       await tx.query(await readFile(path, "utf8"));

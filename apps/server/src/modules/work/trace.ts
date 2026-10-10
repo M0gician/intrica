@@ -33,9 +33,12 @@ export async function conversationTrace(
     requests,
     dispatches,
     messageSummary,
+    inferenceRequests,
+    inferenceAttempts,
+    outputItems,
   ] = await Promise.all([
     db.pool.query(
-      "select client_message_id as id,content->>'requestId' as request_id,content->>'workItemId' as work_item_id,content->>'collaborationRequestId' as message_request_id,seq,run_id,consumed_run_id,created_at,consumed_at,extract(epoch from(consumed_at-created_at))*1000 as queue_ms from messages where conversation_id=$1 and (role='user' or role='message' and content ? 'from') order by seq desc limit 1000",
+      "select client_message_id as id,content->>'requestId' as request_id,content->>'workItemId' as work_item_id,content->>'collaborationRequestId' as message_request_id,seq,run_id,consumed_run_id,cutover_request_id,created_at,consumed_at,extract(epoch from(consumed_at-created_at))*1000 as queue_ms from messages where conversation_id=$1 and (role='user' or role='message' and content ? 'from') order by seq desc limit 1000",
       [conversationId],
     ),
     db.pool.query(
@@ -43,11 +46,11 @@ export async function conversationTrace(
       [ids],
     ),
     db.pool.query(
-      "select id,run_id,attempt_id,request_id,generation_id,work_item_id,provider,model_id,provider_request_id,response_id,started_at,first_response_at,finished_at,outcome,usage_status,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,manifest,diagnostics_expires_at,case when $2 and diagnostics_expires_at>now() then diagnostics end as diagnostics,extract(epoch from(first_response_at-started_at))*1000 as first_response_ms,extract(epoch from(finished_at-started_at))*1000 as total_ms from model_calls where run_id=any($1) order by started_at limit 2000",
+      "select id,run_id,attempt_id,inference_attempt_id,request_id,generation_id,work_item_id,provider,model_id,provider_request_id,response_id,started_at,first_response_at,finished_at,outcome,usage_status,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,manifest,diagnostics_expires_at,case when $2 and diagnostics_expires_at>now() then diagnostics end as diagnostics,extract(epoch from(first_response_at-started_at))*1000 as first_response_ms,extract(epoch from(finished_at-started_at))*1000 as total_ms from model_calls where run_id=any($1) order by started_at limit 2000",
       [ids, includeDiagnostics],
     ),
     db.pool.query(
-      "select t.id,t.work_item_id,t.generation,t.logical_call_id,t.run_id,t.attempt_id,t.name,t.state,t.created_at,t.dispatched_at,t.completed_at,t.approval_id,t.audit,t.retry_of,t.model_call_id,t.observation_id,extract(epoch from(t.completed_at-t.dispatched_at))*1000 as execution_ms,extract(epoch from(t.dispatched_at-a.decided_at))*1000 as authorized_wait_ms from tool_calls t left join approvals a on a.id=t.approval_id where t.run_id=any($1) order by t.created_at limit 2000",
+      "select t.id,t.work_item_id,t.generation,t.logical_call_id,t.run_id,t.attempt_id,t.inference_item_id,(t.primary_response is not null) as has_primary_response,t.name,t.state,t.created_at,t.dispatched_at,t.completed_at,t.approval_id,t.audit,t.retry_of,t.model_call_id,t.observation_id,extract(epoch from(t.completed_at-t.dispatched_at))*1000 as execution_ms,extract(epoch from(t.dispatched_at-a.decided_at))*1000 as authorized_wait_ms from tool_calls t left join approvals a on a.id=t.approval_id where t.run_id=any($1) order by t.created_at limit 2000",
       [ids],
     ),
     db.pool.query(
@@ -78,6 +81,24 @@ export async function conversationTrace(
       avg(extract(epoch from(updated_at-created_at))*1000) filter(where state in('answered','declined')) as mean_reply_ms,
       (select count(*)::int from messages where conversation_id=$1 and role='output_error' and content->>'code'='REQUEST_CLOSED') as duplicate_replies_rejected
       from message_requests where recipient_conversation_id=$1 or sender_conversation_id=$1`,
+      [conversationId],
+    ),
+    db.pool.query(
+      "select id,run_id,work_item_id,decision_revision,state,reason,created_at,sealed_at from inference_requests where conversation_id=$1 order by created_at desc limit 2000",
+      [conversationId],
+    ),
+    db.pool.query(
+      `select a.id,a.request_id,a.lease_epoch,a.ordinal,a.context_seq,a.state,a.capabilities,a.manifest,
+      a.dispatched_at,a.cutover_at,a.settle_deadline,a.sealed_at,a.outcome
+      from inference_attempts a join inference_requests q on q.id=a.request_id
+      where q.conversation_id=$1 order by a.created_at desc limit 2000`,
+      [conversationId],
+    ),
+    db.pool.query(
+      `select i.id,i.attempt_id,i.ordinal,i.kind,i.state,i.version,i.protocol_group,i.context_seq,
+      md5(i.payload::text) as payload_hash,i.publication,i.created_at,i.updated_at
+      from inference_items i join inference_attempts a on a.id=i.attempt_id join inference_requests q on q.id=a.request_id
+      where q.conversation_id=$1 order by i.created_at desc limit 2000`,
       [conversationId],
     ),
   ]);
@@ -116,13 +137,26 @@ export async function conversationTrace(
     dispatches: dispatches.rows,
     messageSummary: messageSummary.rows[0],
     observations: observations.rows,
+    inferenceRequests: inferenceRequests.rows,
+    inferenceAttempts: inferenceAttempts.rows,
+    outputItems: outputItems.rows,
     inputTokenMeaning:
       "Input tokens include uncached input, cache reads and cache writes. Cache fields are subsets; do not add them again.",
     bounded:
       runs.length === 100 ||
       inputs.rows.length === 1000 ||
-      [attempts, models, tools, approvals, messages, requests, dispatches, observations].some(
-        (r) => r.rows.length === 2000,
-      ),
+      [
+        attempts,
+        models,
+        tools,
+        approvals,
+        messages,
+        requests,
+        dispatches,
+        observations,
+        inferenceRequests,
+        inferenceAttempts,
+        outputItems,
+      ].some((r) => r.rows.length === 2000),
   };
 }

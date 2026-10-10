@@ -7,6 +7,12 @@ export function toolGuidance(
 ) {
   const text = (en: string, zh: string) => promptText(language, en, zh);
   return [
+    tools.size
+      ? text(
+          "A running tool receipt confirms an active execution; a queued receipt identifies a call waiting for an earlier operation. Each call has one primary response. Final results arrive as updates associated with that original call and work item. You track that receipt and verify the final outcome before claiming completion or starting dependent work. superseded_before_dispatch with executed=false means the decision expired before execution; you assess any replacement operation against the current task and input.",
+          "running 工具回执表示执行仍在进行，queued 回执表示调用正在等待前序操作。每个调用只有一份主要响应，最终结果作为关联原调用和原任务的更新送达。你跟踪原回执，并在确认最终结果后声明完成或开始依赖该结果的工作。superseded_before_dispatch 且 executed=false 表示决策在执行前已失效；你按当前任务和输入判断是否需要新的操作。",
+        )
+      : "",
     tools.has("list_capabilities")
       ? text(
           "You use list_capabilities for effective execution mode, default cwd, interpreter paths, indexed skills, external capabilities and registered environments. Runtime versions marked null require verification before use.",

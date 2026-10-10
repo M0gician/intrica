@@ -11,12 +11,8 @@ import { DEFAULT_LIMITS } from "../../apps/server/dist/modules/execution/limits.
 import { type ExecutionTool, result } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { addressedOutput } from "../fixtures/addressed-output.mjs";
 
-// Characterization of a KNOWN LIMITATION, not a safety/regression guarantee:
-// effect=external prevents parallel read batching, but a background receipt does
-// not establish a happens-before dependency between side effects. These tests
-// deliberately pass when two successful calls finish in the opposite order and
-// the older same-path write overwrites the newer write. If serialization or
-// dependencies are implemented, replace this contract with the intended policy.
+// Resource effects keep submission order across detachment and model turns.
+// Gates verify dispatch order and the actual file, not elapsed-time thresholds.
 const key = () => randomUUID();
 const dbName = `intrica_background_effect_${key().replaceAll("-", "")}`;
 let app: Awaited<ReturnType<typeof buildServer>>, k: Kernel, dir: string, admin: pg.Client;
@@ -91,7 +87,7 @@ const toolCall = (value: string, path: string) => ({
 });
 
 it.each(["same-batch", "next-model-turn"] as const)(
-  "B01 current limitation: %s same-path effects overlap after detachment and the earlier write can win last",
+  "B01 %s same-path effects wait for the original receipt before dispatch",
   async (placement) => {
     const canvasId = (
       await k.graph.createCanvas({ title: "effect order boundary", idempotencyKey: key() })
@@ -163,11 +159,9 @@ it.each(["same-batch", "next-model-turn"] as const)(
     const tool: ExecutionTool = {
       name: "write_fixture",
       label: "Controlled external file write",
-      description:
-        "Test-only write with an explicit completion gate; no resource lock or dependency.",
+      description: "Test-only write with an explicit completion gate.",
       parameters: Type.Object({ path: Type.String(), value: Type.String() }),
       effect: "external",
-      // Absence of parallel:true must not be mistaken for completion serialization.
       execute: async (_id, args, signal) => {
         starts.push(args.value);
         if (args.value === "first") await releaseFirst.promise;
@@ -192,7 +186,7 @@ it.each(["same-batch", "next-model-turn"] as const)(
               )
             ).rows[0]?.state,
         )
-        .toBe("succeeded");
+        .toBe("prepared");
       const first = (
         await k.db.pool.query(
           "select state,is_async from tool_calls where run_id=$1 and args->>'value'='first'",
@@ -200,15 +194,14 @@ it.each(["same-batch", "next-model-turn"] as const)(
         )
       ).rows[0];
       expect(first).toEqual({ state: "dispatching", is_async: true });
-      expect(starts).toEqual(["first", "second"]);
-      expect(completions).toEqual(["second"]);
-      expect(await readFile(path, "utf8")).toBe("second");
+      expect(starts).toEqual(["first"]);
+      expect(completions).toEqual([]);
+      expect(await readFile(path, "utf8")).toBe("initial");
       releaseFirst.resolve();
       await execution;
-      expect(completions).toEqual(["second", "first"]);
-      // Both tool records say success. The actual file disproves submission-order
-      // write semantics; a green test here only means the hazard was reproduced.
-      expect(await readFile(path, "utf8")).toBe("first");
+      expect(starts).toEqual(["first", "second"]);
+      expect(completions).toEqual(["first", "second"]);
+      expect(await readFile(path, "utf8")).toBe("second");
       const calls = (
         await k.db.pool.query(
           "select id,state,result,args,created_at from tool_calls where run_id=$1 order by created_at,id",

@@ -93,16 +93,19 @@ export class ToolRegistry {
             ...args,
             cwd: await canonicalPath(args.cwd ?? cwd, cwd),
           });
-    const tools = [
-      ...files,
-      ...(actor.kind === "owner" ? capabilityTools(input.language) : []),
-      wrap(createWebSearchTool(undefined, input.language)),
-      ...canvasTools(context),
+    const coordination = [
       ...collaborationTools(context),
       ...conversationTools(context),
       ...permissionTools(context),
       ...reviewTools(context),
       ...teamTools(context),
+    ].map((definition) => ({ ...definition, coordination: true }));
+    const tools = [
+      ...files,
+      ...(actor.kind === "owner" ? capabilityTools(input.language) : []),
+      wrap(createWebSearchTool(undefined, input.language)),
+      ...canvasTools(context),
+      ...coordination,
     ];
     tools.push(...environmentTools(context, tools));
     const combined = [

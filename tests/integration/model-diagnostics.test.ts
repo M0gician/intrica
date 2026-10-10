@@ -338,7 +338,7 @@ it.each([false, true])(
       audit: { phase: "parse", executed: false },
     });
     expect(trace.models[0].manifest).toMatchObject({
-      version: 1,
+      version: 2,
       source: "adapter_context",
       diagnosticModeAtStart: enabled ? "redacted" : "metadata",
     });

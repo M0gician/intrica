@@ -1,4 +1,3 @@
-import type { ToolCall } from "@earendil-works/pi-ai";
 import { createCanvasAgent } from "../../adapters/model/agent.js";
 import { contextUsage } from "../../adapters/model/context.js";
 import { buildClosingPrompt, buildConversationPrompt } from "../../adapters/model/prompt.js";
@@ -14,15 +13,21 @@ import { promptLanguage } from "../../prompt-language.js";
 import { agentIdentity } from "../access/policy.js";
 import { messagePromptContext } from "../collaboration/prompt-context.js";
 import { BackgroundTools } from "../execution/background-tools.js";
-import { type ExecutionTool, TOOL_SCHEMA_VERSION } from "../execution/tool-calls.js";
+import {
+  type ExecutionTool,
+  TOOL_SCHEMA_VERSION,
+  type ToolExecution,
+} from "../execution/tool-calls.js";
 import type { ExecutionContext } from "../execution/worker.js";
+import { infer } from "../inference/coordinator.js";
+import { recoverInference } from "../inference/recovery.js";
 import { saveCheckpoint } from "./checkpoints.js";
 import { OutputCompletion } from "./complete-turn.js";
 import { appendContextInput, compactContext } from "./context-builder.js";
 import type { ConversationInput, Conversations, ToolsFactory } from "./conversations.js";
 import { conversationPromptPolicy } from "./prompt-policy.js";
-import { runTurn } from "./run-turn.js";
-import { executeToolBatch } from "./tool-turn.js";
+import { admitTools } from "./tool-admission.js";
+import { holdForTools } from "./tool-wait.js";
 import { activateWork, selectWorkInput, unfinishedReplyReason, waitForWork } from "./work-items.js";
 
 export async function executeConversation(
@@ -229,10 +234,11 @@ export async function executeConversation(
     );
   };
   try {
+    await recoverInference(ctx);
     await background.resume();
-    let round = 0;
+    const round = 0;
     let waitingForInput = false;
-    rounds: for (;;) {
+    for (;;) {
       ctx.signal.throwIfAborted();
       if (await completion.resume(model, persist, checkpoint)) return;
       if (completion.blocked && !(await hasUnread(service.db.pool)) && !(await expedited())) {
@@ -248,7 +254,7 @@ export async function executeConversation(
       }
       if (completion.blocked) completion.resetRepair();
       await refreshTools();
-      const pending = await background.deliver();
+      await background.deliver();
       const last = model.state.messages.at(-1);
       if (
         !last ||
@@ -263,77 +269,27 @@ export async function executeConversation(
         }
         waitingForInput = false;
       }
-      // A stored assistant tool call is resumed before another model call. Its
-      // logical ID survives attempts, including approvals and unknown outcomes.
-      const assistant = [...model.state.messages].reverse().find((m) => m.role === "assistant");
-      const assistantIndex = assistant ? model.state.messages.indexOf(assistant) : -1;
-      const completed = new Set(
-        model.state.messages
-          .slice(assistantIndex + 1)
-          .flatMap((m) => (m.role === "toolResult" ? [m.toolCallId] : [])),
-      );
-      const outstanding =
-        assistant?.role === "assistant"
-          ? assistant.content.filter(
-              (p): p is ToolCall => p.type === "toolCall" && !completed.has(p.id),
-            )
-          : [];
-      for (let index = 0; index < outstanding.length; ) {
-        const batch = await executeToolBatch(
+      // Resume all stored groups with their original identity before the next model request.
+      try {
+        await admitTools(
           ctx,
           model,
           tools,
           background,
-          outstanding,
-          index,
           pendingTurnId,
           toolSchemaVersion,
+          checkpoint,
         );
-        index = batch.index;
-        const waiting = batch.waiting;
-        await checkpoint();
-        if (waiting) {
-          if (waiting === "tool_input")
-            await service.db.canvas(ctx.run.canvas_id, (tx) =>
-              waitForWork(tx, input.conversationId, input.workItemId, waiting),
-            );
-          if (pending || (await background.pendingIn(service.db.pool))) {
-            waitingForInput = waiting === "message" || waiting === "tool_input";
-            await background.wait();
-            continue rounds;
-          }
-          const stopped = await ctx.store.finish(
-            ctx.run,
-            "waiting",
-            async (tx) => {
-              if ((waiting === "message" || waiting === "tool_input") && (await hasUnread(tx)))
-                return false;
-              if (waiting === "approval") {
-                const pending = (
-                  await tx.query(
-                    "select 1 from tool_calls where run_id=$1 and state='waiting' and approval_id is not null limit 1",
-                    [ctx.run.id],
-                  )
-                ).rowCount;
-                if (!pending) return false;
-              }
-              if (waiting === "unknown") {
-                const pending = (
-                  await tx.query(
-                    "select 1 from tool_calls where run_id=$1 and state='unknown' limit 1",
-                    [ctx.run.id],
-                  )
-                ).rowCount;
-                if (!pending) return false;
-              }
-              await persist(tx);
-            },
-            waiting,
-          );
-          if (stopped) return;
-          continue rounds;
-        }
+      } catch (error) {
+        if (!(error instanceof DomainError) || error.code !== "INFERENCE_TOOL_WAIT") throw error;
+        const waiting = (error.details as { waiting: NonNullable<ToolExecution["waiting"]> })
+          .waiting;
+        const held = await holdForTools(ctx, background, input, waiting, persist, hasUnread);
+        if (held.stopped) return;
+        waitingForInput = held.waitingForInput;
+        continue;
       }
+
       const selection = await selectWorkInput(
         service.db.pool,
         input.conversationId,
@@ -390,6 +346,11 @@ export async function executeConversation(
           round,
           persist,
         );
+        // Inputs accepted during the fixed summary request join the next inference context.
+        if (await hasUnread(service.db.pool)) {
+          if (!closing) budget = Math.max(0, budget - 1);
+          continue;
+        }
       }
       // Refresh after input and compaction, immediately before every model request.
       messageContext = await messagePromptContext(
@@ -421,18 +382,61 @@ export async function executeConversation(
       model.state.tools = closing ? [] : currentTools;
       if (closing) {
         setPrompt(false);
-        model.state.systemPrompt += `\n${buildClosingPrompt(input.language)}`;
+        model.state.systemPrompt += `\n${buildClosingPrompt(input.language ?? "en")}`;
       }
       const generatedTurnId = id("turn");
-      const message = await runTurn(
+      pendingTurnId = generatedTurnId;
+      toolSchemaVersion = TOOL_SCHEMA_VERSION;
+      const message = await infer(
         model,
         ctx,
         background,
         expedited,
-        ++round,
         generatedTurnId,
         input.workItemId,
+        generation,
+        {
+          persist,
+          checkpoint,
+          refresh: async () => {
+            messageContext = await messagePromptContext(
+              service.db.pool,
+              input.conversationId,
+              input.workItemId,
+            );
+            const current = await refreshTools();
+            model.state.tools = closing ? [] : current;
+            if (closing) {
+              setPrompt(false);
+              model.state.systemPrompt += `\n${buildClosingPrompt(input.language ?? "en")}`;
+            }
+          },
+          admitTools: (interrupt) =>
+            admitTools(
+              ctx,
+              model,
+              tools,
+              background,
+              pendingTurnId,
+              toolSchemaVersion,
+              checkpoint,
+              interrupt,
+            ),
+        },
       );
+      if (message && "waiting" in message) {
+        const held = await holdForTools(
+          ctx,
+          background,
+          input,
+          message.waiting,
+          persist,
+          hasUnread,
+        );
+        if (held.stopped) return;
+        waitingForInput = held.waitingForInput;
+        continue;
+      }
       if (!message) {
         budget = Math.max(0, budget - 1);
         continue;
@@ -454,9 +458,7 @@ export async function executeConversation(
             ])
           ).rows[0].generation,
         );
-        if (generation !== input.generation) {
-          model.state.messages.pop();
-        } else {
+        if (generation === input.generation) {
           const correction =
             text.trim() || !message.content.some((p) => p.type === "toolCall")
               ? await completion.prepare(tx, text, pendingTurnId, thinking, generation)

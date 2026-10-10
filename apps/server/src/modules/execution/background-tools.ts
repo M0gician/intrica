@@ -38,7 +38,12 @@ export class BackgroundTools {
     tool: ExecutionTool | string,
     logicalId: string,
     args: unknown,
-    options: { resumed?: boolean; inputVersion?: number; observation?: ToolObservation } = {},
+    options: {
+      resumed?: boolean;
+      interrupt?: AbortSignal | undefined;
+      inputVersion?: number;
+      observation?: ToolObservation;
+    } = {},
   ): ReturnType<typeof invokeTool> {
     const active = this.pending.get(logicalId);
     if (active)
@@ -62,6 +67,7 @@ export class BackgroundTools {
       },
       {
         afterMs: options.resumed ? 0 : this.ctx.store.limits.toolAsyncAfterMs,
+        interrupt: options.interrupt,
         detach: (callId, completion) => {
           const pending = completion
             .then(
@@ -91,13 +97,7 @@ export class BackgroundTools {
     ).rows;
     for (const row of rows) {
       const tool = this.tools.find((t) => t.name === row.name);
-      if (!recover && row.state === "prepared") {
-        const conflicts = await this.ctx.store.db.pool.query(
-          "select 1 from tool_calls where run_id=$1 and id<>$2 and state in('prepared','dispatching','waiting','unknown') and effect_class='external' and (created_at,id)<($3,$2) limit 1",
-          [this.ctx.run.id, row.id, row.created_at],
-        );
-        if (conflicts.rowCount) continue;
-      }
+      // The durable admission policy checks dependencies for both new and resumed calls.
       await this.invoke(tool ?? row.name, row.logical_call_id, row.args, { resumed: true });
     }
   }

@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { type AssistantMessage, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { providerHistory } from "../../modules/inference/context-projection.js";
+import type { InferenceIdentity } from "../../modules/inference/types.js";
 import { type Database, id } from "../postgres/database.js";
 import { ModelDiagnostics } from "./diagnostic-manifest.js";
 import type { FrozenModel } from "./registry.js";
@@ -16,12 +18,27 @@ type Scope = {
   requestId?: string;
   generationId?: string;
   workItemId?: string | undefined;
+  inference?: InferenceIdentity;
 };
 const scope = new AsyncLocalStorage<Scope>();
 export const withModelUsage = <T>(context: Scope, action: () => T): T => scope.run(context, action);
 export const withModelPurpose = <T>(purpose: string, action: () => T): T => {
   const current = scope.getStore();
   return current ? scope.run({ ...current, purpose }, action) : action();
+};
+export const withInferenceAttempt = <T>(inference: InferenceIdentity, action: () => T): T => {
+  const current = scope.getStore();
+  return current
+    ? scope.run(
+        {
+          ...current,
+          inference,
+          generationId: inference.requestId,
+          workItemId: inference.workItemId,
+        },
+        action,
+      )
+    : action();
 };
 export const withModelTurn = <T>(
   generationId: string,
@@ -37,7 +54,7 @@ export async function startModelCall() {
   const callId = id("model-call"),
     config = current.model.config;
   await current.db.pool.query(
-    `insert into model_calls(id,run_id,attempt_id,canvas_id,conversation_id,endpoint_id,profile_id,provider,model_id,protocol,purpose,simulated,request_id,generation_id,work_item_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+    `insert into model_calls(id,run_id,attempt_id,canvas_id,conversation_id,endpoint_id,profile_id,provider,model_id,protocol,purpose,simulated,request_id,generation_id,work_item_id,inference_attempt_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
     [
       callId,
       current.runId,
@@ -54,6 +71,7 @@ export async function startModelCall() {
       current.requestId,
       current.generationId,
       current.workItemId,
+      current.inference?.attemptId ?? null,
     ],
   );
   return { callId, db: current.db };
@@ -84,7 +102,7 @@ export async function finishModelCall(
     ],
   );
 }
-/** Inside the retry wrapper: one ledger row per observable provider attempt. */
+/** One ledger row per transport attempt. Retries belong to the inference coordinator. */
 export function meteredStream(source: StreamFn): StreamFn {
   return (model, context, options) => {
     const output = createAssistantMessageEventStream();
@@ -118,8 +136,13 @@ export function meteredStream(source: StreamFn): StreamFn {
       options?.signal?.addEventListener("abort", stop, { once: true });
       try {
         call = await startModelCall();
+        const projected = {
+          ...context,
+          messages: providerHistory(context.messages, model, true) as typeof context.messages,
+        };
         if (call)
-          diagnostics = await ModelDiagnostics.start(call.db, call.callId, context, model, {
+          diagnostics = await ModelDiagnostics.start(call.db, call.callId, projected, model, {
+            contextSeq: scope.getStore()?.inference?.contextSeq,
             ...(scope.getStore()?.conversationId
               ? { conversationId: scope.getStore()!.conversationId! }
               : {}),
@@ -134,30 +157,38 @@ export function meteredStream(source: StreamFn): StreamFn {
         let first = true;
         const stream = await Promise.race([
           Promise.resolve(
-            source(model, context, {
-              ...options,
-              onPayload: async (payload, requestModel) => {
-                const effective = (await options?.onPayload?.(payload, requestModel)) ?? payload;
-                await diagnostics?.payload(effective);
-                return effective;
+            source(
+              model,
+              {
+                ...projected,
+                messages: providerHistory(projected.messages, model) as typeof context.messages,
               },
-              onResponse: async (response, responseModel) => {
-                const headers = Object.fromEntries(
-                  Object.entries(response.headers).map(([k, v]) => [k.toLowerCase(), v]),
-                );
-                const requestId =
-                  headers["x-request-id"] ?? headers["request-id"] ?? headers["x-amzn-requestid"];
-                if (call)
-                  await call.db.pool.query(
-                    "update model_calls set provider_request_id=$2,first_response_at=coalesce(first_response_at,now()) where id=$1",
-                    [
-                      call.callId,
-                      requestId && /^[\w.:/-]{1,200}$/.test(requestId) ? requestId : null,
-                    ],
+              {
+                ...options,
+                onPayload: async (payload, requestModel) => {
+                  const effective = (await options?.onPayload?.(payload, requestModel)) ?? payload;
+                  await diagnostics?.payload(effective);
+                  await (options as any)?.intricaBeforeDispatch?.();
+                  return effective;
+                },
+                onResponse: async (response, responseModel) => {
+                  const headers = Object.fromEntries(
+                    Object.entries(response.headers).map(([k, v]) => [k.toLowerCase(), v]),
                   );
-                await options?.onResponse?.(response, responseModel);
+                  const requestId =
+                    headers["x-request-id"] ?? headers["request-id"] ?? headers["x-amzn-requestid"];
+                  if (call)
+                    await call.db.pool.query(
+                      "update model_calls set provider_request_id=$2,first_response_at=coalesce(first_response_at,now()) where id=$1",
+                      [
+                        call.callId,
+                        requestId && /^[\w.:/-]{1,200}$/.test(requestId) ? requestId : null,
+                      ],
+                    );
+                  await options?.onResponse?.(response, responseModel);
+                },
               },
-            }),
+            ),
           ),
           cancelled,
         ]);

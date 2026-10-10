@@ -1,9 +1,11 @@
 import type { Tx } from "../../adapters/postgres/database.js";
 import { appendMessage } from "../execution/messages.js";
 import type { Run } from "../execution/store.js";
+import { retireInference } from "../inference/retirement.js";
 
 /** Move reply responsibility for the selected work, never an Agent's checkpoint. */
 export async function transferRequests(tx: Tx, source: Run, receiver: Run) {
+  await retireInference(tx, [source.subject_id], "takeover");
   const c = (await tx.query("select context from conversations where id=$1", [source.subject_id]))
     .rows[0];
   const workItemId = c?.context?.workItemId ?? source.frozen_input.workItemId;

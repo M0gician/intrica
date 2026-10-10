@@ -1139,5 +1139,12 @@
   "依赖请求已结束": "Dependency request closed",
   "已请求继续执行": "Continuation requested",
   "等待已取消": "Wait cancelled",
-  "已等待 {{v0}} 秒": "Waited {{v0}} seconds"
+  "已等待 {{v0}} 秒": "Waited {{v0}} seconds",
+  "已中断 · 仅保留记录": "Interrupted · diagnostic record only",
+  "等待续接数据": "Waiting for continuation data",
+  "正在生成": "Generating",
+  "工具调用": "Tool call",
+  "输出草稿": "Output draft",
+  "加急收尾中": "Finishing current output for urgent input",
+  "已接收，等待进入上下文": "Accepted, waiting to enter context"
 }

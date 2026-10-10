@@ -95,7 +95,11 @@ export function restoreTurns(value: ConversationSnapshot, sessionId: string): Tu
       if (anchor) continue;
     }
     const id = String(message.seq);
-    if (["assistant", "message", "internal_note", "output_error"].includes(message.kind)) {
+    if (
+      ["assistant", "message", "internal_note", "output_error", "inference_item"].includes(
+        message.kind,
+      )
+    ) {
       turn.messages[id] = {
         text: String(message.data.text ?? ""),
         data: message.data,

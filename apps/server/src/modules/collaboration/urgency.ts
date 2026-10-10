@@ -5,6 +5,7 @@ import {
   type Tx,
 } from "../../adapters/postgres/database.js";
 import { agentIdentity } from "../access/policy.js";
+import { cutoverInput } from "../inference/input-cutover.js";
 
 export const AGENT_EXPEDITE_COOLDOWN_MS = 30_000;
 
@@ -77,17 +78,7 @@ export async function expediteMessage(
       `接收者刚处理过加急，请至少等待 ${AGENT_EXPEDITE_COOLDOWN_MS / 1000} 秒`,
     );
   if (run?.state === "running") await assertFence(tx, run.id, run.epoch);
-  await tx.query(
-    `update messages set expedite_requested_at=now(),expedite_run_id=$3,
-    content=case when $4 then content-'activationBlocked' else content end
-    where conversation_id=$1 and client_message_id=$2`,
-    [conversationId, messageId, run?.id ?? null, !senderId],
-  );
-  await tx.query(
-    `update conversations set generation=generation+1,
-    last_agent_expedite_at=case when $2 then now() else last_agent_expedite_at end where id=$1`,
-    [conversationId, Boolean(senderId)],
-  );
+  await cutoverInput(tx, conversationId, messageId, run?.id ?? null, Boolean(senderId));
   if (message.content.workItemId) {
     const work = (
       await tx.query("select state,work_state from message_requests where id=$1", [

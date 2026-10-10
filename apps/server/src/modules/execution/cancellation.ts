@@ -1,4 +1,5 @@
 import { canvasEvent, type Tx } from "../../adapters/postgres/database.js";
+import { retireInference } from "../inference/retirement.js";
 import { releaseDependencies } from "./request-lifecycle.js";
 import { cancelResourceSchedules } from "./schedules.js";
 import { result } from "./tool-calls.js";
@@ -94,6 +95,7 @@ export async function stopConversationInputs(
   await tx.query("update conversations set generation=generation+1 where id=any($1::text[])", [
     conversationIds,
   ]);
+  await retireInference(tx, conversationIds, reason);
   await tx.query(
     `update messages m set content=content||'{"closed":true}'::jsonb
     from conversations c where c.id=m.conversation_id and c.id=any($1::text[]) and m.consumed_run_id is null`,

@@ -15,6 +15,7 @@ import { agentIdentity, authorize } from "../access/policy.js";
 import type { Run } from "../execution/store.js";
 import type { GraphCommands } from "../graph/commands.js";
 import { GraphMutation } from "../graph/mutation.js";
+import { recordPublication } from "../inference/publication.js";
 import type { Conversations } from "../work/conversations.js";
 import { authorizeDispatch } from "./authorization.js";
 import { deliverMessage, validateAddresses } from "./delivery.js";
@@ -157,6 +158,7 @@ export class MessageService {
       "update message_dispatches set state='sent',result=$2,updated_at=now() where id=$1",
       [dispatch.id, JSON.stringify(output)],
     );
+    await recordPublication(tx, dispatch, output);
     if (intent.workItemId)
       await tx.query(
         "update message_requests set blocked_reason=null where id=$1 and blocked_reason='approval' and state='open'",

@@ -8,6 +8,7 @@ export type Receipt = {
   messageId: string;
   state: "sending" | "unread" | "expediting" | "read" | "closed" | "stopped" | "failed" | "blocked";
   consumedRunId?: string | null;
+  cutoverState?: string | null;
 };
 export function InputReceipt({
   conversationId,
@@ -26,7 +27,9 @@ export function InputReceipt({
   const label = {
     sending: tr("发送中"),
     unread: tr("未读"),
-    expediting: tr("加急中"),
+    expediting: ["cutting", "settling"].includes(receipt.cutoverState ?? "")
+      ? tr("加急收尾中")
+      : tr("加急中"),
     read: tr("已读"),
     closed: tr("输入已关闭"),
     stopped: tr("输入等待继续"),
@@ -65,7 +68,13 @@ export function InputReceipt({
         <span
           role="status"
           aria-label={label}
-          title={state === "read" ? tr("已加入模型上下文") : label}
+          title={
+            state === "read"
+              ? tr("已加入模型上下文")
+              : state === "unread"
+                ? tr("已接收，等待进入上下文")
+                : label
+          }
         >
           <svg
             width="12"

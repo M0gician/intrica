@@ -37,8 +37,13 @@ for (const language of ["zh-CN", "en"])
       ).rows[0].id;
       const rows = [
         {
-          role: "assistant",
-          data: { text: "", thinking: `${"context ".repeat(500)}THINKING_TAIL` },
+          role: "inference_item",
+          data: {
+            itemKind: "thinking",
+            state: "committed",
+            text: "",
+            thinking: `${"context ".repeat(500)}THINKING_TAIL`,
+          },
         },
         { role: "assistant", data: { text: `${"paragraph ".repeat(500)}BODY_TAIL` } },
         {
@@ -57,6 +62,14 @@ for (const language of ["zh-CN", "en"])
             },
           },
         },
+        {
+          role: "inference_item",
+          data: {
+            itemKind: "thinking",
+            state: "discarded",
+            thinking: "Interrupted diagnostic record",
+          },
+        },
       ];
       for (let i = 0; i < rows.length; i++)
         await db.query(
@@ -64,7 +77,7 @@ for (const language of ["zh-CN", "en"])
           [conversation, i + 1, randomUUID(), rows[i]!.role, JSON.stringify(rows[i]!.data)],
         );
       await db.query(
-        "update intrica.conversations set message_seq=3,consumed_message_seq=3 where id=$1",
+        "update intrica.conversations set message_seq=4,consumed_message_seq=4 where id=$1",
         [conversation],
       );
       const serverId = (await (await request.get(`${API_URL}/api/v2/server`)).json()).id;
@@ -91,6 +104,12 @@ for (const language of ["zh-CN", "en"])
       const body = page.locator('.agent-event[data-message-seq="2"]');
       const tool = page.locator('.agent-event[data-message-seq="3"]');
       await expect(thought).toBeVisible();
+      await expect(thought.locator("summary")).toContainText(
+        chinese ? "已加入模型上下文" : "Added to model context",
+      );
+      await expect(page.locator('.agent-event[data-message-seq="4"] summary')).toContainText(
+        chinese ? "已中断 · 仅保留记录" : "Interrupted · diagnostic record only",
+      );
       await expect(page.getByRole("button", { name: /展开完整记录|Show full record/ })).toHaveCount(
         0,
       );
@@ -126,7 +145,12 @@ for (const language of ["zh-CN", "en"])
       await db.query("update intrica.messages set content=$3 where conversation_id=$1 and seq=$2", [
         conversation,
         1,
-        JSON.stringify({ text: "", thinking: `${"new context ".repeat(300)}NEW_THINKING_TAIL` }),
+        JSON.stringify({
+          itemKind: "thinking",
+          state: "committed",
+          text: "",
+          thinking: `${"new context ".repeat(300)}NEW_THINKING_TAIL`,
+        }),
       ]);
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await expect(thought).toContainText("NEW_THINKING_TAIL");
@@ -154,6 +178,18 @@ for (const language of ["zh-CN", "en"])
         );
       expect(overflow).toEqual([]);
       await page.screenshot({ path: test.info().outputPath(`complete-record-${language}.png`) });
+      await page.reload();
+      await expect(page.locator(`[data-node-id="${agent.id}"]`)).toBeVisible();
+      if (!(await thought.isVisible()))
+        await page.locator(`[data-node-id="${agent.id}"]`).dblclick();
+      await expect(thought.locator("summary")).toContainText(
+        chinese ? "已加入模型上下文" : "Added to model context",
+      );
+      await thought.locator("summary").press("Enter");
+      await expect(thought).toContainText("NEW_THINKING_TAIL");
+      await expect(page.locator('.agent-event[data-message-seq="4"] summary')).toContainText(
+        chinese ? "已中断 · 仅保留记录" : "Interrupted · diagnostic record only",
+      );
     } finally {
       await db.end();
     }

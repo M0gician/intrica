@@ -3,6 +3,8 @@ import { contextUsage } from "../../adapters/model/context.js";
 import type { ModelConfig } from "../../adapters/model/types.js";
 import { canvasEvent, type Tx } from "../../adapters/postgres/database.js";
 import type { ExecutionContext } from "../execution/worker.js";
+import { persistContext } from "../inference/context-projection.js";
+import type { ContextMessage } from "../inference/types.js";
 import type { OutputCompletion } from "./complete-turn.js";
 import type { ConversationInput } from "./conversations.js";
 
@@ -21,6 +23,12 @@ export async function saveCheckpoint(
   exhausted: boolean,
   completionState: OutputCompletion["state"],
 ) {
+  const packed = ctx.store.media
+    ? await ctx.store.media.pack(model.state.messages, input.conversationId, undefined, tx)
+    : model.state.messages;
+  await persistContext(tx, input.conversationId, packed);
+  for (let i = 0; i < packed.length; i++)
+    (model.state.messages[i] as ContextMessage).intrica = (packed[i] as ContextMessage).intrica;
   const received = await tx.query(
     "update messages set consumed_run_id=$3,consumed_at=now() where conversation_id=$1 and seq=any($2::bigint[]) and consumed_run_id is null returning client_message_id,content",
     [input.conversationId, [...consumedInContext], ctx.run.id],
@@ -62,15 +70,6 @@ export async function saveCheckpoint(
   };
   await tx.query(
     "update conversations set checkpoint=$2,consumed_message_seq=$3,context=$4 where id=$1",
-    [
-      input.conversationId,
-      JSON.stringify(
-        ctx.store.media
-          ? await ctx.store.media.pack(model.state.messages, input.conversationId, undefined, tx)
-          : model.state.messages,
-      ),
-      consumed,
-      JSON.stringify(info),
-    ],
+    [input.conversationId, JSON.stringify(packed), consumed, JSON.stringify(info)],
   );
 }

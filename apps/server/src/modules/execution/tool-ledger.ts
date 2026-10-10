@@ -10,6 +10,9 @@ export type ToolObservation = {
   contentIndex?: number;
   observationId?: string;
   parseError?: string;
+  workItemId?: string | null | undefined;
+  decisionRevision?: number;
+  inferenceItemId?: string;
 };
 
 export async function recordInvocation(
@@ -26,6 +29,10 @@ export async function recordInvocation(
   },
 ) {
   const callId = id("tool");
+  const workItemId =
+    input.observation && Object.hasOwn(input.observation, "workItemId")
+      ? (input.observation.workItemId ?? null)
+      : (ctx.run.frozen_input.workItemId ?? null);
   const model = input.observation?.generationId
     ? (
         await tx.query(
@@ -40,12 +47,12 @@ export async function recordInvocation(
      where r.subject_id=$1 and t.name=$2 and t.work_item_id is not distinct from $3
      and ($3::text is not null or t.run_id=$4) and t.state='failed'
      and t.audit->>'inputError'='true' order by t.created_at desc,t.id desc limit 1`,
-      [ctx.run.subject_id, input.name, ctx.run.frozen_input.workItemId ?? null, ctx.run.id],
+      [ctx.run.subject_id, input.name, workItemId, ctx.run.id],
     )
   ).rows[0];
   await tx.query(
-    `insert into tool_calls(id,run_id,attempt_id,logical_call_id,name,args,args_hash,effect_class,state,work_item_id,generation,audit,retry_of,model_call_id,observation_id)
-     values($1,$2,$3,$4,$5,$6,$7,$8,'prepared',$9,$10,$11,$12,$13,$14)`,
+    `insert into tool_calls(id,run_id,attempt_id,logical_call_id,name,args,args_hash,effect_class,state,work_item_id,generation,audit,retry_of,model_call_id,observation_id,inference_item_id)
+     values($1,$2,$3,$4,$5,$6,$7,$8,'prepared',$9,$10,$11,$12,$13,$14,$15)`,
     [
       callId,
       ctx.run.id,
@@ -55,8 +62,8 @@ export async function recordInvocation(
       JSON.stringify(input.args ?? null),
       input.hash,
       input.definition?.effect ?? "none",
-      ctx.run.frozen_input.workItemId ?? null,
-      ctx.run.frozen_input.generation ?? null,
+      workItemId,
+      input.observation?.decisionRevision ?? ctx.run.frozen_input.generation ?? null,
       JSON.stringify({
         phase: input.observation?.parseError ? "parse" : "validation",
         executed: false,
@@ -67,6 +74,7 @@ export async function recordInvocation(
               discoverySchemaHash: digest(
                 input.definition.modelParameters ?? input.definition.parameters,
               ),
+              parallel: input.definition.effect === "read" && input.definition.parallel === true,
             }
           : {}),
         ...input.observation,
@@ -75,6 +83,7 @@ export async function recordInvocation(
       previous?.id ?? null,
       model?.id ?? null,
       input.observation?.observationId ?? null,
+      input.observation?.inferenceItemId ?? null,
     ],
   );
   return callId;
@@ -86,6 +95,8 @@ export async function rejectInput(
   callId: string,
   error: ToolInputError,
 ): Promise<ToolResult> {
+  const workItemId = (await tx.query("select work_item_id from tool_calls where id=$1", [callId]))
+    .rows[0].work_item_id;
   const prior = (
     await tx.query(
       `select count(*)::int as count from tool_calls t join runs r on r.id=t.run_id
@@ -93,13 +104,7 @@ export async function rejectInput(
        and ($2::text is not null or t.run_id=$3) and t.id<>$4 and t.audit->>'errorFingerprint'=$5
        and t.created_at > coalesce((select max(s.completed_at) from tool_calls s join runs sr on sr.id=s.run_id
          where sr.subject_id=$1 and s.name=t.name and s.work_item_id is not distinct from $2 and s.state='succeeded'),'-infinity')`,
-      [
-        ctx.run.subject_id,
-        ctx.run.frozen_input.workItemId ?? null,
-        ctx.run.id,
-        callId,
-        error.fingerprint,
-      ],
+      [ctx.run.subject_id, workItemId, ctx.run.id, callId, error.fingerprint],
     )
   ).rows[0].count;
   const repairsRemaining = Math.max(0, ctx.store.limits.toolInputRepairs - Number(prior));

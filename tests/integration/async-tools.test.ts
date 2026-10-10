@@ -489,12 +489,14 @@ it("ablation: batches opted-in reads but preserves the order of effects", async 
     k.runs.limits.toolAsyncAfterMs = 80;
     const started = performance.now();
     let receiptMs = 0;
+    let startedAtReceipt = 0;
     const original = Agent.prototype.turn;
     const spy = vi.spyOn(Agent.prototype, "turn").mockImplementationOnce(async function (
       this: Agent,
       ...args
     ) {
       receiptMs = performance.now() - started;
+      startedAtReceipt = calls;
       gate.resolve();
       return original.apply(this, args);
     });
@@ -514,10 +516,9 @@ it("ablation: batches opted-in reads but preserves the order of effects", async 
       spy.mockRestore();
     }
     expect(calls).toBe(4);
-    samples.push({ parallel, receiptMs: Math.round(receiptMs), calls });
+    expect(startedAtReceipt).toBe(parallel ? 4 : 1);
+    samples.push({ parallel, receiptMs: Math.round(receiptMs), calls, startedAtReceipt });
   }
-  expect(samples[0]!.receiptMs).toBeGreaterThanOrEqual(320);
-  expect(samples[1]!.receiptMs).toBeLessThan(samples[0]!.receiptMs);
   const { ctx } = await prepared(2);
   let counter = 0;
   await k.conversations.execute(ctx, async () => [
@@ -579,14 +580,17 @@ it("summarizes before background work ends and reports the late result without n
     return message;
   });
   const execution = k.conversations.execute(ctx, async () => [
-    slow(async (_id, args) => {
-      executions++;
-      if (args.value === "0") {
-        await gate.promise;
-        return result("FINAL-AT-LIMIT");
-      }
-      return result("fast");
-    }),
+    slow(
+      async (_id, args) => {
+        executions++;
+        if (args.value === "0") {
+          await gate.promise;
+          return result("FINAL-AT-LIMIT");
+        }
+        return result("fast");
+      },
+      { parallel: true },
+    ),
   ]);
   void execution.catch(() => {});
   try {

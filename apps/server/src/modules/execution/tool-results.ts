@@ -77,17 +77,28 @@ export function storedToolResult(
   };
 }
 
-export function backgroundResult(callId: string, language: PromptLanguage = "en") {
+export function backgroundResult(
+  callId: string,
+  language: PromptLanguage = "en",
+  status: "running" | "queued" = "running",
+) {
   return {
     result: result({
-      status: "running",
+      status,
       asynchronous: true,
       callId,
-      message: promptText(
-        language,
-        "The tool is still running in the background. Continue other work; its result will arrive automatically. Do not repeat the operation.",
-        "工具仍在后台执行。可继续其他工作；完成结果会自动回传，不要重复执行同一操作。",
-      ),
+      message:
+        status === "queued"
+          ? promptText(
+              language,
+              "The call is queued behind an earlier operation. Its original receipt will be updated after execution.",
+              "调用正在等待前序操作，执行后更新原回执。",
+            )
+          : promptText(
+              language,
+              "The tool is still running in the background. Continue other work; its result will arrive automatically. Do not repeat the operation.",
+              "工具仍在后台执行。可继续其他工作；完成结果会自动回传，不要重复执行同一操作。",
+            ),
     }),
   };
 }

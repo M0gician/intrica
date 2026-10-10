@@ -6,8 +6,8 @@ import {
   type Sql,
   type Tx,
 } from "../../adapters/postgres/database.js";
-import { appendMessage } from "../execution/messages.js";
 import { releaseDependencies, retainDependency } from "../execution/request-lifecycle.js";
+import { acceptInput } from "../inference/input-cutover.js";
 
 export async function createRequest(
   tx: Tx,
@@ -153,7 +153,7 @@ export async function associateUserInput(
         input.seq,
       ])
     ).rows[0];
-    executionSeq = await appendMessage(
+    executionSeq = await acceptInput(
       tx,
       request.recipient_conversation_id,
       `forward-${input.conversationId}-${input.seq}`,

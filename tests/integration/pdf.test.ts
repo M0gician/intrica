@@ -294,7 +294,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
   });
   it("PDF01 upgrades schema 7 to 8 through buildServer while preserving existing nodes", async () => {
     expect(priorVersion).toBe(7);
-    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(15);
+    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(16);
     expect(await k.graph.queries.node("pdf-upgrade-text")).toMatchObject({
       kind: "text",
       title: "old text",

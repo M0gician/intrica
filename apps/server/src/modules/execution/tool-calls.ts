@@ -1,12 +1,13 @@
-import { ProcessOutcomeError } from "../../adapters/host/process-outcome.js";
 import { assertFence, DomainError, digest, type Tx } from "../../adapters/postgres/database.js";
 import { promptText } from "../../prompt-language.js";
+import { completeToolCall, type ToolBackground } from "./tool-completion.js";
 import {
   invocationStage,
   recordInvocation,
   rejectInput,
   type ToolObservation,
 } from "./tool-ledger.js";
+import { deferTool } from "./tool-order.js";
 import { backgroundResult, result, type ToolResult } from "./tool-results.js";
 import { toolInputError } from "./tool-validation.js";
 import type { ExecutionContext } from "./worker.js";
@@ -29,6 +30,8 @@ export type ExecutionTool = {
   effect: "read" | "graph" | "external";
   /** Opt in only for independent reads; permission/message/control tools remain sequential. */
   parallel?: boolean;
+  /** Coordination can proceed while resource effects run; admission and permission checks still apply. */
+  coordination?: boolean;
   normalize?: (args: any) => Promise<any>;
   /** Adapt only persisted calls from an earlier schema; their input hash stays unchanged. */
   restore?: (args: any) => any;
@@ -45,37 +48,6 @@ export type ToolExecution = {
   result: ToolResult;
   waiting?: "approval" | "message" | "unknown" | "tool_input";
 };
-async function executeWithDeadline(
-  ctx: ExecutionContext,
-  tool: ExecutionTool,
-  logicalId: string,
-  args: unknown,
-) {
-  const deadline = new AbortController();
-  const signal = AbortSignal.any([ctx.signal, deadline.signal]);
-  let rejectAbort: (reason: unknown) => void = () => {};
-  const interrupted = new Promise<never>((_, reject) => {
-    rejectAbort = reject;
-  });
-  let abortTimer: ReturnType<typeof setTimeout> | undefined;
-  // Give cooperative process supervisors a bounded interval to return termination evidence.
-  const abort = () => {
-    abortTimer = setTimeout(() => rejectAbort(signal.reason ?? new Error("工具已停止")), 500);
-  };
-  signal.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(
-    () => deadline.abort(new Error("工具执行超过总时限")),
-    ctx.store.limits.toolTimeoutMs,
-  );
-  try {
-    signal.throwIfAborted();
-    return await Promise.race([tool.execute(logicalId, args, signal), interrupted]);
-  } finally {
-    clearTimeout(timer);
-    clearTimeout(abortTimer);
-    signal.removeEventListener("abort", abort);
-  }
-}
 
 export async function invokeTool(
   ctx: ExecutionContext,
@@ -83,10 +55,7 @@ export async function invokeTool(
   logicalId: string,
   args: unknown,
   onChange?: (tx: Tx, event: Record<string, unknown>) => Promise<void>,
-  background?: {
-    afterMs: number;
-    detach: (callId: string, completion: Promise<ToolExecution>) => void;
-  },
+  background?: ToolBackground,
   inputVersion = TOOL_SCHEMA_VERSION,
   observation?: ToolObservation,
 ): Promise<ToolExecution> {
@@ -189,7 +158,8 @@ export async function invokeTool(
           [ctx.run.subject_id, ctx.run.id],
         )
       ).rowCount;
-      const generation = row?.generation ?? ctx.run.frozen_input.generation;
+      const generation =
+        row?.generation ?? observation?.decisionRevision ?? ctx.run.frozen_input.generation;
       const currentGeneration = (
         await tx.query("select generation from conversations where id=$1", [ctx.run.subject_id])
       ).rows[0]?.generation;
@@ -199,7 +169,7 @@ export async function invokeTool(
         const output = {
           ...result({
             executed: false,
-            reason: "expedited_input",
+            reason: "superseded_before_dispatch",
             nextAction: "Read the new input before choosing the next operation.",
           }),
           isError: true,
@@ -211,6 +181,8 @@ export async function invokeTool(
         await emit(tx, { id: logicalId, callId, name, args, status: "error", result: output });
         return { state: "failed", result: output };
       }
+      if (background && (await deferTool(tx, callId, checked)))
+        return { state: "prepared", result: null };
       executionArgs =
         row?.execution_input ??
         (checked.normalize ? await checked.normalize(validationArgs) : validationArgs);
@@ -336,7 +308,8 @@ export async function invokeTool(
     return null;
   });
   if (prior?.state === "retryable" && "cause" in prior) throw prior.cause;
-  if (prior?.state === "prepared") return backgroundResult(callId, ctx.run.frozen_input.language);
+  if (prior?.state === "prepared")
+    return backgroundResult(callId, ctx.run.frozen_input.language, "queued");
   if (prior?.state === "unknown")
     return {
       result: prior.result ?? {
@@ -365,131 +338,14 @@ export async function invokeTool(
         ? { waiting: "message" as const }
         : {}),
     };
-  const completion = (async () => {
-    let output: ToolResult;
-    let failed = false;
-    let ambiguous = false;
-    try {
-      ctx.signal.throwIfAborted();
-      output = await executeWithDeadline(ctx, definition!, logicalId, executionArgs);
-      if (store.media && ctx.run.kind === "conversation") {
-        try {
-          output = await store.media.pack(output, ctx.run.subject_id, callId);
-        } catch {
-          output = {
-            ...output,
-            content: output.content.map((part) =>
-              part.type === "image"
-                ? {
-                    type: "text",
-                    text: "[The tool finished, but its image could not be stored. Do not repeat a completed external operation to recover the image.]",
-                  }
-                : part,
-            ),
-            details: { ...output.details, mediaUnavailable: true },
-          };
-        }
-      }
-      failed = Boolean(output.isError);
-      ctx.progress();
-    } catch (error) {
-      if (ctx.signal.aborted) {
-        if (error instanceof ProcessOutcomeError)
-          await store.db.pool.query(
-            "update tool_calls t set result=$4 from runs r where t.id=$1 and t.run_id=r.id and r.epoch=$2 and t.attempt_id=$3 and r.state='running' and r.lease_until>clock_timestamp() and t.state='dispatching'",
-            [
-              callId,
-              ctx.run.epoch,
-              ctx.run.attemptId,
-              JSON.stringify({ ...result(error.outcome), isError: true }),
-            ],
-          );
-        throw error;
-      }
-      failed = true;
-      ambiguous =
-        definition!.effect !== "read" &&
-        !(error instanceof DomainError) &&
-        !(error instanceof ProcessOutcomeError && error.outcome.termination === "start_failed");
-      output = {
-        ...result(
-          error instanceof ProcessOutcomeError
-            ? error.outcome
-            : error instanceof DomainError
-              ? { error: error.code, message: error.message, phase: "execution", executed: true }
-              : "工具执行失败或超时；有副作用的操作需要核实结果",
-        ),
-        isError: true,
-      };
-    }
-    let waiting: ToolExecution["waiting"] = ambiguous ? "unknown" : output.control?.waiting;
-    await store.db.canvas(ctx.run.canvas_id, async (tx) => {
-      await assertFence(tx, ctx.run.id, ctx.run.epoch);
-      const current = (
-        await tx.query("select state,result from tool_calls where id=$1 for update", [callId])
-      ).rows[0];
-      if (current.state !== "dispatching") {
-        output = current.result;
-        waiting = current.state === "waiting" ? "approval" : undefined;
-        return;
-      }
-      await tx.query(
-        "update tool_calls set state=$2,result=$3,completed_at=now(),updated_at=now() where id=$1",
-        [
-          callId,
-          waiting === "unknown"
-            ? "unknown"
-            : waiting === "approval"
-              ? "waiting"
-              : failed
-                ? "failed"
-                : "succeeded",
-          JSON.stringify(output),
-        ],
-      );
-      await invocationStage(
-        tx,
-        callId,
-        failed ? "execution" : output.details.mediaUnavailable ? "result" : "complete",
-        true,
-        ambiguous ? "OUTCOME_UNKNOWN" : failed ? "TOOL_EXECUTION_FAILED" : undefined,
-      );
-      await emit(tx, {
-        id: logicalId,
-        callId,
-        name,
-        args,
-        status:
-          waiting === "unknown" ? "unknown" : waiting ? "waiting" : failed ? "error" : "complete",
-        result: output,
-      });
-    });
-    return { result: output, ...(waiting ? { waiting } : {}) };
-  })();
-  if (!background) return completion;
-  // Keep the same execution and lease: crossing the deadline never restarts a tool.
-  void completion.catch(() => {});
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const completed = await Promise.race([
-    completion,
-    new Promise<null>((resolve) => {
-      timer = setTimeout(() => resolve(null), background.afterMs);
-    }),
-  ]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
-  if (completed) return completed;
-  const detached = await store.db.canvas(ctx.run.canvas_id, async (tx) => {
-    await assertFence(tx, ctx.run.id, ctx.run.epoch);
-    const changed = await tx.query(
-      "update tool_calls set is_async=true,next_notice_at=coalesce(next_notice_at,now()+$2*interval '1 millisecond') where id=$1 and state='dispatching' returning id",
-      [callId, store.limits.toolNoticeMs],
-    );
-    if (!changed.rowCount) return false;
-    await emit(tx, { id: logicalId, callId, name, args, status: "background" });
-    return true;
-  });
-  if (!detached) return completion;
-  background.detach(callId, completion);
-  return backgroundResult(callId, ctx.run.frozen_input.language);
+  return completeToolCall(
+    ctx,
+    definition!,
+    logicalId,
+    executionArgs,
+    callId,
+    args,
+    emit,
+    background,
+  );
 }

@@ -129,7 +129,8 @@ export function conversationTools(context: ToolContext) {
         const feed = await registry.conversations.read.feed(target, { before: args.before });
         if (target !== input.agentId)
           feed.events = feed.events.filter(
-            (e) => !["internal_note", "output_error", "model_output"].includes(e.kind),
+            (e) =>
+              !["internal_note", "output_error", "model_output", "inference_item"].includes(e.kind),
           );
         return result(feed);
       },

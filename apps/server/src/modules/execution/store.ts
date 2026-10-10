@@ -7,6 +7,7 @@ import {
   lockCanvas,
   type Tx,
 } from "../../adapters/postgres/database.js";
+import { retireInference } from "../inference/retirement.js";
 import { cancelApprovals, cancellationReason, stopConversationInputs } from "./cancellation.js";
 import { DEFAULT_LIMITS, type ExecutionLimits } from "./limits.js";
 import { pendingInboxMessage } from "./messages.js";
@@ -435,6 +436,8 @@ export class RunStore {
             )
           ).rows[0];
           if (!run) return;
+          if (run.kind === "conversation")
+            await retireInference(tx, [run.subject_id], "lease_expired");
           const unknown = (
             await tx.query(
               "update tool_calls set state='unknown',updated_at=now() where run_id=$1 and state='dispatching' and effect_class='external' returning id",

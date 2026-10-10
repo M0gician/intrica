@@ -38,6 +38,7 @@ export async function projectInputReceipts(db: Database, records: any[], convers
   const rows = (
     await db.pool.query(
       `select m.seq,m.client_message_id,m.consumed_run_id,m.consumed_at,m.expedite_requested_at,m.created_at,
+    (select state from inference_requests where id=m.cutover_request_id) as cutover_state,
     ${inputReceiptState} as state
     from messages m join conversations c on c.id=m.conversation_id left join runs r on r.id=m.run_id
     where m.conversation_id=$1 and m.seq=any($2::bigint[])`,
@@ -50,6 +51,7 @@ export async function projectInputReceipts(db: Database, records: any[], convers
       {
         messageId: r.client_message_id,
         state: r.state,
+        cutoverState: r.cutover_state,
         consumedRunId: r.consumed_run_id,
         consumedAt: r.consumed_at,
         deliveredAt: r.created_at,

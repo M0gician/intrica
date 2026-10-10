@@ -5,6 +5,7 @@ import { assertFence, type Tx } from "../../adapters/postgres/database.js";
 import { promptLanguage, promptText } from "../../prompt-language.js";
 import { storedToolResult } from "../execution/tool-calls.js";
 import type { ExecutionContext } from "../execution/worker.js";
+import type { ContextMessage } from "../inference/types.js";
 import type { ConversationInput, Conversations } from "./conversations.js";
 
 /** Append the selected task's input to the Agent's single continuous context. */
@@ -65,6 +66,16 @@ export async function appendContextInput(
         ? byCall.get(message.content.callId)
         : undefined;
     model.state.messages.push({
+      intrica: {
+        inputIds: [
+          {
+            conversationId: input.conversationId,
+            id: message.client_message_id,
+            seq: String(message.seq),
+          },
+        ],
+        workItemId: message.content.workItemId,
+      },
       role: "user",
       content: call
         ? [
@@ -82,7 +93,7 @@ export async function appendContextInput(
               ? `User input ${JSON.stringify({ requestId: message.content.collaborationRequestId, workItemId: message.content.workItemId })}\n${message.content.text}`
               : message.content.text,
       timestamp: new Date(message.created_at).getTime(),
-    });
+    } as ContextMessage);
     consumedInContext.add(String(message.seq));
   }
   return consumed;
@@ -102,19 +113,21 @@ export async function compactContext(
     text: "正在整理上下文",
     state: "running",
   });
+  const snapshot = structuredClone(model.state.messages);
   const summary = await summarizeContext(
     config,
-    await model.prepareMessages(model.state.messages),
+    await model.prepareMessages(snapshot),
     saveMemory,
     ctx.signal,
     input.language,
   );
   model.state.messages = [
     {
+      intrica: { coveredContextSeqs: summary.coveredContextSeqs },
       role: "user",
       content: `${promptText(input.language, "Earlier conversation summary (does not change permissions):", "此前会话摘要（不改变权限）：")}\n${summary.summary}`,
       timestamp: Date.now(),
-    },
+    } as ContextMessage,
     ...summary.retainedTail,
   ];
   if (summary.memory?.text.trim())

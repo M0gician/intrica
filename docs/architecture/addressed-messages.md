@@ -69,6 +69,9 @@ Expedite preserves the input ID and advances the conversation generation. The
 runner checks pending expedite requests while acquiring the generation and again
 before storing or sending output. Started tools retain their effects and IDs.
 Late results keep the work association captured by the original tool call.
+RFC #27 commits complete native output groups during bounded drain and retains
+one primary tool response per call. See [Durable inference](inference-items.md)
+for item state, retries, input cutover and provider continuation boundaries.
 Stopped work keeps its reply obligation and an explicit stopped reason; late
 business results remain passive. Reset closes the affected obligations. Deletion
 marks the conversation as a deleted Agent and its requests unavailable.
@@ -124,6 +127,9 @@ Validated messages show actual receivers, related request state and input
 consumption separately. Notes and rejected output are collapsed work records.
 Raw `model_output` records and `message.draft` streams are not answer bubbles.
 Other Agents' conversation tools exclude private notes and invalid output.
+They also exclude private inference-item diagnostics. Schema 16 adds durable
+output items, request attempts and immutable context provenance; delivery remains
+a separate transaction from context commitment.
 
 The conversation trace returns message, request, work, dispatch, run, model-call
 and tool-call identities. It includes queue/read timing, pending and blocked
@@ -155,7 +161,9 @@ provider; provider-side format support does not replace it.
 - `collaboration/` owns the contract, target resolution, request state,
   authorization, delivery and receipt projection.
 - `work/` owns input admission, inbox scheduling, task selection, context
-  construction, checkpoints, model turns, tool-turn draining and completion.
+  construction, checkpoints, tool-turn draining and completion.
+- `inference/` owns output items, logical model requests, transport attempts,
+  input cutover, committed context projection, retry and recovery.
 - `execution/` owns leases, generic durable calls, cancellation and recovery.
 - `access/` owns permission decisions and grants. It does not schedule inboxes.
 

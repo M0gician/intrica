@@ -7,6 +7,7 @@ import i18n, { tr } from "../../i18n";
 import { Button } from "../../ui/button";
 import { FileReferenceView } from "../files/FileReferenceView";
 import { isContentTruncated, recordVersion } from "./full-records";
+import { InferenceItem } from "./InferenceItem";
 import { InputReceipt, type Receipt } from "./InputReceipt";
 import { MessageStatus } from "./MessageRouting";
 import { type Activity, activityKey } from "./model";
@@ -78,6 +79,8 @@ export function TimelineEvent({
           : [];
   const recipientName = (event: Activity, id: string) =>
     name(id, (event.data.recipientNames as Record<string, string> | undefined)?.[id]);
+  if (event.kind === "inference_item")
+    return <InferenceItem data={event.data} load={load} version={version} />;
   if (event.kind === "wait_notice")
     return (
       <>

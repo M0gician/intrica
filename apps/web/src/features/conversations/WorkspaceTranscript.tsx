@@ -7,6 +7,7 @@ import { ToolCallDetails } from "../../components/ToolCallDetails";
 import { tr } from "../../i18n";
 import { Button } from "../../ui/button";
 import { FileReferenceView } from "../files/FileReferenceView";
+import { InferenceItem } from "./InferenceItem";
 import { InputReceipt } from "./InputReceipt";
 import { MessageStatus } from "./MessageRouting";
 import { useTranscriptScroll } from "./navigation/use-transcript-scroll";
@@ -142,6 +143,8 @@ export function WorkspaceTranscript({
                     );
                   }
                   const message = turn.messages[item.id]!;
+                  if (message.kind === "inference_item")
+                    return <InferenceItem key={item.id} data={message.data ?? {}} />;
                   if (["internal_note", "output_error"].includes(message.kind ?? ""))
                     return (
                       <DeferredDetails

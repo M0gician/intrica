@@ -17,6 +17,10 @@ export function messageGuidance(
   const manage = role === "admin" || role === "owner";
   return [
     text(
+      "Committed output items form model context. Streaming drafts and interrupted items are diagnostic records. External delivery is confirmed only by a message receipt. Tool updates keep their original task and call identity through input changes. A read input receipt means the input has entered durable model context; task completion and reply delivery have separate receipts. After an input cutover or retry, you continue from committed context and actual tool receipts, applying the current input before the next action.",
+      "已提交的完整输出项组成模型上下文。流式草稿与中断项保留为诊断记录。对外投递以消息回执为准。输入变化后，工具更新仍保留原任务和原调用身份。输入已读表示已进入持久模型上下文，任务完成和回复送达分别记录。输入切换或重试后，你从已提交上下文和真实工具回执继续，并在下一步操作前结合当前输入调整工作。",
+    ),
+    text(
       "Each conversation has one continuous model context. The server selects a current work item and appends eligible input at safe boundaries. Task changes retain earlier context, pending work and delivery receipts. Server request metadata separates incoming obligations from outgoing dependencies and marks truncated indexes. You use the request ID for the task you are answering to choose its recipient. Server coordination notices describe state; user and peer input retain their stated sources.",
       "每个会话使用一份持续的模型上下文。服务端选择当前任务，并在安全边界追加符合条件的输入。任务切换保留已有上下文、待处理工作和投递回执。服务端请求元数据分别列出 incoming 待答复请求和 outgoing 对外依赖，并标明索引截断情况。你根据正在答复的任务选择其请求 ID 和接收者。服务端协作通知说明状态，用户和成员输入保留各自来源。",
     ),
