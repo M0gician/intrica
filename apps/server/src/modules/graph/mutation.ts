@@ -15,6 +15,11 @@ import {
   reducedPermissions,
 } from "../access/resources.js";
 import { cancelAgents } from "../execution/cancellation.js";
+import {
+  cancelResourceSchedules,
+  recoverModelSchedules,
+  scheduleChanged,
+} from "../execution/schedules.js";
 import { agentPosition } from "./placement.js";
 import {
   edgeView,
@@ -27,6 +32,7 @@ import {
 
 export type Change = { id: string; before: any; after: any };
 export type UndoPatch = { nodes: Change[]; edges: Change[]; grants: Change[] };
+const resourceContentFields = ["text", "summary", "resource", "todo", "alt"] as const;
 /** The only mutable graph boundary. Callers must already hold the canvas row. */
 export class GraphMutation {
   private beforeNodes = new Map<string, NodeRow | null>();
@@ -55,7 +61,7 @@ export class GraphMutation {
         await this.removeEdge(g.source_link_id);
     }
     const reduced = this.accessBefore ? reducedPermissions(this.accessBefore, after) : [];
-    if (reduced.length) await cancelAgents(this.tx, reduced);
+    if (reduced.length) await cancelAgents(this.tx, reduced, "permissions_changed");
     return after;
   }
   constructor(
@@ -292,31 +298,22 @@ export class GraphMutation {
       ]);
       await this.syncSchedule(nodeId, patch.agent);
       if (JSON.stringify(row.agent?.model) !== JSON.stringify(patch.agent.model)) {
-        await this.tx.query(
-          "update conversations set context=context-'modelBlocked' where agent_id=$1",
-          [nodeId],
-        );
-        await this.tx.query(
-          "update schedules set enabled=true,spec=spec-'blockedReason',next_due_at=now() where agent_id=$1 and spec->>'blockedReason'='model_not_configured'",
-          [nodeId],
-        );
+        await recoverModelSchedules(this.tx, nodeId);
       }
       if (roleRank[patch.agent.role as keyof typeof roleRank] < roleRank[row.agent!.role])
-        await cancelAgents(this.tx, [nodeId]);
+        await cancelAgents(this.tx, [nodeId], "permissions_changed");
     }
   }
   async syncSchedule(nodeId: string, config: NonNullable<Node["agent"]>) {
     const schedule = config.schedule;
     if (!config.enabled) {
-      await this.tx.query(
-        "update schedules set enabled=false where agent_id=$1 and kind='resource_change'",
-        [nodeId],
-      );
+      await cancelResourceSchedules(this.tx, [nodeId], "disabled");
     }
     if (!schedule?.enabled) {
-      await this.tx.query("update schedules set enabled=false where agent_id=$1 and kind='cron'", [
-        nodeId,
-      ]);
+      await this.tx.query(
+        "update schedules set enabled=false,dispatch_state='cancelled',blocked_reason='disabled',revision=revision+1 where agent_id=$1 and kind='cron' and dispatch_state<>'cancelled'",
+        [nodeId],
+      );
       return;
     }
     let next: Date;
@@ -328,7 +325,7 @@ export class GraphMutation {
       throw new DomainError("VALIDATION", "定时计划或时区无效");
     }
     await this.tx.query(
-      "insert into schedules(id,canvas_id,agent_id,kind,next_due_at,timezone,spec,dedupe_key,enabled) values($1,$2,$3,'cron',$4,$5,$6,$1,true) on conflict(dedupe_key) do update set next_due_at=excluded.next_due_at,timezone=excluded.timezone,spec=excluded.spec,enabled=true where not schedules.enabled or schedules.spec is distinct from excluded.spec",
+      "insert into schedules(id,canvas_id,agent_id,kind,next_due_at,timezone,spec,dedupe_key,enabled) values($1,$2,$3,'cron',$4,$5,$6,$1,true) on conflict(dedupe_key) do update set next_due_at=excluded.next_due_at,timezone=excluded.timezone,spec=excluded.spec,enabled=true,dispatch_state='pending',blocked_reason=null,revision=schedules.revision+1 where schedules.dispatch_state='cancelled' or schedules.spec is distinct from excluded.spec",
       [
         `cron-${nodeId}`,
         this.canvasId,
@@ -625,17 +622,18 @@ export class GraphMutation {
           n.after &&
           (!n.before ||
             n.before.asset_id !== n.after.asset_id ||
-            ["text", "resource", "todo", "alt"].some(
+            resourceContentFields.some(
               (key) => JSON.stringify(n.before.body[key]) !== JSON.stringify(n.after.body[key]),
             )),
       )
       .map((n) => n.id);
-    if (changed.length)
-      await this.tx.query(
+    if (changed.length) {
+      const scheduled = await this.tx.query(
         `insert into schedules(id,canvas_id,agent_id,kind,next_due_at,spec,dedupe_key)
-      select 'change-'||a.node_id,$1,a.node_id,'resource_change',now()+interval '10 seconds',jsonb_build_object('sourceSeq',$3::text,'causeId',(select cause_id from runs where id=$5)),'change-'||a.node_id
+      select 'change-'||a.node_id,$1,a.node_id,'resource_change',clock_timestamp()+interval '10 seconds',jsonb_build_object('sourceSeq',$3::text,'causeId',(select cause_id from runs where id=$5)),'change-'||a.node_id
       from agent_configs a join nodes n on n.id=a.node_id where n.canvas_id=$1 and a.enabled and a.node_id<>$4 and a.node_id=any($2::text[])
-      on conflict(dedupe_key) do update set next_due_at=excluded.next_due_at,spec=excluded.spec,enabled=true`,
+      on conflict(dedupe_key) do update set next_due_at=excluded.next_due_at,spec=excluded.spec,enabled=true,
+        dispatch_state='pending',blocked_reason=null,delivery_seq=null,delivery_run_id=null,revision=schedules.revision+1 returning schedules.*`,
         [
           this.canvasId,
           [...effective]
@@ -646,6 +644,8 @@ export class GraphMutation {
           source?.runId ?? null,
         ],
       );
+      await scheduleChanged(this.tx, scheduled.rows);
+    }
     return {
       graphRevision: updated.graph_revision as number,
       canvasSeq: seq,

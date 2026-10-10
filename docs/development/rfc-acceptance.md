@@ -1,6 +1,6 @@
 # RFC acceptance map
 
-This map covers RFCs #2 through #13, #17 and #18 under #1. Assertions check observable
+This map covers RFCs #2 through #13, #17 and #18 under #1, and #19–#23 under #16. Assertions check observable
 results and durable state. Test model responses come from dependency injection
 or an isolated compatible HTTP endpoint. Production configuration cannot enable
 the built-in test model.
@@ -22,6 +22,18 @@ the built-in test model.
 | #18 | Prompt and tool-contract tests compare read/write/admin/owner instructions and visible parameters, including excluded management operations. Real conversation tests change role and resource access between model turns and recover old checkpoint-only hires under current authority. Name tests cover language fallback, concurrent UI/tool creation, pool exhaustion, rollback, new-field rejection, legacy restore, receipt reuse and human renaming. A controlled Worker scenario reuses an original conversation, recruits an independent member, holds both tasks in flight, exchanges peer evidence and verifies two real file writes with no duplicate hiring, tasks or reports. Shared Web/Electron recruitment uses generated names and actual member IDs. |
 
 ## Test layers
+
+Continuous-collaboration regression coverage:
+
+| Issue | Contract and principal checks |
+| --- | --- |
+| #19 | `resource-response.test.ts` covers single and team stop, global and Agent model recovery, restart, a concurrent stop/recovery lock barrier, live-blocked positive controls and future changes after stop. |
+| #20 | The content matrix covers summaries on text and PDF resources, text, image descriptions and task state; direct and nested grants, revocation, disabled responses, unchanged values, titles, layout and merged changes share the same delivery checks. |
+| #21 | Real database barriers hold a due snapshot or model capture while toggle, stop, revocation, model edits and newer content contend. Revision and lock checks prevent old failures from disabling or postponing new work. Parallel schedulers deliver once. |
+| #22 | Below/equal/above-limit cases preserve the automatic budget. Running, message-wait and approval-wait cases follow RunStore admission rules. The feed and UI distinguish queued from consumed, and model, source, queue and activation blocks. Retry is authenticated, revision-checked and idempotent; old notices survive new changes. Browser tests cover retry, refresh and narrow Chinese/English panels. |
+| #23 | Independent PostgreSQL connections hold the canvas lock and start transactions in a different order from their writes. Deadlines remain ten seconds after the change and never move backward; title changes preserve the deadline. The test waits for and checks actual single delivery. |
+
+State and recovery rules are documented in [Resource responses](../architecture/resource-responses.md).
 
 Build once with `pnpm build`. Do not rebuild `dist` while tests use it.
 

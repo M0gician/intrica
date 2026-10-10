@@ -5,6 +5,7 @@ import { AgentProfile } from "../features/conversations/AgentProfile";
 import { AgentTimeline } from "../features/conversations/AgentTimeline";
 import { ConversationPause } from "../features/conversations/ConversationPause";
 import { activityRecipient } from "../features/conversations/model";
+import { ResourceResponse } from "../features/conversations/ResourceResponse";
 import { UnknownTools } from "../features/conversations/UnknownTools";
 import { useAgentActivity } from "../features/conversations/useAgentActivity";
 import { useAgentProfile } from "../features/conversations/useAgentProfile";
@@ -105,7 +106,16 @@ export function AgentNodePanel({
   return (
     <div className="agent-node-panel" ref={panel}>
       <ConversationPause reason={data.runReason} />
-      {data.configurationBlocked && <p role="status">{tr("自动任务等待模型配置。")}</p>}
+      {data.configurationBlocked && data.resourceResponse?.reason !== "model_not_configured" && (
+        <p role="status">{tr("自动任务等待模型配置。")}</p>
+      )}
+      <ResourceResponse
+        status={data.resourceResponse}
+        busy={busy}
+        onRetry={(expectedRevision) => {
+          void act(`canvas-agents/${node.id}/resource-response/retry`, { expectedRevision });
+        }}
+      />
       <UnknownTools
         calls={data.unknownTools ?? []}
         busy={busy}

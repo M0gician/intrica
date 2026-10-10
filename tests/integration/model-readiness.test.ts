@@ -89,8 +89,17 @@ it("allows draft creation but rejects direct sends, team starts and automatic ac
   await tickSchedules(k.tools);
   await tickSchedules(k.tools);
   expect(
-    (await k.db.pool.query("select enabled,spec from schedules where id=$1", [schedule])).rows[0],
-  ).toMatchObject({ enabled: false, spec: { blockedReason: "model_not_configured" } });
+    (
+      await k.db.pool.query(
+        "select enabled,dispatch_state,blocked_reason from schedules where id=$1",
+        [schedule],
+      )
+    ).rows[0],
+  ).toMatchObject({
+    enabled: false,
+    dispatch_state: "blocked",
+    blocked_reason: "model_not_configured",
+  });
   expect((await k.conversations.read.feed(agent.id)).configurationBlocked).toBe(true);
   expect(
     (

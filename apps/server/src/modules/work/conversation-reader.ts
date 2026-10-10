@@ -5,6 +5,7 @@ import type { ModelRegistry } from "../../adapters/model/registry.js";
 import { type Database, DomainError, type Tx } from "../../adapters/postgres/database.js";
 import { agentIdentity } from "../access/policy.js";
 import { Events } from "../execution/events.js";
+import { resourceResponse } from "../execution/schedules.js";
 import { CollaborationReader } from "./collaboration-reader.js";
 import { ConversationNavigation } from "./conversation-navigation.js";
 import { projectInputReceipts } from "./input-receipts.js";
@@ -256,12 +257,13 @@ export class ConversationReader {
       runReason: run?.reason,
       supersededByRunId: run?.superseded_by_run_id ?? null,
       unknownTools: unknown,
+      resourceResponse: await resourceResponse(this.db.pool, agentId),
       configurationBlocked:
         c.context?.modelBlocked === true ||
         Boolean(
           (
             await this.db.pool.query(
-              "select 1 from schedules where agent_id=$1 and spec->>'blockedReason'='model_not_configured' limit 1",
+              "select 1 from schedules where agent_id=$1 and dispatch_state='blocked' and blocked_reason='model_not_configured' limit 1",
               [agentId],
             )
           ).rowCount,

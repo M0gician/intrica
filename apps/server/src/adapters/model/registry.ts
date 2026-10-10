@@ -8,6 +8,7 @@ import type {
   ModelProfileInput,
   ModelSelection,
 } from "@intrica/contracts";
+import { recoverModelSchedules } from "../../modules/execution/schedules.js";
 import { type Database, DomainError, id, type Sql, type Tx } from "../postgres/database.js";
 import { modelCapabilities } from "./model-catalog.js";
 import { initialModelProfile, normalizeModelProfile } from "./model-settings.js";
@@ -41,13 +42,7 @@ export class ModelRegistry {
     return this.db.transaction(async (tx) => {
       await tx.query("select pg_advisory_xact_lock(hashtextextended('intrica-model-profiles',0))");
       const value = await action(tx);
-      await tx.query(
-        "update conversations set context=context-'modelBlocked' where context->>'modelBlocked'='true'",
-      );
-      // A configuration edit wakes only schedules blocked for missing configuration.
-      await tx.query(
-        "update schedules set enabled=true,spec=spec-'blockedReason',next_due_at=now() where spec->>'blockedReason'='model_not_configured'",
-      );
+      await recoverModelSchedules(tx);
       return value;
     });
   }
@@ -128,9 +123,9 @@ export class ModelRegistry {
         : { name: "Not configured", modelId: "", thinkingLevel: "off", thinkingLevels: ["off"] },
     };
   }
-  async capture(selection?: ModelSelection | null): Promise<FrozenModel> {
+  async capture(selection?: ModelSelection | null, sql: Sql = this.db.pool): Promise<FrozenModel> {
     const r = (
-      await this.db.pool.query(
+      await sql.query(
         "select p.*,e.base_url,e.credential_ref from model_profiles p left join model_endpoints e on e.id=p.endpoint_id where ($1::text is null and p.selected) or p.id=$1",
         [selection?.profileId ?? null],
       )

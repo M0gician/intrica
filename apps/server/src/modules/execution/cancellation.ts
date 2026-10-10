@@ -1,4 +1,5 @@
 import { canvasEvent, type Tx } from "../../adapters/postgres/database.js";
+import { cancelResourceSchedules } from "./schedules.js";
 import { result } from "./tool-calls.js";
 
 // The upgrade reason is an execution barrier and survives a stop.
@@ -29,13 +30,14 @@ export async function cancelApprovals(tx: Tx, runIds: string[]) {
     });
   }
 }
-export async function cancelAgents(tx: Tx, agentIds: string[]) {
+export async function cancelAgents(
+  tx: Tx,
+  agentIds: string[],
+  resourceReason: "stopped" | "permissions_changed" = "stopped",
+) {
+  await cancelResourceSchedules(tx, agentIds, resourceReason);
   await tx.query(
-    "update schedules set enabled=false where agent_id=any($1::text[]) and kind='resource_change'",
-    [agentIds],
-  );
-  await tx.query(
-    "update conversations c set consumed_message_seq=message_seq where agent_id=any($1::text[]) and not exists(select 1 from runs r where r.subject_id=c.id and r.reason='tool_contract_upgrade')",
+    "update conversations c set consumed_message_seq=message_seq,context=context-'modelBlocked' where agent_id=any($1::text[]) and not exists(select 1 from runs r where r.subject_id=c.id and r.reason='tool_contract_upgrade')",
     [agentIds],
   );
   const rows = (

@@ -175,7 +175,13 @@ export class Database {
           );
           version = 12;
         }
-        if (version !== 12) throw new Error("不支持此数据库版本，请使用独立数据库");
+        if (version === 12) {
+          await tx.query(
+            await readFile(join(dirname(path), "migrations/0013-resource-responses.sql"), "utf8"),
+          );
+          version = 13;
+        }
+        if (version !== 13) throw new Error("不支持此数据库版本，请使用独立数据库");
         return;
       }
       await tx.query(await readFile(path, "utf8"));

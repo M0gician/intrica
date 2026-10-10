@@ -6,6 +6,7 @@ import { id } from "../adapters/postgres/database.js";
 import type { AppInstance } from "../app.js";
 import type { Kernel } from "../composition.js";
 import { expediteInput } from "../modules/work/input-receipts.js";
+import { retryResourceResponse } from "../modules/work/resource-response.js";
 import { conversationTrace } from "../modules/work/trace.js";
 import { promptLanguage, promptText } from "../prompt-language.js";
 import { createStream } from "./streams.js";
@@ -120,6 +121,28 @@ export function registerConversations(app: AppInstance, k: Kernel) {
   );
   app.post("/api/v2/canvas-agents/:id/stop", { schema: { params } }, async (req) =>
     k.conversations.stop(req.params.id),
+  );
+  app.post(
+    "/api/v2/canvas-agents/:id/resource-response/retry",
+    {
+      schema: {
+        params,
+        body: Type.Object(
+          {
+            expectedRevision: Type.String({ pattern: "^[1-9][0-9]{0,18}$" }),
+            idempotencyKey: Type.String({ minLength: 1, maxLength: 200 }),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    (req) =>
+      retryResourceResponse(
+        k.db,
+        req.params.id,
+        req.body.expectedRevision,
+        req.body.idempotencyKey,
+      ),
   );
   app.post("/api/v2/canvas-agents/:id/reset", { schema: { params } }, async (req) =>
     k.conversations.reset(req.params.id),

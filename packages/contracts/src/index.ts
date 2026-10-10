@@ -21,6 +21,7 @@ export * from "./message-stream.js";
 export * from "./model.js";
 export * from "./model-settings.js";
 export * from "./portraits.js";
+export * from "./resource-response.js";
 export * as schemas from "./schemas.js";
 export * from "./settings.js";
 export * from "./todo.js";

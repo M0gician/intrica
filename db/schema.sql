@@ -1,6 +1,6 @@
 -- Intrica protocol 2. This schema never reads or alters the previous public tables.
-CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=12), models_initialized boolean NOT NULL DEFAULT false);
-INSERT INTO schema_info(version) VALUES (12) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=13), models_initialized boolean NOT NULL DEFAULT false);
+INSERT INTO schema_info(version) VALUES (13) ON CONFLICT DO NOTHING;
 CREATE TABLE canvases (
  id text PRIMARY KEY, title text NOT NULL, graph_revision integer NOT NULL DEFAULT 0,
  event_seq bigint NOT NULL DEFAULT 0,
@@ -130,7 +130,10 @@ CREATE TABLE schedules (
  id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id), agent_id text NOT NULL REFERENCES agent_configs(node_id) ON DELETE CASCADE,
  kind text NOT NULL CHECK(kind IN ('cron','resource_change')), next_due_at timestamptz NOT NULL,
  timezone text NOT NULL DEFAULT 'UTC', spec jsonb NOT NULL, dedupe_key text NOT NULL UNIQUE,
- enabled boolean NOT NULL DEFAULT true
+ enabled boolean NOT NULL DEFAULT true,
+ revision bigint NOT NULL DEFAULT 1,
+ dispatch_state text NOT NULL DEFAULT 'pending' CHECK(dispatch_state IN ('pending','blocked','delivered','cancelled')),
+ blocked_reason text, delivery_seq bigint, delivery_run_id text
 );
 CREATE INDEX schedules_due ON schedules(next_due_at) WHERE enabled;
 CREATE TABLE model_endpoints (
