@@ -139,7 +139,8 @@ test("自动分派在协作历史中保留身份，删除旧团队后可筛选�
     await panel.getByLabel("选择协作团队").selectOption(manager.id);
     await expect(panel.locator(".agent-event")).toHaveCount(0);
     await panel.getByLabel("选择协作团队").selectOption("");
-    await expect(panel.locator(".agent-event-message")).toHaveCount(4);
+    // Each member has an initial request, a follow-up and a result in the unified message feed.
+    await expect(panel.locator(".agent-event-message")).toHaveCount(members.length * 3);
   } finally {
     await journey.close();
   }

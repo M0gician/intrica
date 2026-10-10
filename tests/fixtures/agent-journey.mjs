@@ -94,7 +94,8 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
           .filter((m) => m.role === "user")
           .map((m) => {
             try {
-              return JSON.parse(m.content);
+              // Coordination notices carry their origin before the JSON body.
+              return JSON.parse(String(m.content).slice(String(m.content).indexOf("\n") + 1));
             } catch {
               return null;
             }
@@ -113,7 +114,9 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
           };
         } else if (
           !body.messages.some(
-            (m) => m.role === "user" && m.content === "Run the recruitment acceptance journey.",
+            (m) =>
+              m.role === "user" &&
+              String(m.content).includes("Run the recruitment acceptance journey."),
           )
         )
           reply = { text: "Approval forwarded" };
@@ -244,13 +247,16 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
           };
         } else if (!toolResults(body.messages, "send_message").some((r) => r.value.delivered)) {
           assert.ok(artifacts[0].value.id, "Report must reference an actually saved artifact");
+          const result = JSON.parse(
+            wireOutput(
+              body.messages,
+              `ACCEPTANCE_MEMBER_${member}_DONE artifactId=${artifacts[0].value.id}`,
+            ),
+          );
+          assert.equal(result.target.kind, "request", "Members must finish their assigned request");
           reply = {
             tool: "send_message",
-            args: {
-              kind: "result",
-              target: { kind: "manager" },
-              message: `ACCEPTANCE_MEMBER_${member}_DONE artifactId=${artifacts[0].value.id}`,
-            },
+            args: result,
           };
         } else reply = { text: "Member finished" };
       }
@@ -504,8 +510,24 @@ export async function verifyJourney(call, journey, existingRequestIds = []) {
     assert.ok(
       (await call(`nodes/${report.id}/content`)).node.text.includes(journey.evidence[index]),
     );
-    assert.equal(feed.events.filter((e) => e.kind === "report").length, 1);
-    assert.ok(feed.events.some((e) => e.kind === "report" && e.data.text.includes(report.id)));
+    const results = feed.events.filter(
+      (e) =>
+        e.kind === "message" &&
+        e.data.messageKind === "result" &&
+        e.data.recipients?.includes(journey.manager.id),
+    );
+    assert.equal(results.length, 1);
+    assert.ok(results[0].data.text.includes(report.id));
+    assert.equal(
+      managerFeed.events.filter(
+        (e) =>
+          e.kind === "message" &&
+          e.data.from === member.id &&
+          e.data.messageId === results[0].data.messageId,
+      ).length,
+      1,
+      "The manager must receive the same result exactly once",
+    );
     assert.ok(
       feed.events.some(
         (e) => e.kind === "tool" && e.data.name === "read" && e.data.status === "complete",
