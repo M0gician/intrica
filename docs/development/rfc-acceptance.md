@@ -1,6 +1,6 @@
 # RFC acceptance map
 
-This map covers RFCs #2 through #13, #17 and #18 under #1, and #19–#23 under #16. Assertions check observable
+This map covers RFCs #2 through #13, #17 and #18 under #1, and #19–#23 under #16, plus #24. Assertions check observable
 results and durable state. Test model responses come from dependency injection
 or an isolated compatible HTTP endpoint. Production configuration cannot enable
 the built-in test model.
@@ -20,6 +20,8 @@ the built-in test model.
 | #13 | The shared Web/Electron matrix uses independent server identities, connection switches, drafts, files, tools and durable approvals. Filesystem, database and HTTP operations remain real. |
 | #17 | Collaboration tests cover admin sends across roles, teams and resource scopes; selected/canvas broadcasts; deduplication; self exclusion; unchanged resource grants; resource-reader filtering; frozen audiences; deletion and foreign-target rejection; demotion; zero recipients; completed replay; and promotion resuming the original send. Terminal and escalated approvals remain barriers. Existing inbox tests cover busy/on-demand Agents, missing model configuration and activation limits. |
 | #18 | Prompt and tool-contract tests compare read/write/admin/owner instructions and visible parameters, including excluded management operations. Real conversation tests change role and resource access between model turns and recover old checkpoint-only hires under current authority. Name tests cover language fallback, concurrent UI/tool creation, pool exhaustion, rollback, new-field rejection, legacy restore, receipt reuse and human renaming. A controlled Worker scenario reuses an original conversation, recruits an independent member, holds both tasks in flight, exchanges peer evidence and verifies two real file writes with no duplicate hiring, tasks or reports. Shared Web/Electron recruitment uses generated names and actual member IDs. |
+
+| #24 | `sandbox-network.test.ts` runs a real isolated process against a local HTTP server, resolves a hostname, writes the response to its workspace, and checks private, ungranted and read-only file boundaries. It skips when platform isolation or Linux user namespaces are unavailable. A separate macOS probe verified external DNS and certificate-verified HTTPS to PyPI; Linux runtime verification remains pending. |
 
 ## Test layers
 

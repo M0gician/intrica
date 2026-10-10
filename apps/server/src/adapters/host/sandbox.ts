@@ -50,7 +50,7 @@ async function platformSandbox() {
         )
       : null;
 }
-async function buildSandboxCommand(
+export async function buildSandboxCommand(
   command: string,
   args: string[],
   roots: Root[],
@@ -100,13 +100,28 @@ async function buildSandboxCommand(
     const protectedPaths = await protections(dataDir);
     const denied = protectedPaths.private.map((p) => `(subpath ${JSON.stringify(p)})`).join(" ");
     const readOnly = protectedPaths.readOnly.map((p) => `(subpath ${JSON.stringify(p)})`).join(" ");
-    const profile = `(version 1)(deny default)(allow process-exec process-fork)(allow signal (target self))(allow sysctl-read)(allow file-read-metadata)(allow file-read* (literal "/") ${allowRead})(allow file-write* (literal "/dev/null") (subpath "/dev/fd"))${grants}(deny file-read* file-write* ${denied})(deny file-write* ${readOnly})(deny network*)`;
+    // Host networking includes DNS and system certificate verification. File grants stay separate.
+    const network = `(allow network*)(allow mach-lookup (global-name "com.apple.mDNSResponder") (global-name "com.apple.SystemConfiguration.configd") (global-name "com.apple.trustd") (global-name "com.apple.trustd.agent"))`;
+    const profile = `(version 1)(deny default)(allow process-exec process-fork)(allow signal (target self))(allow sysctl-read)(allow file-read-metadata)(allow file-read* (literal "/") ${allowRead})(allow file-write* (literal "/dev/null") (subpath "/dev/fd"))${grants}(deny file-read* file-write* ${denied})(deny file-write* ${readOnly})${network}`;
     return { command: "/usr/bin/sandbox-exec", args: ["-p", profile, command, ...args] };
   }
   const bindings: string[] = [];
   for (const path of ["/usr", "/bin", "/sbin", "/lib", "/lib64"]) {
     if (await stat(path).catch(() => null)) bindings.push("--ro-bind", path, path);
   }
+  // Read only the host resolver and public CA material needed by network clients.
+  for (const path of [
+    "/etc/resolv.conf",
+    "/etc/hosts",
+    "/etc/nsswitch.conf",
+    "/etc/gai.conf",
+    "/etc/ssl/certs",
+    "/etc/ssl/cert.pem",
+    "/etc/pki/tls/certs",
+    "/etc/pki/tls/cert.pem",
+    "/etc/pki/ca-trust/extracted",
+  ])
+    if (await stat(path).catch(() => null)) bindings.push("--ro-bind", path, path);
   for (const root of roots)
     bindings.push(root.write ? "--bind" : "--ro-bind", root.path, root.path);
   const protectedPaths = await protections(dataDir);
@@ -121,6 +136,7 @@ async function buildSandboxCommand(
     command: "/usr/bin/bwrap",
     args: [
       "--unshare-all",
+      "--share-net",
       "--die-with-parent",
       "--new-session",
       "--proc",

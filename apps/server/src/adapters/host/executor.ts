@@ -365,8 +365,8 @@ export class HostExecutor {
         name: "bash",
         label: "执行命令",
         description: text(
-          "Run a command; cwd defaults to the sole explicitly granted directory root (nested directories do not change it), or the agent workspace with zero/multiple roots. File links do not grant command execution. Isolated execution and host execution require separate authority. Default isolation has no network. fullHost=true or unavailable isolation uses the server account's host privileges, not a filesystem boundary at cwd. Without that authority, request approval for the frozen command.",
-          "执行命令；默认使用唯一显式授权目录根（嵌套目录不改变默认值），零个或多个根时使用 Agent 工作区。文件连接不授予命令执行权；隔离执行与宿主执行分别授权。默认隔离不含网络；fullHost=true 或隔离不可用时使用服务账户权限，cwd 不是文件系统边界。无此权限时为冻结的具体命令申请批准。",
+          "Run a command; cwd defaults to the sole explicitly granted directory root (nested directories do not change it), or the agent workspace with zero/multiple roots. File links do not grant command execution. Isolated execution and host execution require separate authority. Default isolated commands use the host network while file access stays within sandbox grants. fullHost=true or unavailable isolation uses the server account's host privileges, not a filesystem boundary at cwd. Without that authority, request approval for the frozen command.",
+          "执行命令；默认使用唯一显式授权目录根（嵌套目录不改变默认值），零个或多个根时使用 Agent 工作区。文件连接不授予命令执行权；隔离执行与宿主执行分别授权。默认隔离命令使用宿主网络，文件访问按隔离授权范围执行；fullHost=true 或隔离不可用时使用服务账户权限，cwd 不是文件系统边界。无此权限时为冻结的具体命令申请批准。",
         ),
         parameters: fileParameters.bash,
         effect: "external",
@@ -407,8 +407,8 @@ export class HostExecutor {
         name: "mcp",
         label: "调用 MCP",
         description: text(
-          "Start stdio MCP; omit tool to list tools. Uses the same cwd and authorization rules as bash. Default isolation has no network; fullHost=true uses the server account's host privileges and requires host execution authority.",
-          "启动 stdio MCP，tool 为空时列出工具。cwd 和授权规则与 bash 相同。默认隔离不含网络；fullHost=true 使用服务账户的宿主权限，需要宿主执行授权。",
+          "Start stdio MCP; omit tool to list tools. Uses the same cwd and authorization rules as bash. Default isolated commands use the host network while file access stays within sandbox grants; fullHost=true uses the server account's host privileges and requires host execution authority.",
+          "启动 stdio MCP，tool 为空时列出工具。cwd 和授权规则与 bash 相同。默认隔离命令使用宿主网络，文件访问按隔离授权范围执行；fullHost=true 使用服务账户的宿主权限，需要宿主执行授权。",
         ),
         parameters: Type.Object({
           command: pathSchema,

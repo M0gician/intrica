@@ -120,6 +120,12 @@ not imply a process filesystem boundary at `cwd`. Legacy
 migration retains it only when the original grant records that intent.
 Persistent requests remain distinct from one-time approval of a frozen call.
 
+Isolated commands use the host network by default, including DNS and HTTPS.
+macOS permits network traffic and the DNS/certificate services; Linux shares the
+host network namespace and mounts resolver configuration and public certificates
+read-only. Filesystem grants and protected paths remain enforced. Package
+downloads and network clients can use this mode without `fullHost:true`.
+
 Grant reconciliation can mark a pending, unexecuted request `satisfied` with
 no fabricated approver. Denial, expiration, escalation, changed targets and
 unknown outcomes remain barriers. Scratch ownership uses the same physical
