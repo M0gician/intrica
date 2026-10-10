@@ -19,12 +19,16 @@ snapshot: identity, role, management scope, effective resource grants and
 execution authority. The snapshot refreshes before each model request, after
 input consumption and context compaction, including recovery. Persona states
 personality and responsibilities; it does not change permissions.
+Server-authored Chinese and English conversation prompts use affirmative
+declarative sentences, including the closing report instruction. User-authored
+persona text remains unchanged.
 
 Read/write members do not see hiring, dismissal, approval decisions or run
 takeover. Their shared tools expose their own schedule, requests and conversation.
 Only administrators see takeover. Read members do not see canvas mutation tools.
-Host execution grants retain their path scope. Internal tool definitions remain
-available for durable recovery and still enforce current permissions.
+Host execution grants permit commands under the service account's host privileges.
+A connected directory supplies a working-directory reference. Internal tool
+definitions remain available for durable recovery and enforce current permissions.
 
 ## Reading
 

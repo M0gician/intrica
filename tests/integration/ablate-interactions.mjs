@@ -140,8 +140,8 @@ const cases = [
   [
     "manager workspace ownership review",
     "access/intents.js",
-    'if (intent.kind === "path" && intent.workspaceOwnerId === reviewer)',
-    "if (false)",
+    "intent.workspaceOwnerId === reviewer &&",
+    "false &&",
     "T40 a reviewer",
   ],
   [
@@ -302,8 +302,8 @@ const cases = [
   [
     "hierarchical review routing",
     "access/intents.js",
-    "return chain[after ? chain.indexOf(after) + 1 : 0] ?? null;",
-    "return null;",
+    '(await agentIdentity(sql, candidate)).config.role === "admin"',
+    "false",
     "T03 on-demand managers",
   ],
   [
@@ -407,15 +407,15 @@ const cases = [
   [
     "host capability independent of cwd",
     "../adapters/host/executor.js",
-    "scope.commandRoots.length > 0",
+    "scope.commandRoots.length",
     "scope.commandRoots.some((root) => withinPath(root, scope.cwd))",
     "T28 nested directory",
   ],
   [
     "admin one-off host approval",
     "access/intents.js",
-    'if (intent.kind === "host" && ["bash", "mcp"].includes(intent.tool))',
-    "if (false)",
+    'if (intent.kind === "host" && ["bash", "mcp"].includes(intent.tool))\n            return canReadAgentResources(sql, reviewer, subject);',
+    "if (false) return canReadAgentResources(sql, reviewer, subject);",
     "T29 managers can approve",
   ],
   [
@@ -477,15 +477,15 @@ const cases = [
   [
     "strict tool input fields",
     "execution/tool-calls.js",
-    "if (!Value.Check(parameters, args))",
+    "if (!Value.Check(parameters, validationArgs))",
     "if (false)",
     "T35 missing attachments",
   ],
   [
     "safe approval routing summary",
     "access/intents.js",
-    "recipients: intent.recipients",
-    "recipients: []",
+    "return { operation: intent.messageKind, recipients: intent.recipients };",
+    "return { operation: intent.messageKind, recipients: [] };",
     "T36 an unauthorized reviewer",
   ],
   [

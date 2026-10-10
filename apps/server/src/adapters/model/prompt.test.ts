@@ -2,6 +2,7 @@ import type { ContextSnapshot } from "@intrica/contracts";
 import { describe, expect, it } from "vitest";
 import { promptLanguage } from "../../prompt-language.js";
 import {
+  buildClosingPrompt,
   buildCompactionPrompt,
   buildConversationPrompt,
   buildSystemPrompt,
@@ -60,11 +61,11 @@ describe("buildSystemPrompt", () => {
       expect(conversation).toContain("report_result");
       expect(conversation).toContain("30");
       expect(conversation).toContain(
-        language === "en" ? "not serialized by path" : "不按路径或提交顺序串行",
+        language === "en" ? "write has a verified result" : "写入确认成功后",
       );
       expect(conversation).toContain("truncated/reasons/skipped");
       expect(conversation).toContain("nextCursor");
-      expect(conversation).toContain("OCR");
+      expect(conversation).toContain(language === "en" ? "existing text layer" : "现有文字层");
       expect(buildCompactionPrompt(language, false)).toContain("6000");
       expect(buildSystemPrompt("expand", language)).toContain(
         '"items":[{"title":string,"text":string}]',
@@ -126,6 +127,50 @@ describe("parseModelOutput", () => {
 });
 
 describe("capability-specific conversation guidance", () => {
+  it.each(["en", "zh-CN"] as const)(
+    "uses affirmative statements across all roles and the closing stage in %s",
+    (language) => {
+      const prompts = [buildClosingPrompt(language)];
+      for (const role of ["read", "write", "admin", "owner"] as const)
+        prompts.push(
+          buildConversationPrompt(language, {
+            role,
+            agent: role !== "owner",
+            selection: [],
+            asyncSeconds: 17,
+          }),
+        );
+      for (const prompt of prompts) {
+        expect(prompt).not.toMatch(
+          /[!?！？]|\b(?:not|no|never|cannot|can't|without|don't|avoid)\b|不(?:要|能|会|应|得|是|含|关闭|停止)|无需|禁止|避免/i,
+        );
+        expect(prompt).not.toMatch(
+          /(?:^|[.!?]\s+)(?:Use|Follow|Wait|Keep|Handle|Ask|Choose|Supply|Preserve|Save|Check|Resolve|Deliver)\b/m,
+        );
+      }
+      expect(prompts[0]).toContain(
+        language === "en" ? "results awaiting verification" : "待确认结果",
+      );
+    },
+  );
+
+  it("preserves persona verbatim and limits instructions to available tools", () => {
+    const persona = "Do not rewrite USER_PERSONA. 不修改用户内容。";
+    const prompt = buildConversationPrompt("en", {
+      agent: true,
+      role: "read",
+      persona,
+      selection: ["selected-node"],
+      asyncSeconds: 17,
+      availableTools: ["read"],
+    });
+    expect(prompt).toContain(persona);
+    expect(prompt).toContain("selected-node");
+    expect(prompt).toContain("nextCursor");
+    for (const name of ["send_message", "wait_for_message", "rg", "get_tool_result", "hire_agent"])
+      expect(prompt).not.toMatch(new RegExp(`\\b${name}\\b`));
+  });
+
   it.each(["en", "zh-CN"] as const)(
     "separates role instructions and preserves collaboration guidance in %s",
     (language) => {

@@ -451,6 +451,8 @@ it("L26 an explicit turn budget survives approval resume and resets only for new
   // The pending receipt now permits a bounded partial summary before approval.
   expect(seen(target)).toHaveLength(5);
   expect(seen(target).at(-1)!.tools).toHaveLength(0);
+  for (const name of ["read_canvas", "request_permission", "configure_agent"])
+    expect(seen(target).at(-1)!.prompt).not.toContain(name);
   expect((await calls(s.run)).filter((c) => c.name === "read_canvas")).toHaveLength(2);
   expect((await k.runs.get(s.run.id)).reason).toBe("turn_limit");
   plan(target, () => ({ text: "explicit continuation finished" }));

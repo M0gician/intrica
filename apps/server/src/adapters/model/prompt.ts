@@ -56,7 +56,7 @@ export function buildSystemPrompt(type: OperationType, language: PromptLanguage 
   ].join("\n");
 }
 
-export { buildConversationPrompt } from "./conversation-prompt.js";
+export { buildClosingPrompt, buildConversationPrompt } from "./conversation-prompt.js";
 
 export function buildCompactionPrompt(language: PromptLanguage, saveMemory: boolean): string {
   const text = (en: string, zh: string) => promptText(language, en, zh);

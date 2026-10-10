@@ -2,7 +2,7 @@ import type { ToolCall } from "@earendil-works/pi-ai";
 import type { ModelSelection } from "@intrica/contracts";
 import { createCanvasAgent } from "../../adapters/model/agent.js";
 import { contextUsage, summarizeContext } from "../../adapters/model/context.js";
-import { buildConversationPrompt } from "../../adapters/model/prompt.js";
+import { buildClosingPrompt, buildConversationPrompt } from "../../adapters/model/prompt.js";
 import type { FrozenModel, ModelRegistry } from "../../adapters/model/registry.js";
 import {
   assertFence,
@@ -284,15 +284,15 @@ export class Conversations {
       setPrompt();
       return modelTools(tools);
     };
-    const setPrompt = () => {
+    const setPrompt = (withTools = true) => {
       model.state.systemPrompt = buildConversationPrompt(input.language ?? "en", {
         agent: Boolean(identity),
         persona: capabilities?.persona ?? identity?.config.persona,
         capabilities,
         role: capabilities?.role ?? identity?.config.role ?? "owner",
-        availableTools: tools
-          .filter((tool) => tool.modelVisible !== false)
-          .map((tool) => tool.name),
+        availableTools: withTools
+          ? tools.filter((tool) => tool.modelVisible !== false).map((tool) => tool.name)
+          : [],
         selection: input.selection,
         asyncSeconds: ctx.store.limits.toolAsyncAfterMs / 1000,
       });
@@ -692,11 +692,8 @@ export class Conversations {
         const currentTools = await refreshTools();
         model.state.tools = closing ? [] : currentTools;
         if (closing) {
-          model.state.systemPrompt += promptText(
-            input.language,
-            "\nThe tool-turn limit has been reached. Deliver a nonempty progress report now using existing results. Identify unfinished tools and blockers; do not wait for them, call tools, or claim unknown outcomes succeeded. New user input can continue this run.",
-            "\n本次执行已达到工具回合上限。现在根据已有结果输出非空阶段报告，列出未完成工具和阻塞，不等待这些工具、不调用新工具、不把未知结果说成成功。用户追加输入可继续当前运行。",
-          );
+          setPrompt(false);
+          model.state.systemPrompt += `\n${buildClosingPrompt(input.language)}`;
         }
         let lastEmission = 0;
         round++;

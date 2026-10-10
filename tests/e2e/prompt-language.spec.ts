@@ -31,6 +31,18 @@ test("shared menu icons and prompts follow interface language without rewriting 
       })
     ).json()
   ).node;
+  const completeReply = async () => {
+    await expect
+      .poll(
+        async () => (await (await request.get(`${api}/canvas-agents/${agent.id}`)).json()).runState,
+      )
+      .toBe("succeeded");
+    const entry = page.locator(".agent-event-assistant").last();
+    await expect(entry).not.toHaveAttribute("data-message-key", /:-1$/);
+    const expand = entry.getByRole("button", { name: /^(展开完整记录|Show full record)$/ });
+    if (await expand.isVisible()) await expand.click();
+    return entry;
+  };
   await page.goto("/");
   await page.getByRole("button", { name: "切换画布", exact: true }).click();
   await page.getByRole("button", { name: canvas.title, exact: true }).click();
@@ -56,9 +68,7 @@ test("shared menu icons and prompts follow interface language without rewriting 
   await expect(page.locator(".agent-event-assistant").last()).toContainText(
     "你是 Intrica 画布 Agent",
   );
-  await expect(page.locator(".agent-event-assistant").last()).toContainText(
-    "USER_PERSONA 保留原文",
-  );
+  await expect(await completeReply()).toContainText("USER_PERSONA 保留原文");
   await expect(page.getByRole("button", { name: /^(切换画布|Switch canvas)$/ })).toBeVisible();
   await page.keyboard.press("Control+,");
   const settings = page.getByRole("main", { name: "设置", exact: true });
@@ -77,8 +87,6 @@ test("shared menu icons and prompts follow interface language without rewriting 
   await expect(page.locator(".agent-event-assistant").last()).toContainText(
     /You are the Intrica canvas agent/i,
   );
-  await expect(page.locator(".agent-event-assistant").last()).toContainText(
-    "USER_PERSONA 保留原文",
-  );
+  await expect(await completeReply()).toContainText("USER_PERSONA 保留原文");
   await expect(page.locator(".agent-event-assistant").last()).not.toContainText("你是 Intrica");
 });

@@ -114,17 +114,17 @@ export function adaptToolDiscovery(
       },
     };
   }
-  // Describe unrestricted authority and scoped execution grants separately.
+  // Host commands use the service account's authority regardless of their cwd.
   for (const name of ["bash", "mcp"]) {
     const definition = tools.find((tool) => tool.name === name);
     if (caps.hostExecution && definition)
       definition.description += text(
         caps.manageTeam
           ? " Your current authority permits host execution without a further command approval. Canvas resources remain subject to their access rules."
-          : " An explicit host grant permits execution within that grant's path scope without a further command approval. Other paths still require authority.",
+          : " An explicit host execution grant permits commands under the server account's host privileges. A connected directory provides a working-directory reference. Canvas resources and direct file operations have separate access checks.",
         caps.manageTeam
           ? " 当前权限允许宿主执行，无需再次申请命令权限；画布资源仍按其访问规则检查。"
-          : " 显式宿主执行授权允许在其路径范围内执行，无需再次申请命令权限；其他路径仍需相应授权。",
+          : " 显式宿主执行授权允许使用服务账号的宿主权限执行命令。已连接目录提供工作目录参考。画布资源和直接文件操作分别执行访问权限检查。",
       );
   }
 }

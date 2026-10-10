@@ -942,7 +942,7 @@ it("C30 self-messages stay in the current run, and forged recipient fields canno
   await consume(from, "self-note", s.run);
 });
 
-it("C31 a page of broken-model inboxes cannot starve a healthy recipient on the next page", async () => {
+it("C31 a page of retryable model failures cannot starve a healthy recipient on the next page", async () => {
   const from = await agent(),
     s = await start(from);
   const targets = [];
@@ -963,9 +963,15 @@ it("C31 a page of broken-model inboxes cannot starve a healthy recipient on the 
     ])
   ).rows.map((r) => r.id);
   targets.sort((a, b) => ordered.indexOf(a.conversation.id) - ordered.indexOf(b.conversation.id));
+  const capture = k.conversations.models.capture.bind(k.conversations.models);
+  vi.spyOn(k.conversations.models, "capture").mockImplementation(async (selection) => {
+    if (selection?.profileId === "temporarily-unavailable-profile")
+      throw new Error("temporary model lookup failure");
+    return capture(selection);
+  });
   for (const { node } of targets.slice(0, 128))
     await k.graph.updateNode(node.id, {
-      agent: { ...node.agent!, model: { profileId: "deleted-fixture-profile" } },
+      agent: { ...node.agent!, model: { profileId: "temporarily-unavailable-profile" } },
       expectedRevision: node.revision,
       idempotencyKey: key(),
     });
