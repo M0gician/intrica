@@ -6,8 +6,10 @@ import { ToolCallDetails } from "../../components/ToolCallDetails";
 import i18n, { tr } from "../../i18n";
 import { Button } from "../../ui/button";
 import { FileReferenceView } from "../files/FileReferenceView";
+import { isContentTruncated, recordVersion } from "./full-records";
 import { InputReceipt, type Receipt } from "./InputReceipt";
 import { type Activity, activityKey } from "./model";
+import { ReadMore } from "./ReadMore";
 export function EventTime({ value }: { value: Activity["createdAt"] }) {
   if (!value) return null;
   const date = new Date(value);
@@ -36,6 +38,7 @@ export function TimelineEvent({
   requestEvent,
   onSelectNode,
   onOpenFile,
+  onExpandEvent,
 }: {
   event: Activity;
   nodes: ReadonlyMap<string, Node>;
@@ -43,7 +46,15 @@ export function TimelineEvent({
   requestEvent: ReadonlyMap<string, string>;
   onSelectNode?: ((id: string) => void) | undefined;
   onOpenFile?: ((path: string) => void) | undefined;
+  onExpandEvent?: ((seq: number) => Promise<void>) | undefined;
 }) {
+  const seq = typeof event.data.fullRecordSeq === "number" ? event.data.fullRecordSeq : event.seq;
+  const load = seq > 0 && onExpandEvent ? () => onExpandEvent(seq) : undefined;
+  const version = JSON.stringify([
+    recordVersion(event),
+    event.data.updatedAt,
+    event.data.resultVersion,
+  ]);
   const name = (id: unknown, historicalName?: unknown) => {
     if (id === "workspace") return tr("工作区助手");
     if (typeof id !== "string" || !id || id === "unknown") return tr("未知 Agent");
@@ -125,11 +136,17 @@ export function TimelineEvent({
           onSelectNode={onSelectNode}
           onOpenFile={onOpenFile}
           nodeName={(id) => nodes.get(id)?.title || id}
+          load={isContentTruncated(event, "result") ? load : undefined}
+          loadKey={version}
         />
       ) : (
         <>
           {event.data.thinking ? (
-            <DeferredDetails summary={tr("思考")}>
+            <DeferredDetails
+              summary={tr("思考")}
+              load={isContentTruncated(event, "thinking") ? load : undefined}
+              loadKey={version}
+            >
               {() => <p>{String(event.data.thinking)}</p>}
             </DeferredDetails>
           ) : null}
@@ -151,6 +168,7 @@ export function TimelineEvent({
                   : ""),
             )}
           />
+          {load && isContentTruncated(event, "text") && <ReadMore load={load} version={version} />}
           {Array.isArray(event.data.fileIds) &&
             event.data.fileIds.map((id) =>
               typeof id === "string" ? (

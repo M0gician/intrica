@@ -1,8 +1,9 @@
 import type { AgentContextUsage, ResourceResponseStatus } from "@intrica/contracts";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import type { AccessRecord } from "../../components/AgentAccessCard";
 import { tr } from "../../i18n";
+import { FullRecords, recordVersion } from "./full-records";
 import type { Activity } from "./model";
 import type { UnknownCall } from "./UnknownTools";
 import { useRunEvents } from "./useRunEvents";
@@ -26,27 +27,65 @@ type AgentFeed = {
   nextAfter?: number | null | undefined;
 };
 
+const EMPTY_FEED: AgentFeed = {
+  events: [],
+  running: false,
+  requests: [],
+  conversationId: null,
+  lastEventSeq: "0",
+  interrupted: false,
+};
+
 export function useAgentActivity(
   nodeId: string,
   active: boolean,
   focusRequest?: { id: string; nonce: number },
 ) {
-  const { agentRequest, activity } = useSessionConnection();
+  const { agentRequest, activity, bindingId } = useSessionConnection();
+  const records = useMemo(() => new FullRecords(`${bindingId}:${nodeId}`), [nodeId, bindingId]);
+  const scope = useRef(records);
+  scope.current = records;
   const readPage = useCallback(
-    (path: string) => activity.request(path, () => agentRequest<AgentFeed>(path)),
-    [activity, agentRequest],
+    async (path: string) => {
+      let next: AgentFeed, revision: number;
+      do {
+        revision = records.revision;
+        next = await activity.request(path, () => agentRequest<AgentFeed>(path));
+        // A full read can observe a newer record than an in-flight summary.
+        // Repeat that summary read before accepting it, including history pages.
+      } while (scope.current === records && revision !== records.revision);
+      return next;
+    },
+    [activity, agentRequest, records],
   );
-  const [data, setData] = useState<AgentFeed>({
-    events: [],
-    running: false,
-    requests: [],
-    conversationId: null,
-    lastEventSeq: "0",
-    interrupted: false,
-  });
+  const [stored, setStored] = useState({ scope: records, value: EMPTY_FEED });
+  const data = stored.scope === records ? stored.value : EMPTY_FEED;
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const setData = useCallback(
+    (update: SetStateAction<AgentFeed>) => {
+      if (scope.current !== records) return;
+      setStored((current) => ({
+        scope: records,
+        value:
+          typeof update === "function"
+            ? update(current.scope === records ? current.value : EMPTY_FEED)
+            : update,
+      }));
+    },
+    [records],
+  );
+  const acceptPage = useCallback(
+    (next: AgentFeed) => {
+      setData({ ...next, events: records.merge(next.events) });
+    },
+    [records, setData],
+  );
   const visible = useRef(active);
   visible.current = active;
-  const [viewingHistory, setViewingHistory] = useState(false);
+  const [history, setHistory] = useState({ scope: records, value: false });
+  const viewingHistory = history.scope === records && history.value;
+  const setViewingHistory = (value: boolean) => setHistory({ scope: records, value });
   const pageGeneration = useRef(0);
   const cursor = data.nextBefore;
   const loadPage = async (query = "", signal?: AbortSignal) => {
@@ -56,11 +95,12 @@ export function useAgentActivity(
       const next = await readPage(
         `canvas-agents/${nodeId}?${focusRequest ? `requestId=${encodeURIComponent(focusRequest.id)}` : ""}${query}`,
       );
-      if (signal?.aborted || generation !== pageGeneration.current) return;
-      setData(next);
+      if (signal?.aborted || generation !== pageGeneration.current || scope.current !== records)
+        return;
+      acceptPage(next);
       setError("");
     } catch (error) {
-      if (!signal?.aborted && generation === pageGeneration.current)
+      if (!signal?.aborted && generation === pageGeneration.current && scope.current === records)
         setError((error as Error).message);
       throw error;
     }
@@ -87,8 +127,8 @@ export function useAgentActivity(
     async recover() {
       const generation = pageGeneration.current;
       const next = await readPage(`canvas-agents/${nodeId}`);
-      if (generation !== pageGeneration.current) return null;
-      setData(next);
+      if (generation !== pageGeneration.current || scope.current !== records) return null;
+      acceptPage(next);
       return next.running && next.runId ? { runId: next.runId, cursor: next.lastEventSeq } : null;
     },
     onError(error) {
@@ -101,15 +141,25 @@ export function useAgentActivity(
   const loadUntil = async (seq: number, signal: AbortSignal) => {
     await loadPage(`&around=${seq}`, signal);
   };
-  const loadFullEvent = async (seq: number) => {
-    const generation = pageGeneration.current;
-    const event = await agentRequest<Activity>(`canvas-agents/${nodeId}/events/${seq}`);
-    if (generation === pageGeneration.current)
-      setData((current) => ({
-        ...current,
-        events: current.events.map((e) => (e.seq === seq ? event : e)),
-      }));
-  };
+  const loadFullEvent = useCallback(
+    async (seq: number) => {
+      const preview = dataRef.current.events.find((event) => event.seq === seq);
+      if (!preview?.data.truncated) return;
+      const event = await records.load(preview, () =>
+        agentRequest<Activity>(`canvas-agents/${nodeId}/events/${seq}`),
+      );
+      if (scope.current === records)
+        setData((current) => ({
+          ...current,
+          events: current.events.map((e) => {
+            if (e.seq !== seq || e.conversationId !== event.conversationId) return e;
+            if (recordVersion(e) === recordVersion(event)) return records.merge([e])[0]!;
+            return recordVersion(e) === recordVersion(preview) ? event : e;
+          }),
+        }));
+    },
+    [agentRequest, nodeId, records, setData],
+  );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const interrupted = data.interrupted;
@@ -123,8 +173,8 @@ export function useAgentActivity(
         const next = await readPage(
           `canvas-agents/${nodeId}${focusRequest ? `?requestId=${encodeURIComponent(focusRequest.id)}` : ""}`,
         );
-        if (closed || generation !== pageGeneration.current) return;
-        setData(next);
+        if (closed || generation !== pageGeneration.current || scope.current !== records) return;
+        acceptPage(next);
         setError("");
       } catch (e) {
         if (!closed) setError(e instanceof Error ? e.message : tr("读取失败"));
@@ -141,7 +191,17 @@ export function useAgentActivity(
       closed = true;
       unfollow();
     };
-  }, [nodeId, active, viewingHistory, readPage, focusRequest, activity, conversationId]);
+  }, [
+    nodeId,
+    active,
+    viewingHistory,
+    readPage,
+    focusRequest,
+    activity,
+    conversationId,
+    records,
+    acceptPage,
+  ]);
   const act = async (path: string, body: unknown) => {
     setBusy(true);
     setError("");

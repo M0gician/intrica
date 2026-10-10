@@ -7,7 +7,6 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import { tr, useTranslation } from "../../i18n";
 import { Button } from "../../ui/button";
@@ -53,7 +52,6 @@ export function AgentTimeline({
   useTranslation();
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState("");
   const scroll = useTranscriptScroll({
     scroller,
     content,
@@ -127,17 +125,8 @@ export function AgentTimeline({
                   requestEvent={requestEvent}
                   onSelectNode={onSelectNode}
                   onOpenFile={onOpenFile}
+                  onExpandEvent={onExpandEvent}
                 />
-                {event.seq > 0 && event.data.truncated && onExpandEvent ? (
-                  <Button
-                    className="agent-expand-event"
-                    onClick={() =>
-                      void onExpandEvent(event.seq).catch((error) => setError(error.message))
-                    }
-                  >
-                    {tr("展开完整记录")}
-                  </Button>
-                ) : null}
               </article>
             ))}
             {onLoadLater && (
@@ -148,7 +137,7 @@ export function AgentTimeline({
                 {tr("较新会话")}
               </Button>
             )}
-            {(error || scroll.error) && <p role="alert">{error || scroll.error}</p>}
+            {scroll.error && <p role="alert">{scroll.error}</p>}
           </section>
         </div>
       </div>

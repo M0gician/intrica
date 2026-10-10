@@ -39,7 +39,7 @@ test("shared menu icons and prompts follow interface language without rewriting 
       .toBe("succeeded");
     const entry = page.locator(".agent-event-assistant").last();
     await expect(entry).not.toHaveAttribute("data-message-key", /:-1$/);
-    const expand = entry.getByRole("button", { name: /^(展开完整记录|Show full record)$/ });
+    const expand = entry.getByRole("button", { name: /^(阅读全文|Read full text)$/ });
     if (await expand.isVisible()) await expand.click();
     return entry;
   };

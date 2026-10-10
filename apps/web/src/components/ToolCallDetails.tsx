@@ -1,5 +1,5 @@
+import { useState } from "react";
 import {
-  boundedToolText,
   isRecord,
   parsedToolOutput,
   readableToolOutput,
@@ -12,6 +12,7 @@ import { tr } from "../i18n";
 import { Button } from "../ui/button";
 import { DeferredDetails } from "./DeferredDetails";
 import { ExecutionTarget } from "./ExecutionTarget";
+import { ExpandableText } from "./ExpandableText";
 import { ToolResultSummary } from "./ToolResultSummary";
 import "./tool-call-details.css";
 import { useSessionConnection } from "../api/connection";
@@ -23,11 +24,19 @@ export type ToolNavigation = {
 };
 export function ToolCallDetails({
   data,
+  load,
+  loadKey,
   ...navigation
-}: { data: Record<string, unknown> } & ToolNavigation) {
+}: {
+  data: Record<string, unknown>;
+  load?: (() => Promise<void>) | undefined;
+  loadKey?: string | undefined;
+} & ToolNavigation) {
   return (
     <DeferredDetails
       className="tool-call-details"
+      load={load}
+      loadKey={loadKey}
       summary={
         <>
           <span className="tool-call-name">
@@ -48,6 +57,7 @@ export function ToolCallBody({
   nodeName,
 }: { data: Record<string, unknown> } & ToolNavigation) {
   const { assetUrl, serverId } = useSessionConnection();
+  const [matchCount, setMatchCount] = useState(200);
   const output = parsedToolOutput(data.result);
   const args = isRecord(data.args) ? data.args : undefined;
   const target = isRecord(args?.target) ? args.target : undefined;
@@ -144,8 +154,7 @@ export function ToolCallBody({
       {input && (
         <>
           <h3 className="tool-call-heading">{tr("输入")}</h3>
-          {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Scrollable tool text must be reachable for keyboard reading. */}
-          <pre tabIndex={0}>{boundedToolText(input)}</pre>
+          <ExpandableText text={input} />
         </>
       )}
       {nodeId &&
@@ -166,8 +175,7 @@ export function ToolCallBody({
       {text && (
         <>
           <h3 className="tool-call-heading">{tr("输出")}</h3>
-          {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Scrollable tool text must be reachable for keyboard reading. */}
-          <pre tabIndex={0}>{boundedToolText(text)}</pre>
+          <ExpandableText text={text} />
         </>
       )}
       {output &&
@@ -183,14 +191,18 @@ export function ToolCallBody({
       )}
       {matches && (
         <ul className="tool-search-results">
-          {matches.slice(0, 200).map((match) => (
+          {matches.slice(0, matchCount).map((match) => (
             <li key={`${match.path}:${match.lineNumber}`}>
               {fileLink(match.path, `${match.path}:${match.lineNumber}`)}
-              {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Long search lines must be reachable for keyboard reading. */}
-              <pre tabIndex={0}>{boundedToolText(match.text, 2000)}</pre>
+              <ExpandableText text={match.text} step={2000} />
             </li>
           ))}
         </ul>
+      )}
+      {matches && matches.length > matchCount && (
+        <Button onClick={() => setMatchCount((value) => value + 200)}>
+          {tr("显示更多匹配项")}
+        </Button>
       )}
       {output?.truncated === true && <p>{tr("结果未完整，请缩小范围或继续分页读取。")}</p>}
       {output?.sharing !== null &&
@@ -241,8 +253,7 @@ export function ToolCallBody({
                 {tr("状态更新：{{v0}}", { v0: new Date(data.updatedAt).toLocaleString() })}
               </small>
             )}
-            {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Scrollable diagnostics must be reachable for keyboard reading. */}
-            <pre tabIndex={0}>{toolDiagnosticText(data)}</pre>
+            <ExpandableText text={toolDiagnosticText(data, true)} />
           </>
         )}
       </DeferredDetails>

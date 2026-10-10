@@ -80,6 +80,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
       const r = await k.conversations.read.event(c.id, req.params.seq);
       return {
         conversationId: c.id,
+        recordVersion: r.record_version,
         seq: Number(r.seq),
         agentId: req.params.id,
         kind: r.role,
