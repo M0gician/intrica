@@ -119,7 +119,7 @@ jobs:
           INTRICA_E2E_PREVIEW: "1"
         run: |
           node scripts/ci-tests.mjs browser
-          node --test --test-concurrency=1 tests/e2e/desktop-update-layout.test.mjs tests/e2e/input-receipt-layout.test.mjs tests/e2e/settings-ssh.test.mjs tests/e2e/settings-ssh-onboarding.test.mjs
+          node --test --test-concurrency=1 tests/e2e/desktop-update-layout.test.mjs tests/e2e/input-receipt-layout.test.mjs tests/e2e/file-reference-interactions.test.mjs tests/e2e/settings-ssh.test.mjs tests/e2e/settings-ssh-onboarding.test.mjs
 
       - name: Prepare Electron icons
         run: pnpm --filter @intrica/desktop run icons
