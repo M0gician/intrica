@@ -200,18 +200,6 @@ export async function closeConversationRequests(tx: Tx, conversationIds: string[
   );
 }
 
-export async function requestIndex(sql: Sql, conversationId: string) {
-  return (
-    await sql.query(
-      `select id,state,work_state as "workState",reply_message_id as "replyMessageId",
-    blocked_reason as "blockedReason",sender_kind as "senderKind",sender_agent_id as "senderAgentId",
-    sender_conversation_id as "senderConversationId",origin_work_item_id as "originWorkItemId"
-    from message_requests where recipient_conversation_id=$1 and recipient_kind<>'user' and state='open' order by created_at,id limit 40`,
-      [conversationId],
-    )
-  ).rows;
-}
-
 export async function settleRequest(
   tx: Tx,
   requestId: string,

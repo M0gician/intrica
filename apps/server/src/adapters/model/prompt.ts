@@ -72,6 +72,10 @@ export function buildCompactionPrompt(language: PromptLanguage, saveMemory: bool
         )
       : text("memory must be null.", "memory 必须为 null。"),
     text(
+      "Preserve the current work item, each open task's incoming reply target and outgoing request IDs, dependency lifetimes, waits, followup counts, tool call IDs and unresolved outcomes, delivery receipts, published file references and environment id/version references. Keep private notes distinct from sent messages. Task selection shares one continuous context; it does not create a separate conversation.",
+      "保留当前任务、各开放任务的收到的请求目标及已发出请求 ID、依赖生命周期、等待记录、跟进次数、工具调用 ID 及待确认结果、投递回执、已发布文件引用和环境 id/version 引用。区分私有笔记与已发送消息。任务切换共享同一份持续上下文，不创建独立会话。",
+    ),
+    text(
       "summary is at most 6000 characters; memory.text is at most 8000 characters.",
       "summary 最多 6000 字符；memory.text 最多 8000 字符。",
     ),

@@ -6,6 +6,8 @@ import {
 } from "../../adapters/postgres/database.js";
 import { agentIdentity } from "../access/policy.js";
 
+export const AGENT_EXPEDITE_COOLDOWN_MS = 30_000;
+
 export async function expediteMessage(
   tx: Tx,
   conversationId: string,
@@ -68,9 +70,12 @@ export async function expediteMessage(
   if (
     senderId &&
     c.last_agent_expedite_at &&
-    Date.now() - new Date(c.last_agent_expedite_at).getTime() < 30000
+    Date.now() - new Date(c.last_agent_expedite_at).getTime() < AGENT_EXPEDITE_COOLDOWN_MS
   )
-    throw new DomainError("EXPEDITE_COOLDOWN", "接收者刚处理过加急，请至少等待 30 秒");
+    throw new DomainError(
+      "EXPEDITE_COOLDOWN",
+      `接收者刚处理过加急，请至少等待 ${AGENT_EXPEDITE_COOLDOWN_MS / 1000} 秒`,
+    );
   if (run?.state === "running") await assertFence(tx, run.id, run.epoch);
   await tx.query(
     `update messages set expedite_requested_at=now(),expedite_run_id=$3,

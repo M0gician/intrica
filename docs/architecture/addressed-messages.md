@@ -55,6 +55,16 @@ enters the next model call. General notices can enter the current context.
 Switching tasks retains previous inputs, tools, notes and published replies.
 Compaction summarizes the context; request and delivery state remain in tables.
 
+Before each model call, server metadata separates incoming reply obligations
+from outgoing dependencies. Each index has a total count and truncation flag;
+the current incoming task is kept first. Outgoing records include the current
+recipient, lifecycle, follow-up count and whether the conversation controls
+follow-ups. Shared dependencies can be visible to a waiting conversation while
+their follow-up control remains with the responsible requester. Takeover updates
+this projection from the same ownership records used by message routing.
+Compaction instructions preserve request directions, waits, unresolved tool
+outcomes, delivery receipts and versioned file and environment references.
+
 Expedite preserves the input ID and advances the conversation generation. The
 runner checks pending expedite requests while acquiring the generation and again
 before storing or sending output. Started tools retain their effects and IDs.

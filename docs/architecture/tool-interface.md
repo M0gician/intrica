@@ -23,6 +23,13 @@ Server-authored Chinese and English conversation prompts use affirmative
 declarative sentences, including the closing report instruction. User-authored
 persona text remains unchanged.
 
+Prompt construction requires the current visible tool list; it has no fallback
+tool catalog. Each tool's guidance is independent of other tools being present.
+The closing stage keeps the addressed final-output protocol and omits tool-call
+instructions. Follow-up and input-repair limits come from the current execution
+policy, and Agent expedite guidance shares the runtime cooldown constant.
+Message, environment and media guidance live in small, separate prompt modules.
+
 Read/write members do not see hiring, dismissal, approval decisions or run
 takeover. Their shared tools expose their own schedule, requests and conversation.
 Only administrators see takeover. Read members do not see canvas mutation tools.
@@ -129,6 +136,7 @@ exit codes and SIGPIPE are not silently converted to success.
 `send_message` and structured final output share the [explicit message contract](addressed-messages.md). External messages require `target`, `kind` and `message`. The targets are:
 
 - `{kind:"request",id}` replies to the request's original user, Agent or workspace.
+- `{kind:"followup",id}` adds an update to an outgoing request's current recipient.
 - `{kind:"manager"}` selects the current direct manager. A missing manager is an error.
 - `{kind:"internal"}` saves a private work note. This branch accepts only target and message.
 
@@ -142,6 +150,8 @@ communication approval. Read/write members retain their existing communication
 checks. Their message schema includes request, internal, manager, single-Agent and resource-reader targets. Resource-reader
 filtering applies to administrators too. The resource list must be nonempty.
 Broadcasts exclude the sender. Resource-response settings do not disable messages.
+Workspace conversation reads include an Agent's public messages and activity;
+they filter private notes, invalid output and unpublished model output.
 
 The server freezes recipients at preparation and checks the complete set before
 any delivery. A deleted or foreign recipient fails the whole operation. Recovery

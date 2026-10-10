@@ -12,7 +12,7 @@ import {
 } from "../../adapters/postgres/database.js";
 import { promptLanguage } from "../../prompt-language.js";
 import { agentIdentity } from "../access/policy.js";
-import { requestIndex } from "../collaboration/requests.js";
+import { messagePromptContext } from "../collaboration/prompt-context.js";
 import { BackgroundTools } from "../execution/background-tools.js";
 import { type ExecutionTool, TOOL_SCHEMA_VERSION } from "../execution/tool-calls.js";
 import type { ExecutionContext } from "../execution/worker.js";
@@ -20,6 +20,7 @@ import { saveCheckpoint } from "./checkpoints.js";
 import { OutputCompletion } from "./complete-turn.js";
 import { appendContextInput, compactContext } from "./context-builder.js";
 import type { ConversationInput, Conversations, ToolsFactory } from "./conversations.js";
+import { conversationPromptPolicy } from "./prompt-policy.js";
 import { runTurn } from "./run-turn.js";
 import { executeToolBatch } from "./tool-turn.js";
 import { activateWork, selectWorkInput, unfinishedReplyReason, waitForWork } from "./work-items.js";
@@ -43,7 +44,11 @@ export async function executeConversation(
   input.generation = Number(conversation.context?.outputGeneration ?? conversation.generation);
   input.workItemId = conversation.context?.workItemId ?? input.workItemId;
   const completion = new OutputCompletion(service, ctx, input, conversation.context);
-  let replyIndex = await requestIndex(service.db.pool, input.conversationId);
+  let messageContext = await messagePromptContext(
+    service.db.pool,
+    input.conversationId,
+    input.workItemId,
+  );
   let identity = input.agentId ? await agentIdentity(service.db.pool, input.agentId) : null;
   const savedLanguage = (
     await service.db.pool.query(
@@ -87,8 +92,9 @@ export async function executeConversation(
         : [],
       selection: input.selection,
       asyncSeconds: ctx.store.limits.toolAsyncAfterMs / 1000,
+      policy: conversationPromptPolicy(ctx.store.limits),
     });
-    model.state.systemPrompt += `\nCurrent message requests (server metadata): ${JSON.stringify(replyIndex)}\nCurrent work item: ${input.workItemId ?? "none"}. Each outgoing message declares its own target.`;
+    model.state.systemPrompt += `\nCurrent message requests (server metadata): ${JSON.stringify(messageContext)}\nCurrent work item: ${input.workItemId ?? "none"}. Each outgoing message declares its own target.`;
   };
   setPrompt();
   let consumed = String(conversation.consumed_message_seq);
@@ -386,7 +392,11 @@ export async function executeConversation(
         );
       }
       // Refresh after input and compaction, immediately before every model request.
-      replyIndex = await requestIndex(service.db.pool, input.conversationId);
+      messageContext = await messagePromptContext(
+        service.db.pool,
+        input.conversationId,
+        input.workItemId,
+      );
       const generation = await service.db.canvas(ctx.run.canvas_id, async (tx) => {
         await assertFence(tx, ctx.run.id, ctx.run.epoch);
         const pending = (

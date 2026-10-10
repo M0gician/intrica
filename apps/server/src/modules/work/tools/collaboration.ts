@@ -6,6 +6,8 @@ import {
   messageText,
 } from "@intrica/contracts";
 import { Type } from "typebox";
+import { followupLimit } from "../../collaboration/followups.js";
+import { AGENT_EXPEDITE_COOLDOWN_MS } from "../../collaboration/urgency.js";
 import { result } from "../../execution/tool-calls.js";
 import { object, preflightOnly, type ToolContext, tool } from "./context.js";
 
@@ -37,13 +39,13 @@ export function collaborationTools({ registry, ctx, input, text, capabilities }:
     preflightOnly,
   );
   send.description += text(
-    " Use target=followup with the outgoing request id and kind=update to contact its current recipient again; target=request is the recipient reply route. Followups default to one per request and at most one per wait window. lifetime=independent keeps a new request alive after its parent closes; otherwise exclusive ownership applies.",
-    " target=followup、kind=update 向已发出请求的当前接收者跟进；target=request 是接收者的回复入口。默认每个请求最多跟进一次，每个等待窗口最多一次。新请求 lifetime=independent 可在父任务结束后继续，否则按专属依赖清理。",
+    ` Use target=followup with the outgoing request id and kind=update to contact its current recipient again; target=request is the recipient reply route. The current followup limit is ${followupLimit()} per request and at most one per wait window. lifetime applies only to kind=request: independent keeps it alive after its parent closes; the default exclusive request closes when its last active parent ends.`,
+    ` target=followup、kind=update 向已发出请求的当前接收者跟进；target=request 是接收者的回复入口。当前每个请求最多跟进 ${followupLimit()} 次，每个等待窗口最多一次。lifetime 仅用于 kind=request：independent 在父任务结束后继续，默认 exclusive 在最后一个有效父任务结束时关闭。`,
   );
   if (capabilities.manageTeam)
     send.description += text(
-      " priority=expedite interrupts a recipient model turn, with a 30-second recipient cooldown.",
-      " priority=expedite 打断接收者当前模型执行，接收者有 30 秒冷却期。",
+      ` priority=expedite interrupts a recipient model turn. Agent-initiated expedites require another Agent recipient and have a ${AGENT_EXPEDITE_COOLDOWN_MS / 1000}-second recipient cooldown. Workspace owners are exempt from that cooldown. Started tools retain their receipts.`,
+      ` priority=expedite 打断接收者当前模型执行。Agent 发起的加急以其他 Agent 为接收者，并有 ${AGENT_EXPEDITE_COOLDOWN_MS / 1000} 秒接收者冷却期。工作区所有者不受该冷却期约束。已开始的工具保留回执。`,
     );
   send.modelParameters = {
     ...send.parameters,
