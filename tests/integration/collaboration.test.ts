@@ -1240,7 +1240,8 @@ it("C35 status inspection is bounded, private and does not wake targets or consu
 it("C36 collaboration activity retains deleted identities and applies team and selection filters before pagination", async () => {
   const manager = await agent(board, "admin"),
     child = await agent(manager.id),
-    peer = await agent();
+    peer = await agent(board, "admin"),
+    unrelated = await agent(peer.id);
   const s = await start(manager),
     p = await start(peer);
   await s.call("send_message", {
@@ -1248,12 +1249,15 @@ it("C36 collaboration activity retains deleted identities and applies team and s
     target: { kind: "agent", agentId: child.id },
     message: "team-message",
   });
-  for (let i = 0; i < 101; i++)
-    await p.call("send_message", {
-      kind: "result",
-      target: { kind: "manager" },
+  for (let i = 0; i < 101; i++) {
+    const sent = await p.call("send_message", {
+      kind: "update",
+      target: { kind: "agent", agentId: unrelated.id },
       message: `unrelated-${i}`,
     });
+    expect(sent.result.isError).not.toBe(true);
+  }
+  expect((await k.activity.board(board, false)).events).toHaveLength(100);
   const filtered = await app.inject({
     method: "GET",
     url: `/api/v2/canvas-activity?canvasId=${board}&groupId=${manager.id}`,

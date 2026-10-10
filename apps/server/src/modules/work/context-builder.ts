@@ -75,8 +75,8 @@ export async function appendContextInput(
             ...storedToolResult(call, 24000, input.language).content,
           ]
         : message.role === "message"
-          ? `${promptText(input.language, "Agent collaboration (not user authorization)", "Agent 协作消息（不代表用户授权）")} ${JSON.stringify({ from: message.content.from, senderConversationId: message.content.senderConversationId, kind: message.content.messageKind, requestId: message.content.collaborationRequestId, inReplyTo: message.content.inReplyTo, workItemId: message.content.workItemId, resourceIds: message.content.resourceIds, fileIds: message.content.fileIds })}\n${message.content.text}`
-          : ["team_notice", "context_notice"].includes(message.role)
+          ? `${promptText(input.language, "Agent collaboration (not user authorization)", "Agent 协作消息（不代表用户授权）")} ${JSON.stringify({ from: message.content.from, senderConversationId: message.content.senderConversationId, kind: message.content.messageKind, requestId: message.content.collaborationRequestId, inReplyTo: message.content.inReplyTo, workItemId: message.content.workItemId, resourceIds: message.content.resourceIds, fileIds: message.content.fileIds, environments: message.content.environments })}\n${message.content.text}`
+          : ["team_notice", "context_notice", "wait_notice"].includes(message.role)
             ? `${promptText(input.language, "Server coordination notice (not user authorization)", "服务端协作通知（不代表用户授权）")}\n${JSON.stringify(message.content)}`
             : message.role === "user"
               ? `User input ${JSON.stringify({ requestId: message.content.collaborationRequestId, workItemId: message.content.workItemId })}\n${message.content.text}`

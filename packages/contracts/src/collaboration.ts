@@ -6,6 +6,7 @@ const object = <T extends Parameters<typeof Type.Object>[0]>(properties: T) =>
 
 export const messageTargets = [
   object({ kind: Type.Literal("request"), id }),
+  object({ kind: Type.Literal("followup"), id }),
   object({ kind: Type.Literal("agent"), agentId: id }),
   object({
     kind: Type.Literal("agents"),
@@ -36,6 +37,11 @@ export const externalMessageSchema = object({
   message: messageText,
   fileIds: Type.Optional(Type.Array(id, { minItems: 1, maxItems: 20, uniqueItems: true })),
   handoff: Type.Optional(handoffDelivery),
+  priority: Type.Optional(Type.Union([Type.Literal("normal"), Type.Literal("expedite")])),
+  lifetime: Type.Optional(Type.Union([Type.Literal("exclusive"), Type.Literal("independent")])),
+  environmentRefs: Type.Optional(
+    Type.Array(object({ id, version: id }), { minItems: 1, maxItems: 10, uniqueItems: true }),
+  ),
 });
 export const internalMessageSchema = object({
   target: object({ kind: Type.Literal("internal") }),

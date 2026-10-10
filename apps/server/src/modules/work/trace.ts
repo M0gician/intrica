@@ -1,7 +1,11 @@
 import { type Database, DomainError } from "../../adapters/postgres/database.js";
 
 /** Owner diagnostic projection: stable IDs and timings, without prompts, arguments or credentials. */
-export async function conversationTrace(db: Database, conversationId: string) {
+export async function conversationTrace(
+  db: Database,
+  conversationId: string,
+  includeDiagnostics = false,
+) {
   if (
     !(
       await db.pool.query(
@@ -25,12 +29,13 @@ export async function conversationTrace(db: Database, conversationId: string) {
     tools,
     approvals,
     messages,
+    observations,
     requests,
     dispatches,
     messageSummary,
   ] = await Promise.all([
     db.pool.query(
-      "select client_message_id as id,content->>'requestId' as request_id,content->>'workItemId' as work_item_id,content->>'collaborationRequestId' as message_request_id,seq,run_id,consumed_run_id,created_at,consumed_at,extract(epoch from(consumed_at-created_at))*1000 as queue_ms from messages where conversation_id=$1 and role='user' order by seq desc limit 1000",
+      "select client_message_id as id,content->>'requestId' as request_id,content->>'workItemId' as work_item_id,content->>'collaborationRequestId' as message_request_id,seq,run_id,consumed_run_id,created_at,consumed_at,extract(epoch from(consumed_at-created_at))*1000 as queue_ms from messages where conversation_id=$1 and (role='user' or role='message' and content ? 'from') order by seq desc limit 1000",
       [conversationId],
     ),
     db.pool.query(
@@ -38,11 +43,11 @@ export async function conversationTrace(db: Database, conversationId: string) {
       [ids],
     ),
     db.pool.query(
-      "select id,run_id,attempt_id,request_id,generation_id,work_item_id,provider,model_id,provider_request_id,response_id,started_at,first_response_at,finished_at,outcome,usage_status,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,extract(epoch from(first_response_at-started_at))*1000 as first_response_ms,extract(epoch from(finished_at-started_at))*1000 as total_ms from model_calls where run_id=any($1) order by started_at limit 2000",
-      [ids],
+      "select id,run_id,attempt_id,request_id,generation_id,work_item_id,provider,model_id,provider_request_id,response_id,started_at,first_response_at,finished_at,outcome,usage_status,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,manifest,diagnostics_expires_at,case when $2 and diagnostics_expires_at>now() then diagnostics end as diagnostics,extract(epoch from(first_response_at-started_at))*1000 as first_response_ms,extract(epoch from(finished_at-started_at))*1000 as total_ms from model_calls where run_id=any($1) order by started_at limit 2000",
+      [ids, includeDiagnostics],
     ),
     db.pool.query(
-      "select t.id,t.work_item_id,t.generation,t.logical_call_id,t.run_id,t.attempt_id,t.name,t.state,t.created_at,t.dispatched_at,t.completed_at,t.approval_id,extract(epoch from(t.completed_at-t.dispatched_at))*1000 as execution_ms,extract(epoch from(t.dispatched_at-a.decided_at))*1000 as authorized_wait_ms from tool_calls t left join approvals a on a.id=t.approval_id where t.run_id=any($1) order by t.created_at limit 2000",
+      "select t.id,t.work_item_id,t.generation,t.logical_call_id,t.run_id,t.attempt_id,t.name,t.state,t.created_at,t.dispatched_at,t.completed_at,t.approval_id,t.audit,t.retry_of,t.model_call_id,t.observation_id,extract(epoch from(t.completed_at-t.dispatched_at))*1000 as execution_ms,extract(epoch from(t.dispatched_at-a.decided_at))*1000 as authorized_wait_ms from tool_calls t left join approvals a on a.id=t.approval_id where t.run_id=any($1) order by t.created_at limit 2000",
       [ids],
     ),
     db.pool.query(
@@ -52,6 +57,12 @@ export async function conversationTrace(db: Database, conversationId: string) {
     db.pool.query(
       "select seq,role,run_id,content->>'messageId' as message_id,content->>'collaborationRequestId' as message_request_id,content->>'workItemId' as work_item_id,content->>'inReplyTo' as in_reply_to,content->>'generation' as generation,content->>'generationId' as generation_id,consumed_at,created_at from messages where conversation_id=$1 order by seq desc limit 2000",
       [conversationId],
+    ),
+    db.pool.query(
+      `select o.id,o.model_call_id,o.content_index,o.provider_call_id,o.name,o.argument_hash,o.raw_argument_hash,o.parsed_type,o.parse_error,o.created_at,o.updated_at,
+      case when $2 and c.diagnostics_expires_at>now() then o.diagnostics end as diagnostics
+      from model_tool_observations o join model_calls c on c.id=o.model_call_id where c.run_id=any($1) order by c.started_at,o.content_index limit 2000`,
+      [ids, includeDiagnostics],
     ),
     db.pool.query(
       "select id,message_id,sender_kind,sender_conversation_id,recipient_kind,recipient_conversation_id,origin_work_item_id,parent_request_id,cause_id,state,work_state,reply_message_id,blocked_reason,version,takeover_run_id,created_at,updated_at,case when state in('answered','declined') then extract(epoch from(updated_at-created_at))*1000 end as reply_ms from message_requests where sender_conversation_id=$1 or recipient_conversation_id=$1 order by created_at desc limit 2000",
@@ -70,7 +81,29 @@ export async function conversationTrace(db: Database, conversationId: string) {
       [conversationId],
     ),
   ]);
+  const stages = new Map<
+    string,
+    { phase: string; count: number; notExecuted: number; unknown: number }
+  >();
+  const stage = (phase: string) => {
+    if (!stages.has(phase)) stages.set(phase, { phase, count: 0, notExecuted: 0, unknown: 0 });
+    return stages.get(phase)!;
+  };
+  for (const row of tools.rows) {
+    const s = stage(row.audit?.phase ?? "prepared");
+    s.count++;
+    if (row.audit?.executed === false) s.notExecuted++;
+    if (row.state === "unknown") s.unknown++;
+  }
+  const linked = new Set(tools.rows.map((row) => row.observation_id));
+  for (const observation of observations.rows)
+    if (!linked.has(observation.id)) {
+      const s = stage("observation");
+      s.count++;
+      s.notExecuted++;
+    }
   return {
+    stageSummary: [...stages.values()],
     conversationId,
     runs,
     inputs: inputs.rows,
@@ -82,12 +115,13 @@ export async function conversationTrace(db: Database, conversationId: string) {
     requests: requests.rows,
     dispatches: dispatches.rows,
     messageSummary: messageSummary.rows[0],
+    observations: observations.rows,
     inputTokenMeaning:
       "Input tokens include uncached input, cache reads and cache writes. Cache fields are subsets; do not add them again.",
     bounded:
       runs.length === 100 ||
       inputs.rows.length === 1000 ||
-      [attempts, models, tools, approvals, messages, requests, dispatches].some(
+      [attempts, models, tools, approvals, messages, requests, dispatches, observations].some(
         (r) => r.rows.length === 2000,
       ),
   };

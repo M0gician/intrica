@@ -1,6 +1,7 @@
 import type { InputAssociation, MessageRequestView } from "@intrica/contracts";
 import { useState } from "react";
 import { tr } from "../../i18n";
+import { InputReceipt, type Receipt } from "./InputReceipt";
 
 export function useMessageAssociation(requests: MessageRequestView[] = []) {
   const [selected, setSelected] = useState("new");
@@ -86,6 +87,16 @@ export function MessageStatus({ data }: { data: Record<string, unknown> }) {
               })}
             </>
           )}
+          {!data.from &&
+            data.deliveries
+              .filter((r: any) => r.state !== "delivered")
+              .map((r: any) => (
+                <InputReceipt
+                  key={`${r.conversationId}:${r.messageId}`}
+                  conversationId={r.conversationId}
+                  receipt={r as Receipt}
+                />
+              ))}
         </small>
       )}
     </>
@@ -94,6 +105,10 @@ export function MessageStatus({ data }: { data: Record<string, unknown> }) {
 export function reasonLabel(reason: string) {
   return (
     {
+      tool_input: tr("工具参数需要修正"),
+      unknown: tr("请先核实未知工具结果"),
+      tool_contract_upgrade: tr("会话因升级暂停"),
+      activation_limit: tr("自动协作已达到上限"),
       reply_required: tr("尚未提交答复"),
       message: tr("等待协作结果"),
       message_protocol: tr("输出格式无效，尚未发送"),

@@ -1,5 +1,6 @@
 import type { AgentContextUsage, MessageRequestView } from "@intrica/contracts";
 import { tr } from "../../i18n";
+import type { MessageWait } from "./ConversationWaits";
 import type { Receipt } from "./InputReceipt";
 import { coalesceToolEvents } from "./tool-display";
 import type { UnknownCall } from "./UnknownTools";
@@ -46,6 +47,7 @@ export type ConversationMessage = {
 export type ConversationSnapshot = {
   messages: ConversationMessage[];
   messageRequests?: MessageRequestView[];
+  waits?: MessageWait[];
   unknownTools?: UnknownCall[];
   context?: AgentContextUsage;
   run?: { id: string; state: string; reason?: string; last_event_seq: string } | null;
@@ -73,6 +75,7 @@ export function restoreTurns(value: ConversationSnapshot, sessionId: string): Tu
         "run_status",
         "team_notice",
         "context_notice",
+        "wait_notice",
       ].includes(message.kind) ||
       (message.kind === "message" && Boolean(message.data.from));
     if (anchor || !turn) {

@@ -282,7 +282,8 @@ it("read cursors bind targets, preserve complete content and cannot grant indexe
   const path = join(await k.host.workspace(board, a.id), "lines.txt");
   const full = "line\n".repeat(601);
   await writeFile(path, full);
-  await writeFile(`${path}.other`, "Different authorized content");
+  // Equal bytes isolate target binding from the independent content-hash guard.
+  await writeFile(`${path}.other`, full);
   const first = await s.call("read", { target: { kind: "path", path } });
   expect(first.value.nextCursor).toEqual(expect.any(String));
   const resumed = await s.call("read", {
@@ -657,7 +658,11 @@ it.each([
       ])
     ).rows;
     if (expected === "invalid") {
-      expect(calls).toHaveLength(0);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        state: "failed",
+        audit: { phase: "validation", executed: false },
+      });
       const history = (
         await k.db.pool.query("select checkpoint from conversations where id=$1", [
           s.run.subject_id,

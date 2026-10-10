@@ -30,6 +30,11 @@ export async function transferRequests(tx: Tx, source: Run, receiver: Run) {
     )
   ).rows;
   if (!moved.length) return [];
+  await tx.query(
+    `update message_waits set conversation_id=$2,run_id=$3,generation=c.generation,
+    baseline_seq=c.consumed_message_seq from conversations c where c.id=$2 and work_item_id=$1 and state='active'`,
+    [workItemId, receiver.subject_id, receiver.id],
+  );
   // Children return to the new responsible executor. Their parent work ID stays stable.
   await tx.query(
     `update message_requests set sender_conversation_id=$2,sender_agent_id=$3,sender_kind='agent',

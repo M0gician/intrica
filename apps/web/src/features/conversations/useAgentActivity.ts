@@ -7,6 +7,7 @@ import { type SetStateAction, useCallback, useEffect, useMemo, useRef, useState 
 import { useSessionConnection } from "../../api/connection";
 import type { AccessRecord } from "../../components/AgentAccessCard";
 import { tr } from "../../i18n";
+import type { MessageWait } from "./ConversationWaits";
 import { FullRecords, recordVersion } from "./full-records";
 import type { Activity } from "./model";
 import type { UnknownCall } from "./UnknownTools";
@@ -15,6 +16,7 @@ import { useRunEvents } from "./useRunEvents";
 type AgentFeed = {
   events: Activity[];
   messageRequests?: MessageRequestView[];
+  waits?: MessageWait[];
   running: boolean;
   requests: AccessRecord[];
   conversationId: string | null;

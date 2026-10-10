@@ -6,6 +6,7 @@ import {
   invokeTool,
   storedToolResult,
 } from "./tool-calls.js";
+import type { ToolObservation } from "./tool-ledger.js";
 import type { ExecutionContext } from "./worker.js";
 
 export type ToolNotice = {
@@ -37,7 +38,7 @@ export class BackgroundTools {
     tool: ExecutionTool | string,
     logicalId: string,
     args: unknown,
-    options: { resumed?: boolean; inputVersion?: number } = {},
+    options: { resumed?: boolean; inputVersion?: number; observation?: ToolObservation } = {},
   ): ReturnType<typeof invokeTool> {
     const active = this.pending.get(logicalId);
     if (active)
@@ -78,6 +79,7 @@ export class BackgroundTools {
         },
       },
       options.inputVersion,
+      options.observation,
     );
   }
   async resume(recover = true) {

@@ -470,6 +470,7 @@ it("keeps a late business result passive after the originating task was stopped"
     target: { kind: "agent", agentId: b.id },
     kind: "request",
     message: "Work in progress",
+    lifetime: "independent",
   });
   await k.conversations.stop(a.id);
   await k.runs.fail(s.run, new Error("stopped"));

@@ -536,7 +536,7 @@ describe("origin-bound approval lifecycle", () => {
     });
     expect(forged.result.isError).toBe(true);
   });
-  it("T44 image reads deliver image content and reject binary text, invalid frames and unapproved paths", async () => {
+  it("T44 image reads deliver images or metadata and reject invalid frames and unapproved paths", async () => {
     const c = await canvas(),
       a = await agent(c, "read"),
       child = await start(a.id);
@@ -546,9 +546,10 @@ describe("origin-bound approval lifecycle", () => {
     );
     const path = join((await k.host.scope(child.actor)).scratch, "pixel.png");
     await writeFile(path, png);
-    expect(
-      (await child.call("read", { target: { kind: "path", path }, mode: "text" })).result.isError,
-    ).toBe(true);
+    const metadata = await child.call("read", { target: { kind: "path", path }, mode: "text" });
+    expect(metadata.result.isError).not.toBe(true);
+    expect(metadata.value.capabilities).toMatchObject({ text: false, frames: true });
+    expect(metadata.result.content.some((p) => p.type === "image")).toBe(false);
     const automaticImage = await child.call("read", { target: { kind: "path", path } });
     expect(automaticImage.result.isError).not.toBe(true);
     expect(automaticImage.result.content.some((p) => p.type === "image")).toBe(true);
@@ -677,7 +678,9 @@ describe("origin-bound approval lifecycle", () => {
       content: "must not be ignored",
     });
     expect(unknown.result.isError).toBe(true);
-    expect(String(unknown.value)).toContain("content");
+    expect(unknown.value.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "/content" })]),
+    );
     expect(await count()).toBe(before);
   });
   it("T36 an unauthorized reviewer sees safe routing and can send an explicit denial message", async () => {
@@ -936,7 +939,7 @@ describe("origin-bound approval lifecycle", () => {
     });
     expect(invalid.waiting).toBeUndefined();
     expect(invalid.result.isError).toBe(true);
-    expect(invalid.value).toMatch(/index|序号/i);
+    expect(invalid.value.message).toMatch(/index|序号/i);
     expect((await k.graph.queries.node(n.id)).revision).toBe(n.revision);
     const second = await caller.call("update_node", {
       nodeId: n.id,

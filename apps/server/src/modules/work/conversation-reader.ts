@@ -5,6 +5,7 @@ import type { ModelRegistry } from "../../adapters/model/registry.js";
 import { type Database, DomainError, digest, type Tx } from "../../adapters/postgres/database.js";
 import { agentIdentity } from "../access/policy.js";
 import { conversationRequests, projectMessageReceipts } from "../collaboration/receipts.js";
+import { listWaits } from "../collaboration/wait-notices.js";
 import { Events } from "../execution/events.js";
 import { resourceResponse } from "../execution/schedules.js";
 import { CollaborationReader } from "./collaboration-reader.js";
@@ -220,6 +221,7 @@ export class ConversationReader {
       context: publicContext(row.context),
       unknownTools,
       messageRequests: await conversationRequests(this.db.pool, conversationId),
+      waits: await listWaits(this.db.pool, conversationId),
     };
   }
   async feed(agentId: string, query: { before?: number; after?: number; around?: number } = {}) {
@@ -277,6 +279,7 @@ export class ConversationReader {
     return {
       events,
       messageRequests: await conversationRequests(this.db.pool, c.id),
+      waits: await listWaits(this.db.pool, c.id),
       conversationId: c.id,
       lastEventSeq: String(run?.last_event_seq ?? "0"),
       context:

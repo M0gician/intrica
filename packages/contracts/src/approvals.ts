@@ -49,6 +49,7 @@ export type AccessIntent =
         | "canvas"
         | "resource_readers"
         | "request"
+        | "followup"
         | "manager"
         | "internal";
       dispatchId?: string;

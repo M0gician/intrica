@@ -142,7 +142,9 @@ export class RunStore {
           await tx.query("update runs set activation_count=0 where id=$1", [prior.cause_id]);
         if (
           prior.state === "waiting" &&
-          (["message", "reply_required", "message_protocol"].includes(prior.reason ?? "") ||
+          (["message", "reply_required", "message_protocol", "tool_input"].includes(
+            prior.reason ?? "",
+          ) ||
             prior.reason === "approval" ||
             (["turn_limit", "unknown"].includes(prior.reason) && input.userInitiated))
         ) {

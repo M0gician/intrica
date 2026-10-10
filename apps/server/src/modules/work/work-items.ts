@@ -25,17 +25,28 @@ export async function selectWorkInput(
       [conversationId, consumed],
     )
   ).rows;
-  const urgent = rows.find((row) => row.expedite_requested_at && row.content.workItemId);
-  const current = requests.find(
+  const waits = (
+    await sql.query(
+      "select work_item_id from message_waits where conversation_id=$1 and state='active'",
+      [conversationId],
+    )
+  ).rows;
+  const held = new Set(waits.map((w) => w.work_item_id));
+  const available = requests.filter((r) => !held.has(r.id) && r.work_state !== "stopped");
+  const urgent = rows.find(
+    (row) => row.expedite_requested_at && available.some((r) => r.id === row.content.workItemId),
+  );
+  const current = available.find(
     (row) =>
       row.id === active &&
       (row.work_state === "active" ||
-        (row.work_state === "waiting" && rows.some((m) => !m.content.workItemId))),
+        (row.work_state === "waiting" &&
+          rows.some((m) => !m.content.workItemId || m.content.workItemId === row.id))),
   );
   const next =
     urgent?.content.workItemId ??
     current?.id ??
-    requests.find((row) => ["queued", "active"].includes(row.work_state))?.id;
+    available.find((row) => ["queued", "active"].includes(row.work_state))?.id;
   return {
     ready:
       Boolean(next) || rows.some((row) => !row.content.workItemId || row.role === "tool_update"),
@@ -75,6 +86,15 @@ export async function waitForWork(
 }
 
 export async function unfinishedReplyReason(sql: Sql, conversationId: string) {
+  if (
+    (
+      await sql.query(
+        "select 1 from message_waits where conversation_id=$1 and state='active' limit 1",
+        [conversationId],
+      )
+    ).rowCount
+  )
+    return "message";
   const pending = (
     await sql.query(
       "select 1 from message_requests where recipient_conversation_id=$1 and recipient_kind<>'user' and state='open' and work_state<>'stopped' limit 1",

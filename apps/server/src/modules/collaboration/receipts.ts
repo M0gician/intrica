@@ -1,5 +1,6 @@
 import type { MessageRequestView } from "@intrica/contracts";
 import type { Sql } from "../../adapters/postgres/database.js";
+import { inputReceiptState } from "../execution/messages.js";
 
 /** Request state and context consumption are separate facts. */
 export async function conversationRequests(
@@ -49,10 +50,11 @@ export async function projectMessageReceipts(sql: Sql, records: any[], conversat
     ? (
         await sql.query(
           `select m.content->>'messageId' as message_id,
-    m.conversation_id as "conversationId",m.consumed_at as "readAt",
-    case when m.consumed_at is not null then 'read' when m.content->>'closed'='true' then 'closed'
-      when m.role='assistant' then 'delivered' else 'unread' end as state
-    from messages m where m.content->>'messageId'=any($1::text[]) and (m.content ? 'from' or m.role='assistant')`,
+    m.client_message_id as "messageId",m.conversation_id as "conversationId",m.consumed_at as "readAt",
+    m.created_at as "deliveredAt",extract(epoch from(coalesce(m.consumed_at,now())-m.created_at))::int as "elapsedSeconds",
+    case when m.role='assistant' then 'delivered' else ${inputReceiptState} end as state
+    from messages m join conversations c on c.id=m.conversation_id left join runs r on r.id=m.run_id
+    where m.content->>'messageId'=any($1::text[]) and (m.content ? 'from' or m.role='assistant')`,
           [dispatchIds],
         )
       ).rows

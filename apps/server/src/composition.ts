@@ -1,4 +1,6 @@
+import { EnvironmentRegistry } from "./adapters/host/environments.js";
 import { HostExecutor } from "./adapters/host/executor.js";
+import { pruneModelDiagnostics } from "./adapters/model/diagnostic-policy.js";
 import { ModelRegistry } from "./adapters/model/registry.js";
 import { withModelUsage } from "./adapters/model/usage.js";
 import { Database } from "./adapters/postgres/database.js";
@@ -34,11 +36,18 @@ export async function createKernel(config: ApiConfig) {
       access = new AccessService(db, graph, conversations, assets);
     conversations.messaging = new MessageService(db, conversations, graph, assets);
     const inbox = new InboxScheduler(db, conversations);
+    let lastDiagnosticsPrune = 0;
     const maintain = async () => {
       await access.maintain();
+      await conversations.waits.maintain();
       await inbox.maintain();
+      if (Date.now() - lastDiagnosticsPrune > 60_000) {
+        await pruneModelDiagnostics(db);
+        lastDiagnosticsPrune = Date.now();
+      }
     };
     const host = new HostExecutor(db, access, config.dataDir);
+    conversations.messaging.environments = new EnvironmentRegistry(host);
     const media = new MediaStore(db, assets, loadServerIdentity(config.dataDir).id);
     runs.media = media;
     media.authorize = async (call) => {

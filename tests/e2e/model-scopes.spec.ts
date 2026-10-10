@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { expect, test } from "@playwright/test";
+import { wireOutput } from "../fixtures/addressed-output.mjs";
 import { API_URL } from "./environment.mjs";
 
 test.use({ actionTimeout: 10000 });
@@ -29,7 +30,7 @@ test.beforeAll(async () => {
     requests.push(body);
     response.writeHead(200, { "content-type": "text/event-stream" });
     response.end(
-      `data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", model: body.model, choices: [{ index: 0, delta: { role: "assistant", content: `当前回答模型 ${body.model}` }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", model: body.model, choices: [{ index: 0, delta: { role: "assistant", content: wireOutput(body.messages, `当前回答模型 ${body.model}`) }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

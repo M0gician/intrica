@@ -10,7 +10,7 @@ import { cleanEnvironment, isolationAvailable } from "./sandbox.js";
 
 export async function hostCapabilities() {
   const skills: Array<{ name: string; path: string }> = [];
-  const commands: Array<{ name: string; path: string }> = [];
+  const commands: Array<{ name: string; path: string; version: string | null }> = [];
   for (const dir of [join(homedir(), ".agents/skills"), join(homedir(), ".codex/skills")])
     for (const entry of (await readdir(dir, { withFileTypes: true }).catch(() => [])).slice(
       0,
@@ -28,7 +28,7 @@ export async function hostCapabilities() {
           () => false,
         )
       ) {
-        commands.push({ name, path });
+        commands.push({ name, path, version: path === process.execPath ? process.version : null });
         break;
       }
     }

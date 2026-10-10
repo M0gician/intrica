@@ -2,6 +2,11 @@ import { hostname, platform } from "node:os";
 import { ExecutionPolicySchema } from "@intrica/contracts";
 import { Type } from "typebox";
 import { isolationAvailable } from "../adapters/host/sandbox.js";
+import {
+  diagnosticPolicy,
+  pruneModelDiagnostics,
+  saveDiagnosticPolicy,
+} from "../adapters/model/diagnostic-policy.js";
 import type { AppInstance } from "../app.js";
 import type { Kernel } from "../composition.js";
 export function registerSettings(app: AppInstance, k: Kernel) {
@@ -10,6 +15,28 @@ export function registerSettings(app: AppInstance, k: Kernel) {
       reply.header("Cache-Control", "no-store");
   });
   app.get("/api/v2/settings/execution", () => k.runs.settings.read());
+  app.get("/api/v2/settings/model-diagnostics", () => diagnosticPolicy(k.db));
+  app.put(
+    "/api/v2/settings/model-diagnostics",
+    {
+      schema: {
+        body: Type.Object(
+          {
+            expectedRevision: Type.Integer({ minimum: 1 }),
+            enabled: Type.Boolean(),
+            retentionDays: Type.Integer({ minimum: 1, maximum: 90 }),
+            manifestDays: Type.Integer({ minimum: 1, maximum: 365 }),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    (req) => saveDiagnosticPolicy(k.db, req.body),
+  );
+  app.delete("/api/v2/settings/model-diagnostics/content", async () => {
+    await pruneModelDiagnostics(k.db, true);
+    return { cleared: true };
+  });
   app.get("/api/v2/settings/diagnostics", async () => {
     const [isolation, summary] = await Promise.all([
       isolationAvailable(),

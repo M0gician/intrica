@@ -26,6 +26,9 @@ export function collaborationTools({ registry, ctx, input, text, capabilities }:
       kind: Type.Optional(messageKinds),
       message: messageText,
       fileIds: externalMessageSchema.properties.fileIds,
+      priority: externalMessageSchema.properties.priority,
+      lifetime: externalMessageSchema.properties.lifetime,
+      environmentRefs: externalMessageSchema.properties.environmentRefs,
       ...(capabilities.role === "admin"
         ? { handoff: externalMessageSchema.properties.handoff }
         : {}),
@@ -33,6 +36,28 @@ export function collaborationTools({ registry, ctx, input, text, capabilities }:
     "graph",
     preflightOnly,
   );
+  send.description += text(
+    " Use target=followup with the outgoing request id and kind=update to contact its current recipient again; target=request is the recipient reply route. Followups default to one per request and at most one per wait window. lifetime=independent keeps a new request alive after its parent closes; otherwise exclusive ownership applies.",
+    " target=followup、kind=update 向已发出请求的当前接收者跟进；target=request 是接收者的回复入口。默认每个请求最多跟进一次，每个等待窗口最多一次。新请求 lifetime=independent 可在父任务结束后继续，否则按专属依赖清理。",
+  );
+  if (capabilities.manageTeam)
+    send.description += text(
+      " priority=expedite interrupts a recipient model turn, with a 30-second recipient cooldown.",
+      " priority=expedite 打断接收者当前模型执行，接收者有 30 秒冷却期。",
+    );
+  send.modelParameters = {
+    ...send.parameters,
+    properties: {
+      ...send.parameters.properties,
+      ...(!capabilities.manageTeam ? { priority: Type.Optional(Type.Literal("normal")) } : {}),
+    },
+  };
+  const fields: Record<string, any> = {
+    ...externalMessageSchema.properties,
+    target: Type.Union(targets),
+  };
+  if (capabilities.role !== "admin") delete fields.handoff;
+  send.parameters = Type.Union([internalMessageSchema, object(fields)]);
   send.prepare = async (tx, callId, logicalId, args) => {
     const original = (
       await tx.query("select work_item_id,generation from tool_calls where id=$1", [callId])

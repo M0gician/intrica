@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { type AssistantMessage, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { type Database, id } from "../postgres/database.js";
+import { ModelDiagnostics } from "./diagnostic-manifest.js";
 import type { FrozenModel } from "./registry.js";
 
 type Scope = {
@@ -89,6 +90,7 @@ export function meteredStream(source: StreamFn): StreamFn {
     const output = createAssistantMessageEventStream();
     void (async () => {
       let call: Awaited<ReturnType<typeof startModelCall>> = null;
+      let diagnostics: ModelDiagnostics | undefined;
       let partial: AssistantMessage = {
         role: "assistant",
         content: [],
@@ -116,12 +118,29 @@ export function meteredStream(source: StreamFn): StreamFn {
       options?.signal?.addEventListener("abort", stop, { once: true });
       try {
         call = await startModelCall();
+        if (call)
+          diagnostics = await ModelDiagnostics.start(call.db, call.callId, context, model, {
+            ...(scope.getStore()?.conversationId
+              ? { conversationId: scope.getStore()!.conversationId! }
+              : {}),
+            ...(options?.apiKey ? { apiKey: options.apiKey } : {}),
+            publicOptions: Object.fromEntries(
+              ["temperature", "maxTokens", "reasoning", "cacheRetention", "thinkingBudgets"]
+                .filter((key) => options && (options as any)[key] !== undefined)
+                .map((key) => [key, (options as any)[key]]),
+            ),
+          });
         if (options?.signal?.aborted) throw new Error("Model request aborted");
         let first = true;
         const stream = await Promise.race([
           Promise.resolve(
             source(model, context, {
               ...options,
+              onPayload: async (payload, requestModel) => {
+                const effective = (await options?.onPayload?.(payload, requestModel)) ?? payload;
+                await diagnostics?.payload(effective);
+                return effective;
+              },
               onResponse: async (response, responseModel) => {
                 const headers = Object.fromEntries(
                   Object.entries(response.headers).map(([k, v]) => [k.toLowerCase(), v]),
@@ -147,6 +166,7 @@ export function meteredStream(source: StreamFn): StreamFn {
           const event = await Promise.race([iterator.next(), cancelled]);
           if (event.done) throw new Error("Model stream ended without result");
           const value = event.value;
+          await diagnostics?.observations.observe(value);
           if (first) {
             first = false;
             if (call)
@@ -169,6 +189,7 @@ export function meteredStream(source: StreamFn): StreamFn {
           output.push(value);
         }
       } catch (error) {
+        await diagnostics?.observations.interrupted().catch(() => {});
         const reason = options?.signal?.aborted ? "aborted" : "error";
         await finishModelCall(call, reason, partial).catch(() => {});
         output.push({

@@ -45,20 +45,6 @@ export function adaptToolDiscovery(
         agentId: Type.Optional(Type.Literal(caps.agentId!)),
       },
     };
-    const send = find("send_message");
-    send.modelParameters = {
-      ...send.parameters,
-      properties: {
-        ...send.parameters.properties,
-        target: Type.Union(
-          send.parameters.properties.target.anyOf.filter((s: any) =>
-            ["agent", "resource_readers", "request", "manager", "internal"].includes(
-              s.properties.kind.const,
-            ),
-          ),
-        ),
-      },
-    };
   }
   const hire = find("hire_agent");
   if (caps.role === "owner") {

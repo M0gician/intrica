@@ -6,10 +6,10 @@ import {
   schemas,
 } from "@intrica/contracts";
 import { Type } from "typebox";
-import { hostCapabilities } from "../adapters/host/executor.js";
 import { id } from "../adapters/postgres/database.js";
 import type { AppInstance } from "../app.js";
 import type { Kernel } from "../composition.js";
+import { listWaits } from "../modules/collaboration/wait-notices.js";
 import { expediteInput } from "../modules/work/input-receipts.js";
 import { retryResourceResponse } from "../modules/work/resource-response.js";
 import { conversationTrace } from "../modules/work/trace.js";
@@ -28,9 +28,31 @@ const activityFilter = (query: { selection?: string; groupId?: string }) => ({
   groupId: query.groupId,
 });
 export function registerConversations(app: AppInstance, k: Kernel) {
+  app.get("/api/v2/conversations/:id/waits", { schema: { params } }, (req) =>
+    listWaits(k.db.pool, req.params.id),
+  );
+  app.post(
+    "/api/v2/conversations/:id/waits/:waitId",
+    {
+      schema: {
+        params: Type.Object({ id: Type.String(), waitId: Type.String() }),
+        body: Type.Object(
+          { action: Type.Union([Type.Literal("wake"), Type.Literal("cancel")]) },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    (req) => k.conversations.waits.control(req.params.id, req.params.waitId, req.body.action),
+  );
   app.get("/api/v2/conversations/:id/trace", { schema: { params } }, (req, reply) => {
     reply.header("Cache-Control", "no-store");
     return conversationTrace(k.db, req.params.id);
+  });
+  app.get("/api/v2/conversations/:id/trace/export", { schema: { params } }, async (req, reply) => {
+    reply
+      .header("Cache-Control", "no-store")
+      .header("Content-Disposition", 'attachment; filename="intrica-diagnostics.json"');
+    return conversationTrace(k.db, req.params.id, true);
   });
   app.post(
     "/api/v2/conversations/:id/expedite",
@@ -94,9 +116,10 @@ export function registerConversations(app: AppInstance, k: Kernel) {
       };
     },
   );
-  app.get("/api/v2/canvas-agents/:id/capabilities", { schema: { params } }, async () =>
-    hostCapabilities(),
-  );
+  app.get("/api/v2/canvas-agents/:id/capabilities", { schema: { params } }, async (req) => {
+    const conversation = await k.conversations.read.forAgent(req.params.id);
+    return k.tools.describeCapabilities(conversation.canvas_id, req.params.id);
+  });
   app.post(
     "/api/v2/canvas-agents/:id/run",
     {

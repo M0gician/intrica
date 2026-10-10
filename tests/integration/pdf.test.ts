@@ -294,7 +294,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
   });
   it("PDF01 upgrades schema 7 to 8 through buildServer while preserving existing nodes", async () => {
     expect(priorVersion).toBe(7);
-    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(14);
+    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(15);
     expect(await k.graph.queries.node("pdf-upgrade-text")).toMatchObject({
       kind: "text",
       title: "old text",
@@ -539,8 +539,13 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     await connect(reader.id, legacy.id);
     const child = await session(reader.id);
     const read = await child.call("read", { target: { kind: "node", nodeId: legacy.id } });
-    expect(read.result.isError).toBe(true);
-    expect(hasImage(read.result)).toBe(false);
+    expect(read.result.isError).not.toBe(true);
+    expect(read.value.mediaType).toBe("pdf");
+    expect(
+      read.result.content
+        .filter((p: any) => p.type === "image")
+        .every((p: any) => p.mimeType === "image/png"),
+    ).toBe(true);
     expect(JSON.stringify(read.result)).not.toContain(PDF_FIXTURE.toString("base64"));
   });
 
@@ -687,8 +692,8 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
       page: 1,
       mode: "text",
     });
-    expect(content.result.isError).not.toBe(true);
-    expect(content.value.content).toContain("INTRICA-PDF-042");
+    expect(content.result.isError).toBe(true);
+    expect(JSON.stringify(content.result)).toContain("SNAPSHOT_REQUIRED");
     const file = await child.call("read", { target: { kind: "path", path }, page: 2 });
     expect(file.waiting).toBeUndefined();
     expect(file.value.page).toBe(2);

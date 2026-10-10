@@ -3,8 +3,10 @@ import { canvasEvent, DomainError, type Tx } from "../../adapters/postgres/datab
 import { collaborationIdentity } from "../execution/messages.js";
 import type { Run } from "../execution/store.js";
 import type { Conversations } from "../work/conversations.js";
+import { recordFollowup } from "./followups.js";
 import { createRequest, settleRequest } from "./requests.js";
 import type { ResolvedMessage } from "./resolve-target.js";
+import { expediteMessage } from "./urgency.js";
 
 export async function validateAddresses(tx: Tx, canvasId: string, intent: ResolvedMessage) {
   for (const address of intent.addresses) {
@@ -54,6 +56,8 @@ export async function deliverMessage(
     ...(senderId ? { agentId: senderId } : {}),
   };
   const language = await conversations.language(dispatch.conversation_id, tx);
+  if (intent.targetKind === "followup")
+    await recordFollowup(tx, intent.requestId!, dispatch.id, dispatch.conversation_id);
   const identity = await collaborationIdentity(tx, run.canvas_id, senderId, intent.recipients);
   const recipients = intent.addresses.map(displayId);
   const content = {
@@ -69,6 +73,8 @@ export async function deliverMessage(
     fileIds: intent.fileIds,
     resourceIds: intent.resourceIds,
     deliveryState: "sent",
+    priority: intent.priority ?? "normal",
+    environments: intent.environments,
   };
   if (intent.messageKind === "internal") {
     await conversations.append(
@@ -91,6 +97,13 @@ export async function deliverMessage(
     return { messageId: dispatch.id, delivered: 0, internal: true, recipients: [] };
   }
   await validateAddresses(tx, run.canvas_id, intent);
+  if (intent.requestId && ["result", "decline"].includes(intent.messageKind))
+    await settleRequest(
+      tx,
+      intent.requestId,
+      dispatch.id,
+      intent.messageKind as "result" | "decline",
+    );
   const human = intent.addresses.length === 1 && intent.addresses[0]!.kind === "user";
   if (!human)
     await conversations.append(
@@ -116,6 +129,7 @@ export async function deliverMessage(
             originWorkItemId: intent.workItemId,
             parentRequestId: intent.requestId,
             causeId: intent.causeId,
+            lifetime: intent.lifetime,
           })
         : null;
     if (address.kind === "user") {
@@ -137,7 +151,21 @@ export async function deliverMessage(
       });
       continue;
     }
-    const workItemId = request?.id ?? original?.origin_work_item_id ?? null;
+    let workItemId =
+      intent.targetKind === "followup"
+        ? original.id
+        : (request?.id ?? original?.origin_work_item_id ?? null);
+    if (original && intent.targetKind === "request") {
+      const owner = (
+        await tx.query(
+          `select p.id from request_dependencies d join message_requests p on p.id=d.parent_id
+        where d.child_id=$1 and d.released_at is null and p.recipient_conversation_id=$2 and p.state='open' and p.work_state<>'stopped'
+        order by (p.id=$3) desc,p.created_at,p.id limit 1`,
+          [original.id, address.conversationId, original.origin_work_item_id],
+        )
+      ).rows[0];
+      workItemId = owner?.id ?? workItemId;
+    }
     const item = workItemId
       ? (await tx.query("select state,work_state from message_requests where id=$1", [workItemId]))
           .rows[0]
@@ -154,10 +182,20 @@ export async function deliverMessage(
       )
     ).rows[0];
     let blocked = false;
+    const held =
+      workItemId &&
+      (
+        await tx.query("select 1 from message_waits where work_item_id=$1 and state='active'", [
+          workItemId,
+        ])
+      ).rowCount;
     if (
+      !held &&
       !passive &&
       active?.state === "waiting" &&
-      ["message", "approval", "reply_required", "message_protocol"].includes(active.reason)
+      ["message", "approval", "reply_required", "message_protocol", "tool_input"].includes(
+        active.reason,
+      )
     ) {
       try {
         await conversations.runs.enqueue(tx, {
@@ -172,7 +210,7 @@ export async function deliverMessage(
         blocked = true;
       }
     }
-    if (workItemId && !passive)
+    if (workItemId && !passive && !held)
       await tx.query(
         "update message_requests set work_state='queued',blocked_reason=null where id=$1 and state='open'",
         [workItemId],
@@ -196,6 +234,13 @@ export async function deliverMessage(
       },
       active?.id,
     );
+    if (intent.priority === "expedite" && !passive)
+      await expediteMessage(
+        tx,
+        address.conversationId,
+        `delivery-${dispatch.id}-${address.conversationId}`,
+        senderId,
+      );
     deliveries.push({
       recipient: displayId(address),
       state: "delivered",
@@ -207,13 +252,6 @@ export async function deliverMessage(
       agentId: address.agentId,
     });
   }
-  if (intent.requestId && ["result", "decline"].includes(intent.messageKind))
-    await settleRequest(
-      tx,
-      intent.requestId,
-      dispatch.id,
-      intent.messageKind as "result" | "decline",
-    );
   await canvasEvent(tx, run.canvas_id, "conversation.changed", {
     conversationId: dispatch.conversation_id,
     agentId: senderId,

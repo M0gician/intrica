@@ -98,8 +98,20 @@ export function buildConversationPrompt(
       : "",
     has("wait_for_message")
       ? text(
-          "You advance independent work while replies are pending. You use wait_for_message when a reply is required to continue.",
-          "你在等待回复期间推进独立工作。需要回复才能继续时，你使用 wait_for_message 等待。",
+          "You advance independent work while replies are pending. wait_for_message accepts outgoing requestIds and optional timeoutSeconds. A timeout wakes only you with receipts and progress; you decide on further messages and task completion. You choose whether to wait again, send an allowed target=followup update to the original recipient, or report blocked. Each request allows one automatic followup by default and at most one per wait window. You verify an unknown tool result before considering another invocation.",
+          "你在等待回复期间推进独立工作。wait_for_message 接受已发出请求的 requestIds 和可选 timeoutSeconds。超时仅携带回执及进展唤醒自身，后续消息及任务结束由你决定。你选择再次等待、使用 target=followup 向原接收者补充消息，或报告阻塞。默认每个请求最多自动跟进一次，每个等待窗口最多一次。再次考虑调用工具前，先核实其未知结果。",
+        )
+      : "",
+    has("send_message") && manage
+      ? text(
+          "You use priority=expedite only when new input must interrupt the recipient's current model turn. The recipient has a 30-second cooldown. Started tool effects retain their original receipts. Normal messages enter at a safe context boundary.",
+          "仅在新输入必须打断接收者当前模型执行时使用 priority=expedite。接收者有 30 秒冷却期。已经执行的工具保留原回执。普通消息在可安全追加上下文时进入。",
+        )
+      : "",
+    has("inspect_environment")
+      ? text(
+          "You use list_capabilities for effective execution mode, interpreter paths and registered environments. An environment reference shares cwd, interpreter and instructions as knowledge; current access checks govern each operation. You reuse relevant environments after inspect_environment checks access and runtime identity; recheck task-specific packages before use. You share environmentRefs when handing work off. You verify runtime versions and tool availability before relying on them.",
+          "通过 list_capabilities 查看当前执行方式、解释器路径和已登记环境。环境引用共享工作目录、解释器和使用说明，每次操作受当前权限检查约束。复用相关环境前，通过 inspect_environment 重新检查权限及运行时身份，并按任务核实所需软件包。交接通过 environmentRefs 共享环境。使用前确认运行时版本和工具是否可用。",
         )
       : "",
     has("get_agent_status")
@@ -110,8 +122,8 @@ export function buildConversationPrompt(
       : "",
     has("read")
       ? text(
-          "read retrieves nodes, file paths and indexed skills. You follow nextCursor through the full document until the cursor is null. PDF page starts at 1. PDF text comes from the existing text layer, and page images provide visual evidence. frame selects a still image frame, starting at 0. Animation is verified through actual playback.",
-          "read 读取节点、文件路径和已索引 Skill。你沿 nextCursor 读取全文，直到游标为空。PDF 页码从 1 开始。PDF 文本来自现有文字层，页图提供视觉证据。frame 选择图像静态帧，编号从 0 开始。动画效果通过实际播放验证。",
+          "read retrieves nodes, file paths and indexed skills under separate access checks. Node attachments use immutable published snapshots; path reads use current files. You check contentHash and snapshotVersion. You follow nextCursor; a changed source requires a fresh read. PDF text comes from the existing text layer. PDF page starts at 1 and image frame starts at 0. pages or frames reads up to four distinct positions; thumbnail bounds previews. Capabilities declare text, pages, frames and download support. Animation metadata and still frames support frame analysis. Animation verification requires actual playback.",
+          "read 分别检查节点、文件路径和 Skill 的访问权限。节点附件读取已发布的固定快照，路径读取当前文件。核对 contentHash 和 snapshotVersion。沿 nextCursor 续读；来源变化后重新读取。PDF 文本来自现有文字层，page 从 1 开始；图片 frame 从 0 开始。pages 或 frames 每次读取最多四个不同位置；thumbnail 返回缩略图。capabilities 说明文字、页面、帧和下载能力。动画元数据与静态帧用于分析帧内容，动画效果验证需要实际播放。",
         )
       : "",
     has("rg")

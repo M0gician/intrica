@@ -2,6 +2,7 @@
 export const FILE_IO_SCRIPT = String.raw`
 import { open, mkdir, rename, unlink, readdir, lstat } from 'node:fs/promises';
 import { constants } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 const {name,path,args,temporary}=JSON.parse(process.argv[1]);
 const invalid=message=>{const e=new Error(message);e.code='VALIDATION';throw e};
@@ -21,12 +22,12 @@ const write=async content=>{
 try {
   let value;
   if(name==='read'){
-    const lines=(await read()).split('\n');
+    const fullText=await read(),contentHash=createHash('sha256').update(fullText).digest('hex'),lines=fullText.split('\n');
     const offset=args.offset??1,column=args.column??0,page=lines.slice(offset-1,offset-1+(args.limit??200));
     const full=page.map((line,i)=>i?line:line.slice(column)).join('\n')+(offset+page.length<=lines.length?'\n':''),text=full.slice(0,48000),parts=text.split('\n');
     const clipped=text.length<full.length,nextOffset=clipped?offset+parts.length-1:offset+page.length<=lines.length?offset+page.length:null;
     const nextColumn=clipped?(parts.length===1?column+text.length:parts.at(-1).length):0;
-    value={path,text,totalLines:lines.length,offset,column,returnedLines:page.length?parts.length:0,truncated:nextOffset!==null,nextOffset,nextColumn};
+    value={path,text,contentHash,capabilities:{text:true,pages:false,frames:false,thumbnail:false,download:true},totalLines:lines.length,offset,column,returnedLines:page.length?parts.length:0,truncated:nextOffset!==null,nextOffset,nextColumn};
   }else if(name==='write')value=await write(args.content);
   else if(name==='edit'){
     const text=await read();

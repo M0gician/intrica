@@ -3,7 +3,9 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { useSessionConnection } from "../api/connection";
 import { AgentProfile } from "../features/conversations/AgentProfile";
 import { AgentTimeline } from "../features/conversations/AgentTimeline";
+import { ConversationDiagnostics } from "../features/conversations/ConversationDiagnostics";
 import { ConversationPause } from "../features/conversations/ConversationPause";
+import { ConversationWaits } from "../features/conversations/ConversationWaits";
 import {
   MessageAssociation,
   PendingMessages,
@@ -184,6 +186,15 @@ export function AgentNodePanel({
             />
             {context}
             <PendingMessages requests={data.messageRequests} />
+            <ConversationWaits
+              key={data.conversationId}
+              conversationId={data.conversationId}
+              waits={data.waits}
+            />
+            <ConversationDiagnostics
+              key={`diagnostics-${data.conversationId}`}
+              conversationId={data.conversationId}
+            />
           </>
         }
         events={data.events.filter((e) => e.agentId === node.id || activityRecipient(e, node.id))}

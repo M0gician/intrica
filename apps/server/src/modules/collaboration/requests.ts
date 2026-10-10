@@ -7,6 +7,7 @@ import {
   type Tx,
 } from "../../adapters/postgres/database.js";
 import { appendMessage } from "../execution/messages.js";
+import { releaseDependencies, retainDependency } from "../execution/request-lifecycle.js";
 
 export async function createRequest(
   tx: Tx,
@@ -18,13 +19,14 @@ export async function createRequest(
     originWorkItemId?: string | null | undefined;
     parentRequestId?: string | null | undefined;
     causeId?: string | null | undefined;
+    lifetime?: "exclusive" | "independent" | undefined;
   },
 ) {
-  return (
+  const created = (
     await tx.query(
       `insert into message_requests(id,canvas_id,message_id,sender_kind,sender_conversation_id,sender_agent_id,
-      recipient_conversation_id,recipient_agent_id,origin_work_item_id,parent_request_id,cause_id,recipient_kind)
-     values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      recipient_conversation_id,recipient_agent_id,origin_work_item_id,parent_request_id,cause_id,recipient_kind,lifetime)
+     values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      on conflict(message_id,recipient_conversation_id) do update set message_id=excluded.message_id returning *`,
       [
         id("request"),
@@ -39,9 +41,12 @@ export async function createRequest(
         input.parentRequestId ?? null,
         input.causeId ?? null,
         input.recipient.kind,
+        input.lifetime ?? "exclusive",
       ],
     )
   ).rows[0];
+  if (input.originWorkItemId) await retainDependency(tx, input.originWorkItemId, created.id);
+  return created;
 }
 
 export async function requestForReply(
@@ -173,6 +178,17 @@ export async function associateUserInput(
 }
 
 export async function closeConversationRequests(tx: Tx, conversationIds: string[], reason: string) {
+  const closing = (
+    await tx.query(
+      "select id from message_requests where state='open' and (recipient_conversation_id=any($1::text[]) or sender_conversation_id=any($1::text[]))",
+      [conversationIds],
+    )
+  ).rows;
+  await releaseDependencies(
+    tx,
+    closing.map((r) => r.id),
+    reason,
+  );
   await tx.query(
     `update message_requests set state='cancelled',work_state='closed',blocked_reason=$2,version=version+1,updated_at=now()
     where state='open' and (recipient_conversation_id=any($1::text[]) or sender_conversation_id=any($1::text[]))`,
@@ -210,6 +226,7 @@ export async function settleRequest(
     )
   ).rows[0];
   if (!row) throw new DomainError("REQUEST_CLOSED", "此请求已有最终回执");
+  await releaseDependencies(tx, [requestId], "parent_closed");
   await canvasEvent(tx, row.canvas_id, "conversation.changed", {
     conversationId: row.sender_conversation_id,
     collaborationRequestId: requestId,

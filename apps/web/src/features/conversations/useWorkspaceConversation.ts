@@ -11,6 +11,7 @@ import { useConnection } from "../../app/connection-context";
 import { useModelReady } from "../../components/ModelRequired";
 import { tr } from "../../i18n";
 import { useGraphValue, useStore, useViewValue } from "../../state/store";
+import type { MessageWait } from "./ConversationWaits";
 import type { Receipt } from "./InputReceipt";
 import { useMessageAssociation } from "./MessageRouting";
 import type { UnknownCall } from "./UnknownTools";
@@ -25,6 +26,7 @@ export function useWorkspaceConversation(
 ) {
   const { transport, agentRequest, storage, api, activity } = useSessionConnection();
   const store = useStore();
+  const [waits, setWaits] = useState<MessageWait[]>([]);
   const [messageRequests, setMessageRequests] = useState<MessageRequestView[]>([]);
   const routing = useMessageAssociation(messageRequests);
   const [usage, setUsage] = useState<AgentContextUsage>();
@@ -158,6 +160,7 @@ export function useWorkspaceConversation(
     if (!showing.current || sessionRef.current !== sessionId || abort.current) return null;
     setUnknown(value.unknownTools ?? []);
     setMessageRequests(value.messageRequests ?? []);
+    setWaits(value.waits ?? []);
     setTurns(restoreTurns(value, sessionId));
     const running = Boolean(
       value.run && ["queued", "running", "waiting"].includes(value.run.state),
@@ -414,6 +417,7 @@ export function useWorkspaceConversation(
 
   return {
     messageRequests,
+    waits,
     routing,
     usage,
     setUsage,

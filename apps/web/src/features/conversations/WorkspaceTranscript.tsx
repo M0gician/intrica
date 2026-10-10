@@ -10,6 +10,7 @@ import { FileReferenceView } from "../files/FileReferenceView";
 import { InputReceipt } from "./InputReceipt";
 import { MessageStatus } from "./MessageRouting";
 import { useTranscriptScroll } from "./navigation/use-transcript-scroll";
+import { WaitNotice } from "./WaitNotice";
 import { type ConversationSnapshot, restoreTurns, type Turn } from "./workspace-model";
 
 const MessageNavigation = lazy(() => import("./navigation/MessageNavigation"));
@@ -101,10 +102,14 @@ export function WorkspaceTranscript({
                     {String(turn.data?.senderName || tr("Agent"))} → {tr("工作区助手")}
                   </small>
                 )}
-                <MarkdownLite
-                  text={turn.question}
-                  origin={{ kind: "conversation", id: conversationId }}
-                />
+                {turn.role === "wait_notice" ? (
+                  <WaitNotice data={turn.data ?? {}} />
+                ) : (
+                  <MarkdownLite
+                    text={turn.question}
+                    origin={{ kind: "conversation", id: conversationId }}
+                  />
+                )}
                 <MessageStatus data={turn.data ?? {}} />
                 <InputReceipt conversationId={conversationId} receipt={turn.receipt} />
               </article>

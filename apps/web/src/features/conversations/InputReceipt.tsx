@@ -6,7 +6,7 @@ import "./input-receipt.css";
 
 export type Receipt = {
   messageId: string;
-  state: "sending" | "unread" | "expediting" | "read" | "closed" | "stopped" | "failed";
+  state: "sending" | "unread" | "expediting" | "read" | "closed" | "stopped" | "failed" | "blocked";
   consumedRunId?: string | null;
 };
 export function InputReceipt({
@@ -31,6 +31,7 @@ export function InputReceipt({
     closed: tr("输入已关闭"),
     stopped: tr("输入等待继续"),
     failed: tr("发送失败"),
+    blocked: tr("自动协作已达到上限"),
   }[state];
   const expedite = async () => {
     setExpediting("expediting");

@@ -1,3 +1,4 @@
+import type { EnvironmentRegistry } from "../../adapters/host/environments.js";
 import {
   assertFence,
   canvasEvent,
@@ -31,6 +32,7 @@ export type MessageContext = {
 };
 
 export class MessageService {
+  environments!: EnvironmentRegistry;
   constructor(
     readonly db: Database,
     private readonly conversations: Conversations,
@@ -176,6 +178,15 @@ export class MessageService {
   }
 
   private async files(tx: Tx, context: MessageContext, intent: ResolvedMessage, freeze: boolean) {
+    intent.environments = [];
+    for (const reference of intent.environmentRefs ?? [])
+      intent.environments.push(
+        await this.environments.resolve(
+          { canvasId: context.run.canvas_id, agentId: context.agentId },
+          reference,
+          tx,
+        ),
+      );
     for (const nodeId of intent.fileIds ?? []) {
       if (context.agentId)
         await authorize(

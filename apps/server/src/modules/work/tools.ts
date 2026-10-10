@@ -1,4 +1,5 @@
-import { capabilityTools } from "../../adapters/host/capabilities.js";
+import { capabilityTools, hostCapabilities } from "../../adapters/host/capabilities.js";
+import { EnvironmentRegistry } from "../../adapters/host/environments.js";
 import { cleanEnvironment, type HostExecutor } from "../../adapters/host/executor.js";
 import { canonicalPath } from "../../adapters/host/sandbox.js";
 import { createWebSearchTool } from "../../adapters/host/web-search.js";
@@ -16,6 +17,7 @@ import { collaborationTools } from "./tools/collaboration.js";
 import { toolContext } from "./tools/context.js";
 import { conversationTools } from "./tools/conversations.js";
 import { adaptToolDiscovery } from "./tools/discovery.js";
+import { environmentTools } from "./tools/environments.js";
 import { permissionTools } from "./tools/permissions.js";
 import { readTool } from "./tools/read.js";
 import { reviewTools } from "./tools/reviews.js";
@@ -31,6 +33,31 @@ export class ToolRegistry {
     readonly host: HostExecutor,
     readonly assets: AssetStore,
   ) {}
+
+  async describeCapabilities(canvasId: string, agentId: string | null) {
+    const [effective, available] = await Promise.all([
+      agentCapabilities(this.graph.db, canvasId, agentId),
+      hostCapabilities(),
+    ]);
+    const defaultWorkingDirectory = agentId
+      ? (await this.host.scope({ agentId })).cwd
+      : (process.env.INTRICA_WORKSPACE_DIR ?? process.cwd());
+    return {
+      ...available,
+      effective: {
+        ...effective,
+        defaultWorkingDirectory,
+        executionMode: effective.hostExecution
+          ? "host"
+          : available.isolation
+            ? "isolated"
+            : "unavailable",
+      },
+      environments: await new EnvironmentRegistry(this.host).list({ canvasId, agentId }),
+      environmentMeaning:
+        "References share knowledge only. inspect_environment rechecks current access and runtime identity. Unknown runtime versions are null.",
+    };
+  }
 
   async create(ctx: ExecutionContext, input: ConversationInput): Promise<ToolSet> {
     const capabilities = await agentCapabilities(this.graph.db, ctx.run.canvas_id, input.agentId);
@@ -77,6 +104,7 @@ export class ToolRegistry {
       ...reviewTools(context),
       ...teamTools(context),
     ];
+    tools.push(...environmentTools(context, tools));
     const combined = [
       readTool(context, files.find((t) => t.name === "read")!),
       ...tools.filter((t) => t.name !== "read"),

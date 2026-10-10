@@ -30,8 +30,22 @@ export async function executeToolBatch(
   const settled = await Promise.allSettled(
     batch.map(async (call): Promise<ToolExecution> => {
       const tool = tools.find((t) => t.name === call.name);
+      const observed = call as ToolCall & {
+        observationId?: string;
+        argumentError?: string;
+        modelContentIndex?: number;
+      };
       return background.invoke(tool ?? call.name, `${pendingTurnId}:${call.id}`, call.arguments, {
         inputVersion: toolSchemaVersion,
+        observation: {
+          generationId: pendingTurnId,
+          providerCallId: call.id,
+          ...(observed.observationId ? { observationId: observed.observationId } : {}),
+          ...(observed.argumentError ? { parseError: observed.argumentError } : {}),
+          ...(observed.modelContentIndex !== undefined
+            ? { contentIndex: observed.modelContentIndex }
+            : {}),
+        },
       });
     }),
   );
@@ -45,7 +59,12 @@ export async function executeToolBatch(
     const outcome = item.value;
     if (outcome.waiting === "approval")
       await background.parkApproval(`${pendingTurnId}:${call.id}`);
-    if (!outcome.waiting || outcome.waiting === "message" || outcome.waiting === "approval")
+    if (
+      !outcome.waiting ||
+      outcome.waiting === "message" ||
+      outcome.waiting === "approval" ||
+      outcome.waiting === "tool_input"
+    )
       model.state.messages.push({
         role: "toolResult",
         toolCallId: call.id,

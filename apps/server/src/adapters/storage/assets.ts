@@ -290,6 +290,36 @@ export class AssetStore {
       return null;
     }
   }
+  async originalBytes(assetId: string, maxBytes: number) {
+    const row = await this.get(assetId);
+    if (Number(row.bytes) > maxBytes)
+      throw new DomainError("FILE_LIMIT", "附件超过此次读取的大小限制");
+    const handle = await open(
+      join(this.directory, "assets", row.storage_key, "original"),
+      constants.O_RDONLY | constants.O_NOFOLLOW,
+    );
+    try {
+      const info = await handle.stat();
+      if (!info.isFile() || info.size !== Number(row.bytes))
+        throw new DomainError("TARGET_CHANGED", "附件大小已变化");
+      const data = Buffer.alloc(info.size + 1);
+      let size = 0;
+      while (size < data.length) {
+        const r = await handle.read(data, size, data.length - size, size);
+        if (!r.bytesRead) break;
+        size += r.bytesRead;
+      }
+      const bytes = data.subarray(0, size);
+      if (
+        size !== info.size ||
+        createHash("sha256").update(bytes).digest("hex") !== row.content_hash
+      )
+        throw new DomainError("TARGET_CHANGED", "附件内容已变化");
+      return bytes;
+    } finally {
+      await handle.close();
+    }
+  }
   async stream(assetId: string, thumb = false) {
     const row = await this.get(assetId);
     return {

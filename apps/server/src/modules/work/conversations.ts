@@ -9,6 +9,7 @@ import {
 } from "../../adapters/postgres/database.js";
 import { type PromptLanguage, promptLanguage } from "../../prompt-language.js";
 import { agentIdentity } from "../access/policy.js";
+import { MessageWaits } from "../collaboration/message-waits.js";
 import { associateUserInput, closeConversationRequests } from "../collaboration/requests.js";
 import type { MessageService } from "../collaboration/send-message.js";
 import { cancelAgents } from "../execution/cancellation.js";
@@ -36,6 +37,7 @@ export type ToolsFactory = (ctx: ExecutionContext, input: ConversationInput) => 
 export class Conversations {
   messaging!: MessageService;
   readonly read: ConversationReader;
+  readonly waits: MessageWaits;
   /** Called inside the transaction that creates the member. The inbox owns admission. */
   async assignNewAgent(tx: Tx, runId: string, agentId: string, task: string) {
     if (!task?.trim()) throw new DomainError("VALIDATION", "招募必须提供首次任务");
@@ -64,6 +66,7 @@ export class Conversations {
     readonly models: ModelRegistry,
   ) {
     this.read = new ConversationReader(db, models);
+    this.waits = new MessageWaits(db, runs);
   }
   async language(
     conversationId: string,
@@ -93,7 +96,9 @@ export class Conversations {
     content: unknown,
     runId?: string,
   ) {
-    return appendMessage(tx, conversationId, key, role, content, runId);
+    const seq = await appendMessage(tx, conversationId, key, role, content, runId);
+    if (["message", "trigger"].includes(role)) await this.waits.incoming(tx, conversationId);
+    return seq;
   }
 
   async steer(input: {
@@ -204,6 +209,7 @@ export class Conversations {
         seq,
         association: input.association,
       });
+      await this.waits.incoming(tx, associated.conversationId);
       const executionModel =
         associated.conversationId === conversationId
           ? model

@@ -1,4 +1,5 @@
 import { canvasEvent, type Tx } from "../../adapters/postgres/database.js";
+import { releaseDependencies } from "./request-lifecycle.js";
 import { cancelResourceSchedules } from "./schedules.js";
 import { result } from "./tool-calls.js";
 
@@ -75,6 +76,21 @@ export async function stopConversationInputs(
   conversationIds: string[],
   reason = "stopped",
 ) {
+  const parents = (
+    await tx.query(
+      "select id from message_requests where recipient_conversation_id=any($1::text[]) and state='open'",
+      [conversationIds],
+    )
+  ).rows;
+  await releaseDependencies(
+    tx,
+    parents.map((r) => r.id),
+    reason,
+  );
+  await tx.query(
+    "update message_waits set state='cancelled',release_reason=$2,released_at=now() where conversation_id=any($1::text[]) and state='active'",
+    [conversationIds, reason],
+  );
   await tx.query("update conversations set generation=generation+1 where id=any($1::text[])", [
     conversationIds,
   ]);

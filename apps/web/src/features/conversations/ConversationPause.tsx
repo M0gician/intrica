@@ -2,7 +2,7 @@ import { tr } from "../../i18n";
 import { reasonLabel } from "./MessageRouting";
 
 export function ConversationPause({ reason }: { reason?: string | null | undefined }) {
-  if (["message_protocol", "reply_required", "message"].includes(reason ?? ""))
+  if (["message_protocol", "reply_required", "message", "tool_input"].includes(reason ?? ""))
     return (
       <p role="status" className="conversation-pause">
         {reasonLabel(reason!)}

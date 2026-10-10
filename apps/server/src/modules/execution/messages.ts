@@ -1,5 +1,11 @@
 import { canvasEvent, type Tx } from "../../adapters/postgres/database.js";
 
+export const inputReceiptState = `case when m.consumed_run_id is not null then 'read'
+  when m.content->>'closed'='true' or (m.content->>'workItemId' is null and m.seq<=c.consumed_message_seq) then 'closed'
+  when m.content->>'activationBlocked'='true' then 'blocked'
+  when r.state in('cancelled','failed') or r.cancel_requested_at is not null then 'stopped'
+  when m.expedite_requested_at is not null then 'expediting' else 'unread' end`;
+
 /** Update the existing tool receipt; approvals do not create a second execution. */
 export async function projectToolOutcome(tx: Tx, callId: string) {
   const rows = await tx.query(
@@ -58,7 +64,7 @@ export const currentTeamNotice = `(m.role='team_notice' and not(m.content ? 'act
 ))`;
 
 export const actionableMessage = `(m.content->>'closed' is distinct from 'true' and m.content->>'passive' is distinct from 'true' and (
-  m.role in ('user','trigger')
+  m.role in ('user','trigger','wait_notice')
   or (m.role='message' and m.content ? 'from' and m.run_id is not null and not(m.content ? 'activationBlocked'))
   or (${currentTeamNotice} and m.run_id is not null)
   or (m.role='tool_update' and m.content->>'progress' is distinct from 'true')
@@ -72,6 +78,7 @@ export const actionableMessage = `(m.content->>'closed' is distinct from 'true' 
 ))`;
 
 export const pendingInboxMessage = `(m.content->>'closed' is distinct from 'true' and m.content->>'passive' is distinct from 'true' and ((m.role='message' and m.content ? 'from' and not(m.content ? 'activationBlocked'))
+  or m.role='wait_notice'
   or ${currentTeamNotice}
   or (m.role='permission_notice' and ${actionableMessage})))`;
 

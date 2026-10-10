@@ -1299,6 +1299,28 @@ it.each(["before", "after"] as const)(
   },
 );
 
+it("L11a peer input at the final commit is consumed even when it creates no new request", async () => {
+  const target = await agent(),
+    peer = await agent(),
+    s = await start(target),
+    p = await start(peer);
+  const finish = k.runs.finish.bind(k.runs);
+  let inserted = false;
+  vi.spyOn(k.runs, "finish").mockImplementation(async (...args) => {
+    if (args[0].id !== s.run.id || args[1] !== "succeeded" || inserted) return finish(...args);
+    inserted = true;
+    await p.call("send_message", {
+      target: { kind: "agent", agentId: target.id },
+      kind: "update",
+      message: "peer-only-boundary",
+    });
+    return finish(...args);
+  });
+  await execute(s);
+  expect(inserted).toBe(true);
+  expect(countUser(await checkpoint(target), "peer-only-boundary")).toBe(1);
+});
+
 it("L12 a language-changing user message refreshes the tools as well as the prompt while work is pending", async () => {
   const target = await agent(),
     s = await start(target),

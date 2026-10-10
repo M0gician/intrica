@@ -4,6 +4,7 @@ import { useSessionConnection } from "../../api/connection";
 import { useTranslation } from "../../i18n";
 import { Button } from "../../ui/button";
 import { Field, Input } from "../../ui/field";
+import { ModelDiagnostics } from "./ModelDiagnostics";
 import {
   type DraftRegistration,
   Notice,
@@ -137,6 +138,7 @@ export function Execution({ register }: { register: DraftRegistration }) {
           </fieldset>
         </form>
       )}
+      <ModelDiagnostics />
       {confirmReload && (
         <ReloadDraftDialog
           busy={busy}

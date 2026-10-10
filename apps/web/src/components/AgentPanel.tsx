@@ -1,5 +1,7 @@
 import { newId } from "@intrica/client";
+import { ConversationDiagnostics } from "../features/conversations/ConversationDiagnostics";
 import { ConversationPause } from "../features/conversations/ConversationPause";
+import { ConversationWaits } from "../features/conversations/ConversationWaits";
 import { MessageAssociation, PendingMessages } from "../features/conversations/MessageRouting";
 import { UnknownTools } from "../features/conversations/UnknownTools";
 import { useWorkspaceConversation } from "../features/conversations/useWorkspaceConversation";
@@ -25,6 +27,7 @@ export function AgentPanel({
   useTranslation();
   const {
     messageRequests,
+    waits,
     routing,
     usage,
     setUsage,
@@ -104,6 +107,8 @@ export function AgentPanel({
         </IconButton>
       </div>
       <PendingMessages requests={messageRequests} />
+      <ConversationWaits key={sessionId} conversationId={sessionId} waits={waits} />
+      <ConversationDiagnostics key={`diagnostics-${sessionId}`} conversationId={sessionId} />
       <WorkspaceTranscript
         key={sessionId}
         conversationId={sessionId}

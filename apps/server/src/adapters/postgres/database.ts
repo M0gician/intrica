@@ -189,7 +189,16 @@ export class Database {
           await migrateAddressedMessages(tx);
           version = 14;
         }
-        if (version !== 14) throw new Error("不支持此数据库版本，请使用独立数据库");
+        if (version === 14) {
+          await tx.query(
+            await readFile(
+              join(dirname(path), "migrations/0015-workflow-observability.sql"),
+              "utf8",
+            ),
+          );
+          version = 15;
+        }
+        if (version !== 15) throw new Error("不支持此数据库版本，请使用独立数据库");
         return;
       }
       await tx.query(await readFile(path, "utf8"));

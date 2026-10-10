@@ -11,6 +11,7 @@ import { InputReceipt, type Receipt } from "./InputReceipt";
 import { MessageStatus } from "./MessageRouting";
 import { type Activity, activityKey } from "./model";
 import { ReadMore } from "./ReadMore";
+import { WaitNotice } from "./WaitNotice";
 export function EventTime({ value }: { value: Activity["createdAt"] }) {
   if (!value) return null;
   const date = new Date(value);
@@ -77,6 +78,13 @@ export function TimelineEvent({
           : [];
   const recipientName = (event: Activity, id: string) =>
     name(id, (event.data.recipientNames as Record<string, string> | undefined)?.[id]);
+  if (event.kind === "wait_notice")
+    return (
+      <>
+        <WaitNotice data={event.data} />
+        <EventTime value={event.createdAt} />
+      </>
+    );
   if (["internal_note", "output_error"].includes(event.kind))
     return (
       <DeferredDetails
@@ -214,7 +222,7 @@ export function TimelineEvent({
         </>
       )}
       <MessageStatus data={event.data} />
-      {event.kind === "user" && (
+      {(event.kind === "user" || (event.kind === "message" && event.data.from)) && (
         <InputReceipt
           time={<EventTime value={event.createdAt} />}
           conversationId={event.conversationId}

@@ -9,6 +9,21 @@ export const fileParameters = {
         Type.Union([Type.Literal("auto"), Type.Literal("text"), Type.Literal("image")]),
       ),
       frame: Type.Optional(Type.Integer({ minimum: 0, maximum: 10000 })),
+      frames: Type.Optional(
+        Type.Array(Type.Integer({ minimum: 0, maximum: 10000 }), {
+          minItems: 1,
+          maxItems: 4,
+          uniqueItems: true,
+        }),
+      ),
+      pages: Type.Optional(
+        Type.Array(Type.Integer({ minimum: 1, maximum: 2000 }), {
+          minItems: 1,
+          maxItems: 4,
+          uniqueItems: true,
+        }),
+      ),
+      thumbnail: Type.Optional(Type.Boolean()),
       page: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000 })),
       offset: Type.Optional(Type.Integer({ minimum: 1 })),
       column: Type.Optional(Type.Integer({ minimum: 0, maximum: 1048576 })),

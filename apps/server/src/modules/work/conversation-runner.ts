@@ -6,6 +6,7 @@ import {
   assertFence,
   canvasEvent,
   DomainError,
+  digest,
   id,
   type Tx,
 } from "../../adapters/postgres/database.js";
@@ -58,6 +59,8 @@ export async function executeConversation(
       .filter((t) => t.modelVisible !== false)
       .map((t) => ({
         ...t,
+        schemaVersion: TOOL_SCHEMA_VERSION,
+        executionSchemaHash: digest(t.parameters),
         parameters: t.modelParameters ?? t.parameters,
         execute: async () => {
           throw new Error("Tools must use the durable executor");
@@ -284,12 +287,12 @@ export async function executeConversation(
         const waiting = batch.waiting;
         await checkpoint();
         if (waiting) {
-          if (waiting === "message")
+          if (waiting === "tool_input")
             await service.db.canvas(ctx.run.canvas_id, (tx) =>
-              waitForWork(tx, input.conversationId, input.workItemId, "message"),
+              waitForWork(tx, input.conversationId, input.workItemId, waiting),
             );
           if (pending || (await background.pendingIn(service.db.pool))) {
-            waitingForInput = waiting === "message";
+            waitingForInput = waiting === "message" || waiting === "tool_input";
             await background.wait();
             continue rounds;
           }
@@ -297,7 +300,8 @@ export async function executeConversation(
             ctx.run,
             "waiting",
             async (tx) => {
-              if (waiting === "message" && (await hasUnread(tx))) return false;
+              if ((waiting === "message" || waiting === "tool_input") && (await hasUnread(tx)))
+                return false;
               if (waiting === "approval") {
                 const pending = (
                   await tx.query(

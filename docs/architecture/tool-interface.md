@@ -1,6 +1,6 @@
 # Tool contracts
 
-The registry defines 23 tools. Each model request receives the subset and
+The registry defines 25 tools. Each model request receives the subset and
 parameter schemas that match its current capabilities. Workspace sessions use
 the owner's authority. Model visibility is a discovery decision; every
 execution checks its current authority and run lease.
@@ -8,7 +8,7 @@ execution checks its current authority and run lease.
 | Domain | Tools |
 | --- | --- |
 | Content and execution | `read`, `write`, `edit`, `rg`, `bash` |
-| External capabilities | `web_search`, `mcp`, `list_capabilities` |
+| External capabilities | `web_search`, `mcp`, `list_capabilities`, `register_environment`, `inspect_environment` |
 | Canvas | `read_canvas`, `create_artifact`, `update_node` |
 | Collaboration | `send_message`, `read_conversation`, `get_agent_status`, `get_tool_result`, `wait_for_message` |
 | Team | `hire_agent`, `configure_agent`, `dismiss_agent`, `take_over_run` |
@@ -52,6 +52,52 @@ is zero-based. Do not combine explicit positioning with a cursor. An explicit mo
 only when it equals the cursor mode (or the target default when omitted in the
 cursor). Conflicting modes fail without changing read permissions.
 An empty PDF text layer is not OCR; page images can contain unread evidence.
+
+Node attachments read the published snapshot. A node with a file path but no
+snapshot requires publication or a separate authorized path read. Node and path
+media use one byte reader after their separate access checks. Results include
+content hashes and supported text, page, frame, thumbnail and download operations.
+Snapshot results also include the asset ID and node revision. Continuations bind
+the content hash; replacing a file at the same path invalidates its cursor.
+
+`pages` and `frames` select up to four distinct positions. `thumbnail:true`
+uses small previews. Decoding is bounded to 20 MiB input, 40 million image pixels
+and 8 MiB aggregate previews. Image formats follow the supported PNG, JPEG, WebP,
+GIF and SVG readers. Other files retain their available text/download operations.
+Image text mode returns metadata, not decoded binary text. Animation results
+include frame count, available delays, loop count and duration. These fields and
+still frames do not verify playback.
+
+## Environment references
+
+`register_environment({label,interpreter,cwd,instructions})` records an existing
+runtime. It returns an immutable `{id,version}` reference. The version fingerprints
+the executable's file identity and the working directory's identity. It does not
+certify all installed packages. Known runtime version metadata is explicit;
+unknown versions stay null.
+
+`list_capabilities` returns interpreter paths, effective execution mode, current
+grants and registered environment knowledge. `inspect_environment({id,version})`
+rechecks existence, executable permission, runtime identity and current access.
+`bash({command,environment:{id,version}})` checks again at preparation and dispatch
+and uses the registered cwd. The command still names its interpreter explicitly.
+`send_message.environmentRefs` carries the reference, cwd and usage instructions.
+Sharing knowledge never grants file or execution access. Runtime changes require
+a new registration; task-specific packages still require validation before use.
+
+## Tool-call evidence
+
+Every attempted call has a durable receipt before validation, including unknown
+tools and malformed arguments. Receipts record stage, execution entry, model
+call/observation IDs, schema hashes and retry lineage. Structured input errors
+include paths, expected/actual types and examples derived from the execution
+schema. `INTRICA_TOOL_INPUT_REPAIRS` defaults to two correction opportunities for
+the same error in one work item. Exhaustion parks that work with `tool_input`;
+independent tasks remain eligible. New input can resume the blocked task.
+
+Completed receipts remain immutable under same-ID replay. Started external tools
+with unknown results remain blocked until their outcome is resolved. Input
+correction and message timers do not replay those tools.
 
 ## Typed mutations
 

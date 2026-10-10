@@ -1,0 +1,70 @@
+.conversation-waits,
+.conversation-diagnostics {
+  margin: 8px 12px;
+  padding: 10px;
+  border: 1px solid var(--card-border, #d7d5cf);
+  border-radius: 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.conversation-wait {
+  display: grid;
+  gap: 6px;
+}
+.conversation-wait + .conversation-wait {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--card-border, #d7d5cf);
+}
+.conversation-wait p,
+.conversation-diagnostics p {
+  margin: 4px 0;
+}
+.conversation-wait-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0;
+}
+.conversation-diagnostics summary {
+  cursor: pointer;
+}
+.conversation-diagnostics table {
+  width: 100%;
+  text-align: left;
+  margin: 10px 0;
+}
+.conversation-diagnostics pre {
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 11px;
+}
+
+.agent-event-message {
+  position: relative;
+}
+.agent-event-message > .input-receipt {
+  margin: 6px 0;
+}
+.message-delivery-state .input-expedite {
+  opacity: 1;
+  pointer-events: auto;
+}
+.message-delivery-state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.message-delivery-state .input-receipt {
+  margin: 0;
+}
+.message-delivery-state .input-expedite {
+  position: static;
+}
+
+.agent-event-message:hover > .input-expedite {
+  opacity: 1;
+  pointer-events: auto;
+}
