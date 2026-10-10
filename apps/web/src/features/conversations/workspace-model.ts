@@ -1,5 +1,7 @@
-import type { AgentContextUsage } from "@intrica/contracts";
+import type { AgentContextUsage, MessageRequestView } from "@intrica/contracts";
 import { tr } from "../../i18n";
+import type { MessageWait } from "./ConversationWaits";
+import type { Receipt } from "./InputReceipt";
 import { coalesceToolEvents } from "./tool-display";
 import type { UnknownCall } from "./UnknownTools";
 export type Tool = {
@@ -14,12 +16,17 @@ export type Turn = {
   id: string;
   seq?: number;
   question: string;
+  receipt?: Receipt;
   role?: string;
+  data?: Record<string, unknown>;
   messages: Record<
     string,
     {
       text: string;
+      data?: Record<string, unknown>;
+      kind?: string;
       thinking: string;
+      receipt?: Receipt;
     }
   >;
   tools: Record<string, Tool>;
@@ -39,6 +46,8 @@ export type ConversationMessage = {
 };
 export type ConversationSnapshot = {
   messages: ConversationMessage[];
+  messageRequests?: MessageRequestView[];
+  waits?: MessageWait[];
   unknownTools?: UnknownCall[];
   context?: AgentContextUsage;
   run?: { id: string; state: string; reason?: string; last_event_seq: string } | null;
@@ -55,6 +64,7 @@ export function restoreTurns(value: ConversationSnapshot, sessionId: string): Tu
     })),
   );
   for (const message of records) {
+    if (message.kind === "model_output") continue;
     let turn = restored.at(-1);
     const anchor =
       [
@@ -65,6 +75,7 @@ export function restoreTurns(value: ConversationSnapshot, sessionId: string): Tu
         "run_status",
         "team_notice",
         "context_notice",
+        "wait_notice",
       ].includes(message.kind) ||
       (message.kind === "message" && Boolean(message.data.from));
     if (anchor || !turn) {
@@ -73,6 +84,8 @@ export function restoreTurns(value: ConversationSnapshot, sessionId: string): Tu
         seq: message.seq,
         question: anchor ? String(message.data.text ?? message.data.reason ?? "") : tr("此前会话"),
         role: message.kind,
+        data: message.data,
+        ...(message.data.inputReceipt ? { receipt: message.data.inputReceipt as Receipt } : {}),
         messages: {},
         tools: {},
         timeline: [],
@@ -82,9 +95,15 @@ export function restoreTurns(value: ConversationSnapshot, sessionId: string): Tu
       if (anchor) continue;
     }
     const id = String(message.seq);
-    if (message.kind === "assistant") {
+    if (
+      ["assistant", "message", "internal_note", "output_error", "inference_item"].includes(
+        message.kind,
+      )
+    ) {
       turn.messages[id] = {
         text: String(message.data.text ?? ""),
+        data: message.data,
+        kind: message.kind,
         thinking: String(message.data.thinking ?? ""),
       };
       turn.timeline.push({ kind: "message", id });

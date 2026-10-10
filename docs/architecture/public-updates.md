@@ -29,7 +29,11 @@ Unsupported or incomplete metadata fails explicitly.
   transport, streamed downloads and file verification. Its version export is
   browser-safe; network/file exports are Node-only.
 - `apps/desktop/updates.mjs`: application-scoped update state, scheduling,
-  preferences, cancellation, verified cache reuse and installer handoff.
+  preferences, cancellation, verified cache reuse and durable install state.
+- `apps/desktop/update-installer.mjs` and `update-helper.mjs`: platform identity
+  checks, detached replacement, preserved recovery files and explicit profile restart.
+- `apps/desktop/update-transition.mjs`: signed macOS DMG transition before
+  the normal instance lock or database startup.
 - `apps/server/src/http/updates.ts`: authenticated, read-only version/check
   endpoints with a short check cache and shared in-flight request.
 - `scripts/deploy-server.mjs`: public archive download plus confirmed SSH
@@ -48,7 +52,7 @@ Node transport sends no Authorization or Cookie header. HTTPS redirects are
 bounded and restricted to the fixed release path and GitHub asset CDN hosts.
 Metadata is bounded to 64 KiB; artifact size is bounded. Partial files use
 exclusive names and are committed only after hash/length verification.
-Cached installers are checked again before opening; symlinks are rejected.
+Cached installers are checked again before installation; symlinks are rejected.
 
 The shell installers disable curl configuration files, use fixed version
 URLs and bounded HTTPS redirects, and verify checksums before installation.
@@ -57,8 +61,9 @@ host and digest before applying it. See [SSH deployment](ssh-server-deployment.m
 
 GitHub HTTPS and release controls establish publisher trust. Checksums
 detect changed bytes, not a compromised publisher. Enable immutable releases;
-publish corrections as new versions. Apple notarization remains a separate
-platform distribution requirement.
+publish corrections as new versions. macOS publication requires Developer ID signing and notarization credentials.
+The release workflow verifies both the DMG application and update ZIP. Local
+development packaging can use ad-hoc signing, but cannot pass trusted update checks.
 
 ## Publication and validation
 
@@ -68,9 +73,12 @@ repository and GHCR package visibility must be configured by the owner.
 
 The public-release integration tests use real HTTP and files for discovery,
 hostile redirects, changed latest versions, corruption, cancellation,
-restart-cache reuse and installer handoff. Desktop scheduler tests cover
-backoff, notices and concurrent actions. The manual Update acceptance workflow
-tests two published versions with existing workspace data.
+restart-cache reuse and installer handoff. Desktop tests cover replacement,
+changed targets, launch failure, the migration boundary, profile restoration,
+backoff, notices and concurrent actions. The opt-in Update acceptance workflow
+starts from a disposable installed copy, invokes the product update action and
+attaches to the replacement process. It never copies the replacement or launches
+it on behalf of the updater.
 
 Initial publication does not have a previous public build. Fresh package
 checks and database migration tests cover that case. Live anonymous GitHub

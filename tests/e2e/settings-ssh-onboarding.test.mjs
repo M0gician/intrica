@@ -33,7 +33,7 @@ function Onboarding() {
   const navigation = useSettingsNavigation();
   const actions = {
     profiles, activeId, desktop:true,
-    refresh: async()=>setProfiles(await window.listConnections()),
+    refresh: async()=>{setProfiles(await window.listConnections());setActiveId((await window.activeConnection())?.profileId??null);},
     connect: async profile=>{await window.activateConnection(profile.id);setActiveId(profile.id);},
     disconnect: async profile=>{await window.disconnectConnection(profile.id);setActiveId(null);},
     save: window.saveConnection,
@@ -46,7 +46,7 @@ function Onboarding() {
 createRoot(document.getElementById("root")).render(h(Onboarding));
 </script></body></html>`;
 
-test("SSH onboarding confirms a shared-engine deployment and activates its private connection vault in a native browser", async () => {
+test("SSH onboarding installs the client-matched release and automatically activates its private connection", async () => {
   const dir = await mkdtemp(join(tmpdir(), "intrica-onboarding-flow-"));
   const archive = Buffer.from("isolated test-only native release");
   const token = "only-main-process-knows-this-token";
@@ -90,6 +90,9 @@ test("SSH onboarding confirms a shared-engine deployment and activates its priva
     resolveSsh: (alias, target) => ssh.target(alias, target),
   });
   ssh = createSshManager({
+    version: "0.2.5",
+    userData: dir,
+    activateManaged: (id) => vault.activate(id),
     engine: {
       ...engine,
       deployServer: (options, runtime) =>
@@ -105,7 +108,7 @@ test("SSH onboarding confirms a shared-engine deployment and activates its priva
         if (command === "ssh" && args.includes("-G"))
           return "user example\nhostname empty-linux-machine\nport 22\n";
         if (options.input === engine.preflightScript)
-          return "platform=linux\narchitecture=x64\ninstallation=/home/example/.local/share/intrica-server\nconfig=/home/example/.config/intrica/server.json\nconfigured=no\ncurrent=\nrelease=\nservice=inactive\nhealthy=no\nsandbox=required\nsandboxAvailable=no\n";
+          return "platform=linux\narchitecture=x64\ninstallation=/home/example/.local/share/intrica-server\nconfig=/home/example/.config/intrica/server.json\nconfigured=no\ncurrent=\nrelease=\nservice=inactive\nhealthy=no\nsandbox=required\nsandboxAvailable=no\nuser=example\nuid=1000\nlinger=yes\nuserManager=yes\nprerequisiteError=\n";
         if (options.input?.startsWith("umask 077\nmktemp")) return "/tmp/intrica-deploy.ABC1234567";
         if (options.inputFile) {
           assert.deepEqual(await readFile(options.inputFile), archive);
@@ -160,8 +163,16 @@ test("SSH onboarding confirms a shared-engine deployment and activates its priva
     await page.exposeFunction("disconnectConnection", (id) => vault.disconnect(id));
     await page.exposeFunction("sshAliases", () => ssh.aliases());
     await page.exposeFunction("sshInspect", (alias) => ssh.inspect(alias));
-    await page.exposeFunction("sshPlan", (input) => ssh.plan(input));
-    await page.exposeFunction("sshApply", (input) => ssh.apply(input));
+    await page.exposeFunction("sshState", (input) => ssh.state(input));
+    await page.exposeFunction("sshInstall", (input) => ssh.install(input));
+    await page.exposeFunction("sshCancel", (id) => ssh.cancel(id));
+    await page.exposeFunction("activeConnection", () => {
+      try {
+        return vault.get();
+      } catch {
+        return null;
+      }
+    });
     await page.exposeFunction("listConnections", () =>
       vault.list().filter((profile) => !profile.local),
     );
@@ -175,52 +186,24 @@ test("SSH onboarding confirms a shared-engine deployment and activates its priva
           connect: (target) => window.sshConnect(target),
           aliases: () => window.sshAliases(),
           inspect: (alias) => window.sshInspect(alias),
-          plan: (input) => window.sshPlan(input),
-          apply: (input) => window.sshApply(input),
+          state: (input) => window.sshState(input),
+          install: (input) => window.sshInstall(input),
+          cancel: (id) => window.sshCancel(id),
         },
       };
     });
     await page.goto(`http://127.0.0.1:${renderer.httpServer.address().port}/__ssh_onboarding`);
     await page.getByRole("button", { name: "添加服务器", exact: true }).click();
     await page.getByRole("radio", { name: "empty-machine", exact: true }).check();
-    await page.getByRole("button", { name: "部署 Intrica…", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "通过 SSH 部署", exact: true });
-    await dialog.getByLabel("目标稳定版本").fill("v0.2.5");
-    await expect(
-      dialog.getByText("此主机的工具沙箱不可用。请配置 Bubblewrap，或明确选择无沙箱模式。"),
-    ).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "生成部署计划", exact: true })).toBeDisabled();
-    await dialog.getByRole("checkbox", { name: "无沙箱模式", exact: true }).check();
-    await expect(dialog.getByRole("alert")).toContainText("服务账号");
-    await dialog.getByRole("button", { name: "生成部署计划", exact: true }).click();
-    await expect(dialog.getByText("example@empty-linux-machine:22 (empty-machine)")).toBeVisible();
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "安装并连接", exact: true });
+    await expect(dialog.getByLabel("目标稳定版本")).toHaveCount(0);
+    const deploy = dialog.getByRole("button", { name: "安装并连接", exact: true });
+    await expect(deploy).toBeDisabled();
+    await dialog.getByRole("radio", { name: "使用服务账号权限", exact: true }).check();
     assert.equal(installed, false);
-    assert.equal(
-      calls.some((call) => call.args.includes("download")),
-      false,
-    );
-    const deploy = dialog.getByRole("button", { name: "部署并保存连接", exact: true });
-    await expect(deploy).toBeDisabled();
-    await dialog
-      .getByRole("checkbox", {
-        name: "我已核对服务器、版本和工具执行权限，同意部署并保存连接",
-        exact: true,
-      })
-      .check();
-    await dialog.getByRole("checkbox", { name: "无沙箱模式", exact: true }).uncheck();
-    await expect(deploy).toHaveCount(0);
-    await expect(dialog.getByRole("button", { name: "生成部署计划", exact: true })).toBeDisabled();
-    await dialog.getByRole("checkbox", { name: "无沙箱模式", exact: true }).check();
-    await dialog.getByRole("button", { name: "生成部署计划", exact: true }).click();
-    await expect(deploy).toBeDisabled();
-    await dialog
-      .getByRole("checkbox", {
-        name: "我已核对服务器、版本和工具执行权限，同意部署并保存连接",
-        exact: true,
-      })
-      .check();
     await deploy.click();
-    await expect(dialog.getByText("部署已验证，SSH 连接已保存。返回列表即可连接。")).toBeVisible();
+    await expect(dialog.getByText("安装完成，已连接服务器", { exact: true })).toBeVisible();
     assert.equal(installed, true);
     const profile = vault.list().find((entry) => entry.sshAlias === "empty-machine");
     assert.equal(profile.hasToken, true);
@@ -233,7 +216,6 @@ test("SSH onboarding confirms a shared-engine deployment and activates its priva
     await page.getByRole("button", { name: `管理连接：${profile.label}`, exact: true }).click();
     await page.getByRole("button", { name: "连接详情", exact: true }).click();
     await expect(page.getByText("令牌：通过 SSH 获取")).toBeVisible();
-    await page.getByRole("switch", { name: `连接服务器：${profile.label}`, exact: true }).click();
     await expect(
       page.getByRole("switch", { name: `连接服务器：${profile.label}`, exact: true }),
     ).toBeChecked();
@@ -261,7 +243,12 @@ test("SSH onboarding confirms a shared-engine deployment and activates its priva
     await manual.getByLabel("主机地址", { exact: true }).fill("manual.example.test");
     await manual.getByLabel("用户名", { exact: true }).fill("researcher");
     await manual.getByLabel("端口", { exact: true }).fill("2222");
-    await manual.getByRole("button", { name: "添加", exact: true }).click();
+    await manual.getByRole("button", { name: "下一步", exact: true }).click();
+    const manualSetup = page.getByRole("dialog", { name: "安装并连接", exact: true });
+    await manualSetup.getByRole("radio", { name: "使用服务账号权限", exact: true }).check();
+    await manualSetup.getByRole("button", { name: "安装并连接", exact: true }).click();
+    await expect(manualSetup.getByText("安装完成，已连接服务器", { exact: true })).toBeVisible();
+    await manualSetup.getByRole("button", { name: "返回服务器列表", exact: true }).click();
     await expect(manual).toHaveCount(0);
     const savedManual = vault.list().find((profile) => profile.sshTarget);
     assert.deepEqual(savedManual.sshTarget, {
@@ -275,9 +262,6 @@ test("SSH onboarding confirms a shared-engine deployment and activates its priva
     assert.ok(manualCall.args.includes("StrictHostKeyChecking=yes"));
     assert.equal(manualCall.args[manualCall.args.indexOf("-l") + 1], "researcher");
     assert.equal(manualCall.args[manualCall.args.indexOf("-p") + 1], "2222");
-    await page
-      .getByRole("switch", { name: `连接服务器：${savedManual.label}`, exact: true })
-      .click();
     await expect(
       page.getByRole("switch", { name: `连接服务器：${savedManual.label}`, exact: true }),
     ).toBeChecked();

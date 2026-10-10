@@ -89,9 +89,15 @@ export async function resolveToolOutcome(
       (m: any) => m.role === "toolResult" && m.intricaCallId === callId,
     );
     const entry = pendingEntry(call, c.checkpoint, c.context);
-    if (linked) Object.assign(linked, { content: output.content, isError: output.isError });
-    else if (entry && decision !== "retry")
+    if (linked && !call.primary_response)
+      Object.assign(linked, { content: output.content, isError: output.isError });
+    else if (entry && decision !== "retry") {
       closeCheckpointCall(c.checkpoint, entry, output, callId, output.isError);
+      await tx.query(
+        "update tool_calls set primary_response=coalesce(primary_response,$2) where id=$1",
+        [callId, JSON.stringify(c.checkpoint[entry.index + 1])],
+      );
+    }
     if (decision === "retry" && !call.is_async)
       c.context = { ...c.context, pendingTurnId: id("turn") };
     if (linked || entry)
@@ -107,6 +113,7 @@ export async function resolveToolOutcome(
       "tool_update",
       {
         callId,
+        workItemId: call.work_item_id,
         name: call.name,
         status: decision === "done" ? "succeeded" : "failed",
         resolution: note,

@@ -95,7 +95,7 @@ jobs:
       - name: Functional and integration tests
         run: |
           node --test scripts/check-canvas-snapshot.test.mjs
-          node --test scripts/deploy-server.test.mjs scripts/install-server.test.mjs scripts/service-sandbox.test.mjs
+          node --test scripts/deploy-server.test.mjs scripts/server-prerequisites.test.mjs scripts/install-server.test.mjs scripts/service-sandbox.test.mjs
           node --test tests/integration/public-releases.test.mjs
           node scripts/ci-tests.mjs functional
 
@@ -119,13 +119,13 @@ jobs:
           INTRICA_E2E_PREVIEW: "1"
         run: |
           node scripts/ci-tests.mjs browser
-          node --test --test-concurrency=1 tests/e2e/desktop-update-layout.test.mjs tests/e2e/settings-ssh.test.mjs tests/e2e/settings-ssh-onboarding.test.mjs
+          node --test --test-concurrency=1 tests/e2e/desktop-update-layout.test.mjs tests/e2e/input-receipt-layout.test.mjs tests/e2e/file-reference-interactions.test.mjs tests/e2e/settings-ssh.test.mjs tests/e2e/settings-ssh-onboarding.test.mjs
 
       - name: Prepare Electron icons
         run: pnpm --filter @intrica/desktop run icons
 
       - name: Desktop connection and update modules
-        run: node --test apps/desktop/connections.test.mjs apps/desktop/ssh.test.mjs apps/desktop/updates.test.mjs apps/desktop/files.test.mjs
+        run: node --test apps/desktop/connections.test.mjs apps/desktop/ssh.test.mjs apps/desktop/ssh-operations.test.mjs apps/desktop/updates.test.mjs apps/desktop/update-installer.test.mjs apps/desktop/files.test.mjs
 
       - name: Electron E2E on Linux
         if: runner.os == 'Linux'

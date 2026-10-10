@@ -227,10 +227,10 @@ test("已处理申请保留原历史位置；统一按钮发送、追加、停�
       data: {
         id: "logical-report",
         callId: "delayed-report",
-        name: "report_result",
+        name: "send_message",
         status: "error",
         approvalStatus: "expired",
-        args: { message: "QA 已完成" },
+        args: { kind: "result", target: { kind: "manager" }, message: "QA 已完成" },
         result: { content: [{ type: "text", text: '{"status":"expired","executed":false}' }] },
       },
     },

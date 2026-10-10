@@ -50,20 +50,24 @@ describe("buildSystemPrompt", () => {
     expect(buildSystemPrompt("expand")).toContain("at least 1 item");
     for (const language of ["en", "zh-CN"] as const) {
       const conversation = buildConversationPrompt(language, {
+        availableTools: ["read", "send_message", "rg"],
+        policy: { followupLimit: 1, toolInputRepairs: 2, agentExpediteCooldownSeconds: 30 },
         agent: true,
         persona: "USER_PERSONA 保留原文",
         selection: ["n-1"],
         asyncSeconds: 30,
       });
       expect(conversation).toContain("USER_PERSONA 保留原文");
-      expect(conversation).toContain("report_result");
+      expect(conversation).toContain("n-1");
+      expect(conversation).toContain("send_message");
+      expect(conversation).not.toContain("report_result");
       expect(conversation).toContain("30");
       expect(conversation).toContain(
-        language === "en" ? "not serialized by path" : "不按路径或提交顺序串行",
+        language === "en" ? "write has a verified result" : "写入确认成功后",
       );
       expect(conversation).toContain("truncated/reasons/skipped");
       expect(conversation).toContain("nextCursor");
-      expect(conversation).toContain("OCR");
+      expect(conversation).toContain(language === "en" ? "existing text layer" : "现有文字层");
       expect(buildCompactionPrompt(language, false)).toContain("6000");
       expect(buildSystemPrompt("expand", language)).toContain(
         '"items":[{"title":string,"text":string}]',

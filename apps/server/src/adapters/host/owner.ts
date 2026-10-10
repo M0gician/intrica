@@ -1,21 +1,14 @@
 import { constants } from "node:fs";
-import { mkdir, open, readdir, readFile, stat } from "node:fs/promises";
+import { mkdir, open, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { spawn } from "node-pty";
 import { boundedText } from "../model/model-discovery.js";
 import { DomainError, id } from "../postgres/database.js";
 import { canonicalPath, cleanEnvironment } from "./executor.js";
+import { readFilePreview } from "./file-preview.js";
 import { readMedia } from "./media-read.js";
 
-const imageMimes: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  webp: "image/webp",
-  gif: "image/gif",
-  svg: "image/svg+xml",
-};
 type Terminal = {
   pty: ReturnType<typeof spawn>;
   chunks: { seq: number; data: string }[];
@@ -34,8 +27,9 @@ export class OwnerHost {
     }, 60000);
     this.cleanup.unref();
   }
-  async download(path: string) {
+  async download(path: string, strict = false) {
     const canonical = await canonicalPath(path);
+    if (strict && canonical !== path) throw new DomainError("TARGET_CHANGED", "文件路径目标已变化");
     const handle = await open(canonical, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const info = await handle.stat();
@@ -114,21 +108,7 @@ export class OwnerHost {
     }
     if (method === "file") {
       const path = await canonicalPath(args.path);
-      const info = await stat(path);
-      const mime = /\.pdf$/i.test(path)
-        ? "application/pdf"
-        : imageMimes[path.split(".").at(-1)?.toLowerCase() ?? ""];
-      if (!info.isFile() || info.size > (mime ? 20 : 1) * 1024 * 1024)
-        throw new DomainError("FILE_LIMIT", "文件超过预览大小限制");
-      const data = await readFile(path);
-      if (mime) return { path, name: basename(path), mime, data: data.toString("base64") };
-      if (data.includes(0)) throw new DomainError("VALIDATION", "不支持二进制文件预览");
-      return {
-        path,
-        name: basename(path),
-        mime: "text/plain",
-        text: new TextDecoder("utf-8", { fatal: true }).decode(data),
-      };
+      return readFilePreview(path);
     }
     if (method === "web-title") {
       let target = new URL(args.url);

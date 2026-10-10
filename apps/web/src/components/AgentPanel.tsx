@@ -1,5 +1,8 @@
 import { newId } from "@intrica/client";
+import { ConversationDiagnostics } from "../features/conversations/ConversationDiagnostics";
 import { ConversationPause } from "../features/conversations/ConversationPause";
+import { ConversationWaits } from "../features/conversations/ConversationWaits";
+import { MessageAssociation, PendingMessages } from "../features/conversations/MessageRouting";
 import { UnknownTools } from "../features/conversations/UnknownTools";
 import { useWorkspaceConversation } from "../features/conversations/useWorkspaceConversation";
 import { WorkspaceTranscript } from "../features/conversations/WorkspaceTranscript";
@@ -9,6 +12,7 @@ import { ContextUsageRing } from "./ContextUsageRing";
 import { IconButton, IconPlus } from "./icons";
 import { MentionComposerInput } from "./MentionComposerInput";
 import { ModelPicker } from "./ModelPicker";
+import { ModelRequired } from "./ModelRequired";
 export function AgentPanel({
   active = true,
   composeRequest,
@@ -22,6 +26,9 @@ export function AgentPanel({
 } = {}) {
   useTranslation();
   const {
+    messageRequests,
+    waits,
+    routing,
     usage,
     setUsage,
     question,
@@ -36,7 +43,7 @@ export function AgentPanel({
     sending,
     setSending,
     busy,
-    mock,
+    modelReady,
     selection,
     graph,
     canvasId,
@@ -82,10 +89,7 @@ export function AgentPanel({
         </p>
       )}
       <div className="agent-context">
-        <span>
-          {tr("当前画布 · 已选 {{v0}} 项", { v0: selection.size })}
-          {mock ? tr("· 模拟模型") : ""}
-        </span>
+        <span>{tr("当前画布 · 已选 {{v0}} 项", { v0: selection.size })}</span>
         <IconButton
           label={tr("新会话")}
           disabled={busy}
@@ -102,6 +106,9 @@ export function AgentPanel({
           <IconPlus />
         </IconButton>
       </div>
+      <PendingMessages requests={messageRequests} />
+      <ConversationWaits key={sessionId} conversationId={sessionId} waits={waits} />
+      <ConversationDiagnostics key={`diagnostics-${sessionId}`} conversationId={sessionId} />
       <WorkspaceTranscript
         key={sessionId}
         conversationId={sessionId}
@@ -119,6 +126,7 @@ export function AgentPanel({
           void ask();
         }}
       >
+        <MessageAssociation routing={routing} />
         <MentionComposerInput
           aria-label={tr("模型问题")}
           maxLength={8000}
@@ -138,6 +146,7 @@ export function AgentPanel({
           <ContextUsageRing usage={usage} />
           <ModelPicker label={tr("对话模型")} selection={model} onSelectionChange={setModel} />
           <ComposerAction
+            modelReady={modelReady}
             hasText={Boolean(question.trim())}
             running={busy}
             interrupted={Boolean(
@@ -147,6 +156,7 @@ export function AgentPanel({
             onStop={stop}
           />
         </div>
+        <ModelRequired selection={model} />
       </form>
     </div>
   );

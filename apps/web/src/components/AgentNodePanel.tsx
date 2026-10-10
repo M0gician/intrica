@@ -3,8 +3,16 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { useSessionConnection } from "../api/connection";
 import { AgentProfile } from "../features/conversations/AgentProfile";
 import { AgentTimeline } from "../features/conversations/AgentTimeline";
+import { ConversationDiagnostics } from "../features/conversations/ConversationDiagnostics";
 import { ConversationPause } from "../features/conversations/ConversationPause";
+import { ConversationWaits } from "../features/conversations/ConversationWaits";
+import {
+  MessageAssociation,
+  PendingMessages,
+  useMessageAssociation,
+} from "../features/conversations/MessageRouting";
 import { activityRecipient } from "../features/conversations/model";
+import { ResourceResponse } from "../features/conversations/ResourceResponse";
 import { UnknownTools } from "../features/conversations/UnknownTools";
 import { useAgentActivity } from "../features/conversations/useAgentActivity";
 import { useAgentProfile } from "../features/conversations/useAgentProfile";
@@ -18,6 +26,7 @@ import { ComposerAction } from "./ComposerAction";
 import { ContextUsageRing } from "./ContextUsageRing";
 import { MentionComposerInput } from "./MentionComposerInput";
 import { ModelPicker } from "./ModelPicker";
+import { ModelRequired, useModelReady } from "./ModelRequired";
 export function AgentNodePanel({
   node,
   nodes,
@@ -66,6 +75,7 @@ export function AgentNodePanel({
     interrupted,
     act,
   } = useAgentActivity(node.id, active, focusRequest);
+  const routing = useMessageAssociation(data.messageRequests);
   const profile = useAgentProfile({ node, onSave, onRename, setError });
   const {
     draft,
@@ -76,6 +86,7 @@ export function AgentNodePanel({
     saveConfig,
     titleSave,
   } = profile;
+  const modelReady = useModelReady(draft.model);
   const [message, setMessage] = useState(() => readAgentDraft(storageKey(node.id)));
   const [draftPersistent, setDraftPersistent] = useState(true);
   const panel = useRef<HTMLDivElement>(null);
@@ -103,6 +114,16 @@ export function AgentNodePanel({
   return (
     <div className="agent-node-panel" ref={panel}>
       <ConversationPause reason={data.runReason} />
+      {data.configurationBlocked && data.resourceResponse?.reason !== "model_not_configured" && (
+        <p role="status">{tr("自动任务等待模型配置。")}</p>
+      )}
+      <ResourceResponse
+        status={data.resourceResponse}
+        busy={busy}
+        onRetry={(expectedRevision) => {
+          void act(`canvas-agents/${node.id}/resource-response/retry`, { expectedRevision });
+        }}
+      />
       <UnknownTools
         calls={data.unknownTools ?? []}
         busy={busy}
@@ -164,6 +185,16 @@ export function AgentNodePanel({
               setError={setError}
             />
             {context}
+            <PendingMessages requests={data.messageRequests} />
+            <ConversationWaits
+              key={data.conversationId}
+              conversationId={data.conversationId}
+              waits={data.waits}
+            />
+            <ConversationDiagnostics
+              key={`diagnostics-${data.conversationId}`}
+              conversationId={data.conversationId}
+            />
           </>
         }
         events={data.events.filter((e) => e.agentId === node.id || activityRecipient(e, node.id))}
@@ -191,11 +222,12 @@ export function AgentNodePanel({
         className="agent-compose"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (data.unknownTools?.length) return;
+          if (busy || !modelReady || data.unknownTools?.length) return;
           if (!message.trim() && data.supersededByRunId) return;
           const sent = message;
           if (!(await titleSave.current) || !(await saveConfig())) return;
           const ok = await act(`canvas-agents/${node.id}/run`, {
+            association: routing.association,
             ...(data.runId &&
             (data.runReason === "tool_contract_upgrade" ||
               (!message.trim() && (interrupted || data.runState === "waiting")))
@@ -218,6 +250,7 @@ export function AgentNodePanel({
           }
         }}
       >
+        <MessageAssociation routing={routing} />
         <MentionComposerInput
           aria-label={tr("Agent 任务")}
           value={message}
@@ -236,6 +269,7 @@ export function AgentNodePanel({
           }}
           placeholder={tr("给这个 Agent 一个任务\u2026")}
         />
+        <ModelRequired selection={draft.model} />
         {!draftPersistent && (
           <small role="status">{tr("浏览器存储不可用，草稿仅保留在当前窗口。")}</small>
         )}
@@ -284,6 +318,7 @@ export function AgentNodePanel({
             onSelectionChange={(model) => saveConfig({ model })}
           />
           <ComposerAction
+            modelReady={modelReady}
             hasText={Boolean(message.trim())}
             running={data.running}
             interrupted={

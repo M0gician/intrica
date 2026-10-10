@@ -7,7 +7,10 @@ import {
 } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentContextUsage } from "@intrica/contracts";
+import { contextManifest, provenance } from "../../modules/inference/context-projection.js";
+import type { ContextMessage } from "../../modules/inference/types.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
+import { digest } from "../postgres/database.js";
 import { type Agent, createCanvasAgent } from "./agent.js";
 import { modelCapabilities, modelContextWindow } from "./model-catalog.js";
 import { buildCompactionPrompt } from "./prompt.js";
@@ -65,7 +68,8 @@ export function contextTail(
         tail,
       };
   }
-  return { older: messages, tail: messages.slice(-1).filter((m) => m.role === "user") };
+  const tail = messages.slice(-1).filter((m) => m.role === "user");
+  return { older: tail.length ? messages.slice(0, -tail.length) : messages, tail };
 }
 
 export function contextUsage(
@@ -137,29 +141,7 @@ export function checkpointMessages(
     ),
   );
   return messages
-    .map((m): AgentMessage => {
-      if (m.role !== "assistant" || !["error", "aborted"].includes(m.stopReason)) return m;
-      const draft = m.content
-        .flatMap((part) =>
-          part.type === "text" ? [part.text] : part.type === "thinking" ? [part.thinking] : [],
-        )
-        .join("\n")
-        .trim();
-      // Provider-specific reasoning signatures and incomplete tool calls cannot be replayed.
-      const { errorMessage: _error, ...message } = m;
-      return {
-        ...message,
-        stopReason: "stop",
-        content: draft
-          ? [
-              {
-                type: "text",
-                text: `${promptText(language, "[Interrupted unfinished draft: reference only, not evidence that tools ran or work completed]", "[此前中断的未完成草稿，仅供继续任务参考，不代表工具已执行或任务已完成]")}\n${draft}`,
-              },
-            ]
-          : [],
-      };
-    })
+    .filter((m) => m.role !== "assistant" || !["error", "aborted"].includes(m.stopReason))
     .filter((m) => m.role !== "toolResult" || calls.has(m.toolCallId))
     .map((m) => {
       if (m.role === "assistant")
@@ -277,6 +259,7 @@ export type ContextSummary = {
   summary: string;
   memory?: { title: string; text: string };
   retainedTail: AgentMessage[];
+  coveredContextSeqs: string[];
 };
 /** Uses the same PI transport/key/model selection as normal turns; no graph tools during maintenance. */
 export async function summarizeContext(
@@ -288,9 +271,13 @@ export async function summarizeContext(
 ): Promise<ContextSummary> {
   if (signal?.aborted) throw new Error("上下文整理已停止");
   const parts = contextTail(messages, modelContextWindow(config).contextWindow, language);
+  const coveredContextSeqs = parts.older.flatMap((m) =>
+    provenance(m).contextSeq ? [provenance(m).contextSeq!] : [],
+  );
   if (config.kind === "mock")
     return {
       retainedTail: parts.tail,
+      coveredContextSeqs,
       summary: promptText(
         language,
         "Earlier tasks, results, and next steps have been summarized.",
@@ -344,7 +331,22 @@ export async function summarizeContext(
           ? source
           : `${promptText(language, "Return only a complete Markdown conversation summary, without JSON, introductions, or notes. Preserve tasks, constraints, key paths, completed and pending work, within 6000 characters.", "请仅输出完整的 Markdown 会话摘要，不要 JSON、开场说明或笔记；保留任务、约束、关键路径、已完成和待完成事项，最多 6000 字符。")}\n${source}`;
       try {
-        await withModelPurpose("compaction", () => summarizer.prompt(instruction));
+        summarizer.state.messages = [
+          {
+            role: "user",
+            content: instruction,
+            timestamp: Date.now(),
+            intrica: {
+              coveredContextSeqs,
+              snapshotContextSeq: contextManifest(messages).contextSeq,
+              compactionSource: {
+                hash: digest(serialized),
+                excerpt: attempt ? { prefix: 2000, suffix: 22000 } : null,
+              },
+            },
+          } as ContextMessage,
+        ];
+        await withModelPurpose("compaction", () => summarizer.turn(signal));
       } catch (error) {
         failure = error instanceof Error ? error.message.slice(0, 300) : "供应商错误";
         continue;
@@ -368,6 +370,7 @@ export async function summarizeContext(
     if (!value) throw new Error(`上下文整理未完成：${failure}；原会话已保留，可继续重试。`);
     return {
       summary: value.summary,
+      coveredContextSeqs,
       retainedTail: parts.tail,
       ...(saveMemory && value.memory
         ? { memory: { title: value.memory.title.slice(0, 120), text: value.memory.text } }

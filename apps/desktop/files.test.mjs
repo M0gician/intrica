@@ -1,9 +1,54 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createFileDownloads } from "./files.mjs";
+
+test("scoped downloads verify the published digest before replacing the destination", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "intrica-digest-"));
+  const target = join(directory, "version.bin");
+  const data = Buffer.from([0, 255, 1, 2, 3]);
+  await writeFile(target, "kept");
+  try {
+    for (const valid of [false, true]) {
+      const hash = createHash("sha256")
+        .update(valid ? data : "wrong")
+        .digest("hex");
+      const files = createFileDownloads(
+        {
+          get: () => ({ bindingId: "a" }),
+          forward: async (_req, _binding, path) => {
+            assert.equal(path, "/api/v2/files/download?reference=encoded-reference");
+            return new Response(data, { headers: { etag: `"sha256-${hash}"` } });
+          },
+        },
+        async () => target,
+      );
+      try {
+        const result = files.save({
+          id: `hash-${valid}`,
+          bindingId: "a",
+          referenceId: "encoded-reference",
+          name: "file",
+        });
+        if (valid) {
+          await result;
+          assert.deepEqual(await readFile(target), data);
+        } else {
+          await assert.rejects(result, /checksum|digest|hash/i);
+          assert.equal(await readFile(target, "utf8"), "kept");
+        }
+        assert.deepEqual(await readdir(directory), ["version.bin"]);
+      } finally {
+        files.close();
+      }
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 async function waitFor(check) {
   const deadline = Date.now() + 2000;

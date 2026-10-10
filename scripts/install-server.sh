@@ -2,6 +2,56 @@
 set -euo pipefail
 umask 077
 
+# BEGIN INTRICA_PREREQUISITES
+# Shared with the desktop/CLI doctor. Inspect never changes host settings.
+intrica_problem() {
+  printf 'INTRICA_ERROR=%s\nINTRICA_UID=%s\n' "$1" "${intrica_uid:-}" >&2
+  printf '%s\n' "$2" >&2
+  exit 1
+}
+intrica_prerequisites() {
+  test "$(uname -s)-$(uname -m)" = Linux-x86_64 || intrica_problem UNSUPPORTED_PLATFORM 'Linux x64 with systemd is required.'
+  intrica_uid=$(id -u)
+  intrica_user=$(id -un)
+  case "$intrica_uid" in ''|0|*[!0-9]*) intrica_problem INVALID_ACCOUNT 'Use a non-root service account.' ;; esac
+  for intrica_program in bash systemctl loginctl sha256sum tar flock; do
+    command -v "$intrica_program" >/dev/null || intrica_problem MISSING_PREREQUISITE "Required command: $intrica_program"
+  done
+  intrica_linger=unknown
+  intrica_blocker=
+  if intrica_value=$(loginctl show-user "$intrica_uid" -p Linger --value 2>&1); then
+    case "$intrica_value" in
+      yes|no) intrica_linger=$intrica_value ;;
+      *) intrica_blocker=LINGER_QUERY_FAILED ;;
+    esac
+  else
+    intrica_blocker=LINGER_QUERY_FAILED
+  fi
+  intrica_detail=
+  if test -n "$intrica_blocker"; then
+    intrica_detail=${intrica_value//$'\n'/ }
+    intrica_detail=${intrica_detail//$'\r'/ }
+  fi
+  if test "$1" = prepare; then
+    test -z "$intrica_blocker" || intrica_problem "$intrica_blocker" "Cannot query the remote account linger setting: $intrica_detail"
+    if test "$intrica_linger" = no; then
+      printf 'INTRICA_STEP=preparing\n'
+      loginctl --no-ask-password enable-linger "$intrica_uid" >/dev/null 2>&1 || intrica_problem LINGER_PERMISSION_REQUIRED "Enable background user services on the remote host: loginctl enable-linger $intrica_uid"
+      intrica_linger=$(loginctl show-user "$intrica_uid" -p Linger --value 2>/dev/null) || intrica_problem LINGER_QUERY_FAILED 'Cannot verify the remote linger setting.'
+      test "$intrica_linger" = yes || intrica_problem LINGER_NOT_ENABLED 'Linger is still disabled after the preparation step.'
+      printf 'INTRICA_LINGER_CHANGED=yes\n'
+    fi
+  fi
+  intrica_user_manager=no
+  if systemctl --user show-environment >/dev/null 2>&1; then intrica_user_manager=yes; fi
+  if test "$1" = prepare && test "$intrica_user_manager" != yes; then
+    intrica_problem USER_MANAGER_UNAVAILABLE 'The systemd user manager is unavailable. Check the remote login session.'
+  fi
+  printf 'platform=linux\narchitecture=x64\nuser=%s\nuid=%s\nlinger=%s\nuserManager=%s\nprerequisiteError=%s\n' "$intrica_user" "$intrica_uid" "$intrica_linger" "$intrica_user_manager" "$intrica_blocker"
+  printf 'prerequisiteDetail=%s\n' "$intrica_detail"
+}
+# END INTRICA_PREREQUISITES
+
 release=${1:?Usage: bash install-server.sh vX.Y.Z [--sandbox|--no-sandbox] [--port PORT] [--bind IP] [--archive FILE --sha256 DIGEST --size BYTES]}
 shift
 port=
@@ -47,24 +97,10 @@ if [[ -n "$archive" || -n "$archive_digest" || -n "$archive_size" ]]; then
     exit 1
   fi
 fi
-if [[ "$(uname -s)-$(uname -m)" != Linux-x86_64 || $(id -u) == 0 ]]; then
-  echo 'Run as your regular development user on Linux x64 with systemd, not as root.' >&2
-  exit 1
-fi
-for command in systemctl loginctl sha256sum tar flock; do
-  command -v "$command" >/dev/null || { echo "Required command: $command" >&2; exit 1; }
-done
 if [[ -z "$archive" ]]; then
   command -v curl >/dev/null || { echo 'Required command: curl (or pass a verified --archive)' >&2; exit 1; }
 fi
-systemctl --user show-environment >/dev/null || {
-  echo 'A systemd user session is required. Log in directly over SSH as your development user.' >&2
-  exit 1
-}
-if [[ "$(loginctl show-user "$(id -un)" -p Linger --value)" != yes ]]; then
-  echo 'A system administrator must enable linger for this user before installation (loginctl enable-linger USER).' >&2
-  exit 1
-fi
+intrica_prerequisites prepare
 
 base="$HOME/.local/share/intrica-server"
 config_dir="$HOME/.config/intrica"
@@ -252,6 +288,7 @@ systemctl --user daemon-reload
 activation_started=yes
 printf 'activating\n' > "$recovery/phase"
 systemctl --user enable --now intrica-server.service
+printf 'INTRICA_STEP=health\n'
 if ! "$node" --input-type=module - "$config_dir/server.json" "$target/release.json" <<'JS'
 import { readFileSync } from 'node:fs';
 import { setTimeout } from 'node:timers/promises';

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
+import { wireOutput } from "./addressed-output.mjs";
 
 // Pair real protocol responses with their calls; a scripted final string alone
 // must never satisfy this acceptance journey.
@@ -54,7 +55,11 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
         body.messages.filter((m) => ["system", "developer"].includes(m.role)),
       );
       let reply;
-      if (body.messages.some((m) => m.role === "user" && m.content === "HOLD_ACCEPTANCE")) {
+      if (
+        body.messages.some(
+          (m) => m.role === "user" && String(m.content).includes("HOLD_ACCEPTANCE"),
+        )
+      ) {
         held();
         await hold;
         reply = { text: "hold released" };
@@ -74,7 +79,8 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
               text: !granted
                 ? "APPROVAL_STILL_PENDING"
                 : body.messages.some(
-                      (m) => m.role === "user" && m.content === "UPGRADE_BUFFERED_INPUT",
+                      (m) =>
+                        m.role === "user" && String(m.content).includes("UPGRADE_BUFFERED_INPUT"),
                     )
                   ? "APPROVAL_RESUMED_WITH_BUFFERED_INPUT"
                   : "APPROVAL_RESUMED",
@@ -88,7 +94,8 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
           .filter((m) => m.role === "user")
           .map((m) => {
             try {
-              return JSON.parse(m.content);
+              // Coordination notices carry their origin before the JSON body.
+              return JSON.parse(String(m.content).slice(String(m.content).indexOf("\n") + 1));
             } catch {
               return null;
             }
@@ -107,7 +114,9 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
           };
         } else if (
           !body.messages.some(
-            (m) => m.role === "user" && m.content === "Run the recruitment acceptance journey.",
+            (m) =>
+              m.role === "user" &&
+              String(m.content).includes("Run the recruitment acceptance journey."),
           )
         )
           reply = { text: "Approval forwarded" };
@@ -120,6 +129,7 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
             reply = {
               tool: "send_message",
               args: {
+                kind: "update",
                 target: { kind: "agent", agentId: hire.id },
                 message: "FOLLOWUP: Include evidence gaps at the report tail.",
               },
@@ -130,7 +140,6 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
             reply = {
               tool: "hire_agent",
               args: {
-                title: `Acceptance member ${current + 1}`,
                 task: `Read node ${evidenceNodes[current].id}, save a report and return its ID.`,
                 persona: `acceptance-member-${current + 1}`,
                 role: "write",
@@ -236,13 +245,18 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
               text: `${"Observed mechanism; not a confirmed incident cause.\n".repeat(140)}\nTail evidence: ${evidence[member - 1]}`,
             },
           };
-        } else if (!toolResults(body.messages, "report_result").length) {
+        } else if (!toolResults(body.messages, "send_message").some((r) => r.value.delivered)) {
           assert.ok(artifacts[0].value.id, "Report must reference an actually saved artifact");
+          const result = JSON.parse(
+            wireOutput(
+              body.messages,
+              `ACCEPTANCE_MEMBER_${member}_DONE artifactId=${artifacts[0].value.id}`,
+            ),
+          );
+          assert.equal(result.target.kind, "request", "Members must finish their assigned request");
           reply = {
-            tool: "report_result",
-            args: {
-              message: `ACCEPTANCE_MEMBER_${member}_DONE artifactId=${artifacts[0].value.id}`,
-            },
+            tool: "send_message",
+            args: result,
           };
         } else reply = { text: "Member finished" };
       }
@@ -260,7 +274,7 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
               },
             ],
           }
-        : { role: "assistant", content: reply.text };
+        : { role: "assistant", content: wireOutput(body.messages, reply.text) };
       const chunk = (delta, finish_reason) =>
         `data: ${JSON.stringify({ id: randomUUID(), model: "acceptance", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
       res.writeHead(200, { "content-type": "text/event-stream" });
@@ -452,9 +466,10 @@ export async function verifyJourney(call, journey, existingRequestIds = []) {
     "Normal team delivery must preserve approval history without creating requests",
   );
   const members = snapshot.nodes.filter(
-    (n) => n.parentId === journey.manager.id && n.title?.startsWith("Acceptance member"),
+    (n) => n.parentId === journey.manager.id && n.agent?.persona.startsWith("acceptance-member-"),
   );
   assert.equal(members.length, 2);
+  assert.equal(new Set(members.map((m) => m.title)).size, members.length);
   for (const member of members) {
     assert.equal(member.managerId, journey.manager.id);
     assert.equal(member.agent.enabled, false);
@@ -470,7 +485,7 @@ export async function verifyJourney(call, journey, existingRequestIds = []) {
       2,
     );
     assert.equal(feed.requests.length, 0);
-    const index = Number(member.title.at(-1)) - 1;
+    const index = Number(member.agent.persona.split("-").at(-1)) - 1;
     const report = snapshot.nodes.find((n) => n.title === `Acceptance report ${index + 1}`);
     assert.ok(report, "Artifact must exist on the canvas");
     assert.ok(report.resource?.path, "Delivery must attach the real file, not just a written path");
@@ -495,8 +510,24 @@ export async function verifyJourney(call, journey, existingRequestIds = []) {
     assert.ok(
       (await call(`nodes/${report.id}/content`)).node.text.includes(journey.evidence[index]),
     );
-    assert.equal(feed.events.filter((e) => e.kind === "report").length, 1);
-    assert.ok(feed.events.some((e) => e.kind === "report" && e.data.text.includes(report.id)));
+    const results = feed.events.filter(
+      (e) =>
+        e.kind === "message" &&
+        e.data.messageKind === "result" &&
+        e.data.recipients?.includes(journey.manager.id),
+    );
+    assert.equal(results.length, 1);
+    assert.ok(results[0].data.text.includes(report.id));
+    assert.equal(
+      managerFeed.events.filter(
+        (e) =>
+          e.kind === "message" &&
+          e.data.from === member.id &&
+          e.data.messageId === results[0].data.messageId,
+      ).length,
+      1,
+      "The manager must receive the same result exactly once",
+    );
     assert.ok(
       feed.events.some(
         (e) => e.kind === "tool" && e.data.name === "read" && e.data.status === "complete",

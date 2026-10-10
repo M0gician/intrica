@@ -12,6 +12,7 @@ export const DEFAULT_LIMITS = {
   toolAsyncAfterMs: 30_000,
   toolNoticeMs: 60_000,
   toolTimeoutMs: 3_600_000,
+  toolInputRepairs: 2,
 };
 export type ExecutionLimits = typeof DEFAULT_LIMITS;
 export function executionLimits(env: NodeJS.ProcessEnv): ExecutionLimits {
@@ -27,6 +28,7 @@ export function executionLimits(env: NodeJS.ProcessEnv): ExecutionLimits {
     toolAsyncAfterMs: "INTRICA_TOOL_ASYNC_MS",
     toolNoticeMs: "INTRICA_TOOL_NOTICE_MS",
     toolTimeoutMs: "INTRICA_TOOL_TIMEOUT_MS",
+    toolInputRepairs: "INTRICA_TOOL_INPUT_REPAIRS",
   };
   const limits = { ...DEFAULT_LIMITS };
   for (const key of Object.keys(fields) as Array<keyof ExecutionLimits>) {

@@ -40,7 +40,7 @@ test("两种输入框控件靠右，窄侧栏可收缩；移除对齐规则会�
   for (const mode of ["agent", "chat"]) {
     if (mode === "chat") await page.getByRole("button", { name: "模型会话", exact: true }).click();
     const toolbar = page.locator(".agent-composer-toolbar:visible");
-    await expect(toolbar.locator(".model-trigger")).toContainText("模拟模型");
+    await expect(toolbar.locator(".model-trigger")).toContainText("acceptance");
     for (const width of [320, 640]) {
       const resize = (await page.getByRole("separator", { name: "调整侧栏宽度" }).boundingBox())!;
       await page.mouse.move(resize.x + resize.width / 2, resize.y + 100);
@@ -124,6 +124,24 @@ test("网页地址可修改、失败可重试，预览填满不同宽度的卡�
     expect(Math.abs(gap.right)).toBeLessThan(1);
     gaps.push(gap);
   }
+  // Preview pixels are canvas content, not a native image export/import gesture.
+  await page.evaluate(() => {
+    document.documentElement.dataset.previewDrags = "0";
+    document.addEventListener("dragstart", () => {
+      document.documentElement.dataset.previewDrags = String(
+        Number(document.documentElement.dataset.previewDrags) + 1,
+      );
+    });
+  });
+  const preview = (await card.locator("img").boundingBox())!;
+  await page.mouse.move(preview.x + 60, preview.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(preview.x + 100, preview.y + 90, { steps: 4 });
+  await page.mouse.up();
+  expect(await page.locator("html").getAttribute("data-preview-drags")).toBe("0");
+  await expect(page.locator(".node-card")).toHaveCount(2);
+  await expect(card).toHaveCSS("left", `${node.position.x}px`);
+  await expect(card).toHaveCSS("top", `${node.position.y}px`);
   await card.dblclick();
   await page.getByRole("button", { name: "详情", exact: true }).click();
   const address = page.getByRole("textbox", { name: "网页地址", exact: true });

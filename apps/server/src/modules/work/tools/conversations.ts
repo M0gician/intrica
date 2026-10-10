@@ -1,13 +1,45 @@
 import { Type } from "typebox";
 import { DomainError } from "../../../adapters/postgres/database.js";
 import { agentIdentity } from "../../access/policy.js";
+import { maxWaitSeconds } from "../../collaboration/message-waits.js";
 import { result, storedToolResult } from "../../execution/tool-calls.js";
 import { Activity } from "../activity.js";
-import { idParameter as string, type ToolContext, tool } from "./context.js";
+import { preflightOnly, idParameter as string, type ToolContext, tool } from "./context.js";
 
 export function conversationTools(context: ToolContext) {
   const { registry, ctx, input, actor, text } = context;
+  const wait = tool(
+    "wait_for_message",
+    text(
+      "Wait for selected outgoing requests or external input, releasing execution resources. Optional timeoutSeconds wakes you with receipts; it never sends a reminder or closes the request. Continue independent work first. Each wait creates a new window; followups remain bounded per request.",
+      "等待指定的已发出请求或外部输入，释放执行资源。可选 timeoutSeconds 到期后携带回执唤醒自身，不自动提醒或关闭请求。先推进独立工作。每次等待创建新窗口，跟进仍受每个请求的次数上限约束。",
+    ),
+    Type.Object(
+      {
+        requestIds: Type.Optional(
+          Type.Array(string, { minItems: 1, maxItems: 40, uniqueItems: true }),
+        ),
+        timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: maxWaitSeconds() })),
+      },
+      { additionalProperties: false },
+    ),
+    "graph",
+    preflightOnly,
+  );
+  wait.prepare = async (tx, callId, _logicalId, args) =>
+    result(
+      await registry.conversations.waits.register(tx, {
+        canvasId: ctx.run.canvas_id,
+        conversationId: input.conversationId,
+        workItemId: input.workItemId,
+        runId: ctx.run.id,
+        callId,
+        generation: input.generation,
+        ...args,
+      }),
+    );
   return [
+    wait,
     tool(
       "get_agent_status",
       text(
@@ -44,16 +76,6 @@ export function conversationTools(context: ToolContext) {
         if (!call) throw new DomainError("NOT_FOUND", "此会话中没有该工具调用");
         return storedToolResult(call, Infinity, input.language);
       },
-    ),
-    tool(
-      "wait_for_message",
-      text(
-        "Wait for a new collaboration message and release execution resources.",
-        "等待新的协作消息，释放执行资源。",
-      ),
-      Type.Object({}),
-      "graph",
-      async () => result({ waitingForMessage: true }),
     ),
     tool(
       "read_conversation",
@@ -104,7 +126,13 @@ export function conversationTools(context: ToolContext) {
             ),
           );
         }
-        return result(await registry.conversations.read.feed(target, { before: args.before }));
+        const feed = await registry.conversations.read.feed(target, { before: args.before });
+        if (target !== input.agentId)
+          feed.events = feed.events.filter(
+            (e) =>
+              !["internal_note", "output_error", "model_output", "inference_item"].includes(e.kind),
+          );
+        return result(feed);
       },
     ),
   ];

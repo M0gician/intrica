@@ -26,6 +26,7 @@ export function AgentPortrait({
         className="agent-portrait"
         src={`/api/v2/assets/${encodeURIComponent(assetId)}?variant=thumb`}
         alt={tr("Agent 肖像")}
+        draggable={false}
       />
     );
   const value = portraitVariant(id, variant);

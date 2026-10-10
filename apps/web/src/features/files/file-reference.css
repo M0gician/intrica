@@ -1,0 +1,40 @@
+.file-reference-link {
+  border: 0;
+  background: transparent;
+  color: var(--accent, #4167c7);
+  text-decoration: underline;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.file-reference-image {
+  display: inline-block;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  max-width: 100%;
+  cursor: zoom-in;
+}
+.file-reference img,
+.file-reference-preview > img,
+.file-reference-dialog img {
+  max-width: 100%;
+  height: auto;
+}
+.file-reference-dialog {
+  width: min(960px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}
+.file-reference-dialog header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.file-reference-preview {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.file-download-status > button:first-child {
+  float: right;
+}

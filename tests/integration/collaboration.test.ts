@@ -8,10 +8,13 @@ import type { AgentRole, Node } from "@intrica/contracts";
 import { buildServer, DomainError, type Kernel } from "@intrica/server";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
-import { AccessService } from "../../apps/server/dist/modules/access/service.js";
+import { digest } from "../../apps/server/dist/adapters/postgres/database.js";
+import { resolveTarget } from "../../apps/server/dist/modules/collaboration/resolve-target.js";
 import { DEFAULT_LIMITS } from "../../apps/server/dist/modules/execution/limits.js";
 import type { Lease } from "../../apps/server/dist/modules/execution/store.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
+import { InboxScheduler } from "../../apps/server/dist/modules/work/inbox-scheduler.js";
+import { wireOutput } from "../fixtures/addressed-output.mjs";
 
 // Model decisions alone are scripted. Tools, permissions, inboxes, transactions and
 // conversation execution all use production code. Failed contracts are not skipped/xfail.
@@ -21,7 +24,7 @@ let app: Awaited<ReturnType<typeof buildServer>>, k: Kernel, dir: string, admin:
 let provider: Server, board: string;
 type WireMessage = { role: string; content: string; name?: string };
 type WireRequest = { messages: WireMessage[] };
-type Reply = { text: string } | { tool: string; args: object };
+type Reply = { output: object } | { text: string } | { tool: string; args: object };
 let respond: (request: WireRequest) => Reply;
 let requests: WireRequest[];
 
@@ -45,7 +48,13 @@ beforeAll(async () => {
             },
           ],
         }
-      : { role: "assistant", content: reply.text };
+      : {
+          role: "assistant",
+          content:
+            "output" in reply
+              ? JSON.stringify(reply.output)
+              : wireOutput(request.messages, reply.text),
+        };
     res.writeHead(200, { "content-type": "text/event-stream" });
     const chunk = (delta: object, finish_reason: string | null) =>
       `data: ${JSON.stringify({ id: key(), object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
@@ -85,6 +94,9 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   await k.db.pool.query("update conversations set consumed_message_seq=message_seq");
+  await k.db.pool.query(
+    "update messages set content=content||'{\"closed\":true}'::jsonb where consumed_run_id is null",
+  );
   await k.db.pool.query("update approvals set status='cancelled' where status='pending'");
   await k.db.pool.query(
     "update runs set state='cancelled',cancel_requested_at=now() where state in('queued','running','waiting')",
@@ -227,7 +239,7 @@ async function pausedCapture(work: () => Promise<unknown>) {
       await gate;
       return original(...args);
     });
-  const maintenance = k.access.maintain();
+  const maintenance = k.maintain();
   try {
     await entered;
     await work();
@@ -257,14 +269,19 @@ it.each(["down", "up", "siblings", "other-team"] as const)(
     const s = await start(from),
       text = `task-${direction}`;
     expect(
-      (await s.call("send_message", { target: { kind: "agent", agentId: to.id }, message: text }))
-        .value.delivered,
+      (
+        await s.call("send_message", {
+          kind: "update",
+          target: { kind: "agent", agentId: to.id },
+          message: text,
+        })
+      ).value.delivered,
     ).toBe(1);
-    await k.access.maintain();
+    await k.maintain();
     expect(await runs(to)).toHaveLength(1);
     expect((await incoming(to))[0].run_id).toBe((await runs(to))[0].id);
     await consume(to, text);
-    await k.access.maintain();
+    await k.maintain();
     expect(await runs(to)).toHaveLength(1);
     expect(await incoming(to)).toHaveLength(1);
   },
@@ -282,14 +299,20 @@ it.each(["message", "report", "broadcast"])(
       message = `on-demand-${tool}`;
     const args =
       tool === "message"
-        ? { target: { kind: "agent", agentId: to.id }, message }
+        ? { kind: "update", target: { kind: "agent", agentId: to.id }, message }
         : tool === "broadcast"
-          ? { target: { kind: "resource_readers", resourceIds: [r.id] }, message }
+          ? { kind: "update", target: { kind: "resource_readers", resourceIds: [r.id] }, message }
           : { message };
     expect(
-      (await s.call(tool === "report" ? "report_result" : "send_message", args)).value.delivered,
+      (
+        await s.call("send_message", {
+          kind: tool === "report" ? "result" : "update",
+          ...args,
+          ...(tool === "report" ? { target: { kind: "manager" } } : {}),
+        })
+      ).value.delivered,
     ).toBe(1);
-    await k.access.maintain();
+    await k.maintain();
     expect(await runs(to)).toHaveLength(1);
     await consume(to, message);
   },
@@ -300,11 +323,17 @@ it("C03 report_result goes only to the current direct manager and stops at ordin
     manager = await agent(root.id),
     child = await agent(manager.id);
   const s = await start(child);
-  expect((await s.call("report_result", { message: "direct" })).value.recipients).toEqual([
-    manager.id,
-  ]);
+  expect(
+    (
+      await s.call("send_message", {
+        kind: "result",
+        target: { kind: "manager" },
+        message: "direct",
+      })
+    ).value.recipients,
+  ).toEqual([manager.id]);
   expect(await incoming(root)).toHaveLength(0);
-  await k.access.maintain();
+  await k.maintain();
   await consume(manager, "direct");
   const folder = await resource(root.id);
   await k.graph.submitMove({
@@ -312,7 +341,15 @@ it("C03 report_result goes only to the current direct manager and stops at ordin
     moves: [{ nodeId: child.id, x: 10, y: 10 }],
     idempotencyKey: key(),
   });
-  expect((await s.call("report_result", { message: "local-only" })).value.delivered).toBe(0);
+  expect(
+    (
+      await s.call("send_message", {
+        kind: "result",
+        target: { kind: "manager" },
+        message: "local-only",
+      })
+    ).result.isError,
+  ).toBe(true);
   expect(await incoming(root)).toHaveLength(0);
   expect(await incoming(manager)).toHaveLength(1);
 });
@@ -322,13 +359,22 @@ it("C04 a child may message and report upward without acquiring the manager's ex
     child = await agent(manager.id, "read");
   const s = await start(child);
   const task = await s.call("send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: manager.id },
     message: "execute privileged work",
   });
   expect(task.waiting).toBeUndefined();
   expect(await incoming(manager)).toHaveLength(1);
-  expect((await s.call("report_result", { message: "read-only result" })).value.delivered).toBe(1);
-  await k.access.maintain();
+  expect(
+    (
+      await s.call("send_message", {
+        kind: "result",
+        target: { kind: "manager" },
+        message: "read-only result",
+      })
+    ).value.delivered,
+  ).toBe(1);
+  await k.maintain();
   await consume(manager, "read-only result");
   expect((await k.graph.queries.node(child.id)).agent!.role).toBe("read");
 });
@@ -350,6 +396,7 @@ it("C05 broadcast intersects all resource grants across hierarchy, excludes self
   await connect(partial, r1);
   const s = await start(from),
     args = {
+      kind: "update",
       target: { kind: "resource_readers", resourceIds: [r1.id, r2.id, r1.id] },
       message: "all scopes",
     };
@@ -357,7 +404,7 @@ it("C05 broadcast intersects all resource grants across hierarchy, excludes self
   const replay = await s.call("send_message", args, "broadcast-once");
   expect(first.value).toEqual(replay.value);
   expect(first.value.recipients).toEqual([parent, sibling, child, outside].map((a) => a.id).sort());
-  await k.access.maintain();
+  await k.maintain();
   for (const a of [parent, sibling, child, outside]) {
     expect(await incoming(a)).toHaveLength(1);
     expect(await runs(a)).toHaveLength(1);
@@ -371,7 +418,7 @@ it("C05 broadcast intersects all resource grants across hierarchy, excludes self
     await consume(recipient!, "all scopes", lease);
     remaining.delete(recipient!.id);
   }
-  await k.access.maintain();
+  await k.maintain();
   expect(await k.runs.claim("broadcast-drained")).toBeNull();
 });
 
@@ -380,6 +427,7 @@ it("C06 empty broadcasts succeed without activations and inaccessible resources 
     r = await resource(),
     s = await start(from);
   const denied = await s.call("send_message", {
+    kind: "update",
     target: { kind: "resource_readers", resourceIds: [r.id] },
     message: "denied",
   });
@@ -388,12 +436,13 @@ it("C06 empty broadcasts succeed without activations and inaccessible resources 
   expect(
     (
       await s.call("send_message", {
+        kind: "update",
         target: { kind: "resource_readers", resourceIds: [r.id] },
         message: "none",
       })
     ).value.delivered,
   ).toBe(0);
-  await k.access.maintain();
+  await k.maintain();
   expect(
     (await k.db.pool.query("select activation_count from runs where id=$1", [s.run.id])).rows[0]
       .activation_count,
@@ -409,7 +458,11 @@ it.each(["approve", "deny"] as const)(
       r = await resource();
     for (const a of [from, peer, privileged]) await connect(a, r);
     const s = await start(from),
-      args = { target: { kind: "resource_readers", resourceIds: [r.id] }, message: "broadcast" };
+      args = {
+        kind: "update",
+        target: { kind: "resource_readers", resourceIds: [r.id] },
+        message: "broadcast",
+      };
     const pending = await s.call("send_message", args, "approved-once");
     expect(pending.waiting).toBe("approval");
     for (const a of [peer, privileged]) expect(await incoming(a)).toHaveLength(0);
@@ -430,6 +483,7 @@ it("C08 approving a frozen broadcast excludes newly joined recipients", async ()
   await connect(to, r);
   const s = await start(from),
     args = {
+      kind: "update",
       target: { kind: "resource_readers", resourceIds: [r.id] },
       message: "frozen recipients",
     };
@@ -448,6 +502,7 @@ it("C09 revoking a recipient resource invalidates a pending broadcast without pa
   const edge = await connect(to, r);
   const s = await start(from),
     pending = await s.call("send_message", {
+      kind: "update",
       target: { kind: "resource_readers", resourceIds: [r.id] },
       message: "stale",
     });
@@ -465,7 +520,11 @@ it("C10 report approval is invalidated when the member changes managers", async 
     privateResource = await resource();
   await connect(child, privateResource);
   const s = await start(child),
-    pending = await s.call("report_result", { message: "old team result" });
+    pending = await s.call("send_message", {
+      kind: "result",
+      target: { kind: "manager" },
+      message: "old team result",
+    });
   expect(pending.waiting).toBe("approval");
   await k.graph.submitMove({
     targetParentId: next.id,
@@ -496,6 +555,7 @@ it.each(["other-canvas", "non-agent", "deleted"])(
     expect(
       (
         await s.call("send_message", {
+          kind: "update",
           target: { kind: "agent", agentId: to.id },
           message: "must not deliver",
         })
@@ -520,23 +580,23 @@ it("C12 parallel sends and a replayed call retain all messages but activate the 
     sent.map((message, i) =>
       (i % 2 ? left : right).call(
         "send_message",
-        { target: { kind: "agent", agentId: to.id }, message },
+        { kind: "update", target: { kind: "agent", agentId: to.id }, message },
         message,
       ),
     ),
   );
-  const args = { target: { kind: "agent", agentId: to.id }, message: "replay" };
+  const args = { kind: "update", target: { kind: "agent", agentId: to.id }, message: "replay" };
   await Promise.all([
     left.call("send_message", args, "same"),
     left.call("send_message", args, "same"),
   ]);
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(to)).toHaveLength(1);
   const messages = await incoming(to);
   expect(messages.map((m) => m.content.text).sort()).toEqual([...sent, "replay"].sort());
   expect(new Set(messages.map((m) => m.seq)).size).toBe(13);
   await consume(to, "replay");
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(to)).toHaveLength(1);
 });
 
@@ -546,16 +606,17 @@ it("C13 more than one inbox page is completely consumed without scheduling a sec
     s = await start(from);
   for (let i = 0; i < 105; i++)
     await s.call("send_message", {
+      kind: "update",
       target: { kind: "agent", agentId: to.id },
       message: `page-message-${i}`,
     });
-  await k.access.maintain();
+  await k.maintain();
   await consume(to, "page-message-104");
   const checkpoint = (
     await k.db.pool.query("select checkpoint from conversations where agent_id=$1", [to.id])
   ).rows[0].checkpoint;
   for (let i = 0; i < 105; i++) expect(JSON.stringify(checkpoint)).toContain(`page-message-${i}`);
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(to)).toHaveLength(1);
 });
 
@@ -579,12 +640,13 @@ it.each(["queued", "running", "message", "approval", "unknown"])(
     expect(
       (
         await s.call("send_message", {
+          kind: "update",
           target: { kind: "agent", agentId: to.id },
           message: "new work",
         })
       ).value.delivered,
     ).toBe(1);
-    await k.access.maintain();
+    await k.maintain();
     const rows = await runs(to);
     expect(rows).toHaveLength(1);
     expect(rows[0].state).toBe(
@@ -602,14 +664,19 @@ it("C15 late peer input at final completion is consumed by the existing run", as
   const from = await agent(),
     to = await agent(),
     s = await start(from);
-  await s.call("send_message", { target: { kind: "agent", agentId: to.id }, message: "first" });
-  await k.access.maintain();
+  await s.call("send_message", {
+    kind: "update",
+    target: { kind: "agent", agentId: to.id },
+    message: "first",
+  });
+  await k.maintain();
   const finish = k.runs.finish.bind(k.runs);
   let injected = false;
   vi.spyOn(k.runs, "finish").mockImplementation(async (...args) => {
     if (!injected && args[1] === "succeeded") {
       injected = true;
       await s.call("send_message", {
+        kind: "update",
         target: { kind: "agent", agentId: to.id },
         message: "late-input",
       });
@@ -618,7 +685,7 @@ it("C15 late peer input at final completion is consumed by the existing run", as
   });
   await consume(to, "late-input");
   expect(injected).toBe(true);
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(to)).toHaveLength(1);
 });
 
@@ -628,14 +695,18 @@ it("C16 a full queue retains deliveries and wakes the recipient once capacity is
     s = await start(from);
   const settings = await k.runs.settings.read();
   await k.runs.settings.save(settings.revision, { ...settings.policy, pendingPerCanvas: 1 });
-  await s.call("send_message", { target: { kind: "agent", agentId: to.id }, message: "capacity" });
-  await k.access.maintain();
+  await s.call("send_message", {
+    kind: "update",
+    target: { kind: "agent", agentId: to.id },
+    message: "capacity",
+  });
+  await k.maintain();
   expect(await runs(to)).toHaveLength(0);
   expect((await incoming(to))[0].run_id).toBeNull();
   await k.runs.finish(s.run, "succeeded");
-  await k.access.maintain();
+  await k.maintain();
   await consume(to, "capacity");
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(to)).toHaveLength(1);
 });
 
@@ -644,10 +715,11 @@ it("C17 two maintenance scans of the same inbox spend one activation, not two", 
     to = await agent(),
     s = await start(from);
   await s.call("send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: to.id },
     message: "one activation",
   });
-  await pausedCapture(() => k.access.maintain());
+  await pausedCapture(() => k.maintain());
   expect(await runs(to)).toHaveLength(1);
   expect(
     (await k.db.pool.query("select activation_count from runs where id=$1", [s.run.id])).rows[0]
@@ -659,7 +731,11 @@ it("C18 stop between inbox scan and transaction must not create an empty run", a
   const from = await agent(),
     to = await agent(),
     s = await start(from);
-  await s.call("send_message", { target: { kind: "agent", agentId: to.id }, message: "cancelled" });
+  await s.call("send_message", {
+    kind: "update",
+    target: { kind: "agent", agentId: to.id },
+    message: "cancelled",
+  });
   await pausedCapture(() => k.conversations.stop(to.id));
   expect(await runs(to)).toHaveLength(0);
 });
@@ -668,12 +744,20 @@ it("C19 stop consumes old messages but permits a genuinely new authorized messag
   const from = await agent(),
     to = await agent(),
     s = await start(from);
-  await s.call("send_message", { target: { kind: "agent", agentId: to.id }, message: "old" });
+  await s.call("send_message", {
+    kind: "update",
+    target: { kind: "agent", agentId: to.id },
+    message: "old",
+  });
   await k.conversations.stop(to.id);
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(to)).toHaveLength(0);
-  await s.call("send_message", { target: { kind: "agent", agentId: to.id }, message: "new" });
-  await k.access.maintain();
+  await s.call("send_message", {
+    kind: "update",
+    target: { kind: "agent", agentId: to.id },
+    message: "new",
+  });
+  await k.maintain();
   await consume(to, "new");
   const inputs = requests.flatMap((r) =>
     r.messages.filter((m) => m.role === "user").map((m) => m.content),
@@ -685,13 +769,17 @@ it("C20 failed recipient execution cannot reactivate forever from the same deliv
   const from = await agent(),
     to = await agent(),
     s = await start(from);
-  await s.call("send_message", { target: { kind: "agent", agentId: to.id }, message: "fail once" });
-  await k.access.maintain();
+  await s.call("send_message", {
+    kind: "update",
+    target: { kind: "agent", agentId: to.id },
+    message: "fail once",
+  });
+  await k.maintain();
   const lease = (await k.runs.claim("failed"))!;
   expect(lease.frozen_input.agentId).toBe(to.id);
   await k.runs.fail(lease, new Error("controlled model failure"));
-  await k.access.maintain();
-  await k.access.maintain();
+  await k.maintain();
+  await k.maintain();
   expect(await runs(to)).toHaveLength(1);
   expect((await runs(to))[0].state).toBe("failed");
 });
@@ -705,15 +793,17 @@ it("C21 limited causes do not discard independent deliveries in the same inbox",
   k.runs.limits.collaborationActivations = 1;
   await k.db.pool.query("update runs set activation_count=1 where id=$1", [left.run.id]);
   await left.call("send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: to.id },
     message: "exhausted",
   });
   await right.call("send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: to.id },
     message: "independent",
   });
-  await k.access.maintain();
-  await k.access.maintain();
+  await k.maintain();
+  await k.maintain();
   expect(await runs(to)).toHaveLength(1);
   expect(
     (await incoming(to)).find((m) => m.content.text === "independent").content.activationBlocked,
@@ -731,10 +821,11 @@ it("C22 messages that resume waiting Agents remain subject to the collaboration 
   k.runs.limits.collaborationActivations = 1;
   await k.db.pool.query("update runs set activation_count=1 where id=$1", [s.run.id]);
   await s.call("send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: to.id },
     message: "over budget",
   });
-  await k.access.maintain();
+  await k.maintain();
   expect((await k.runs.get(receiver.run.id)).state).toBe("waiting");
 });
 
@@ -745,14 +836,16 @@ it("C23 model input distinguishes two same-text messages by their actual senders
   const left = await start(a),
     right = await start(b);
   await left.call("send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: to.id },
     message: "identical",
   });
   await right.call("send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: to.id },
     message: "identical",
   });
-  await k.access.maintain();
+  await k.maintain();
   await consume(to, "identical");
   const modelInput = JSON.stringify(
     requests.flatMap((r) => r.messages.filter((m) => m.role === "user")),
@@ -778,7 +871,6 @@ it("C24 a real model-tool journey recruits, delegates, waits, reports and finish
         return {
           tool: "hire_agent",
           args: {
-            title: "journey member",
             task: "review-task-marker",
             persona: "journey-member",
             role: "write",
@@ -793,14 +885,21 @@ it("C24 a real model-tool journey recruits, delegates, waits, reports and finish
     }
     childTurn++;
     return childTurn === 1
-      ? { tool: "report_result", args: { message: "review-result-marker" } }
-      : { text: "member-finished-marker" };
+      ? {
+          tool: "send_message",
+          args: {
+            kind: "result",
+            target: { kind: "request", id: JSON.parse(wireOutput(messages, "unused")).target.id },
+            message: "review-result-marker",
+          },
+        }
+      : { output: { target: { kind: "internal" }, message: "member-finished-marker" } };
   };
   await k.conversations.execute(s.ctx, (ctx, input) => k.tools.create(ctx, input));
   expect((await k.runs.get(s.run.id)).reason).toBe("message");
   const child = await k.graph.queries.node(hired);
   expect(child.managerId).toBe(manager.id);
-  await k.access.maintain();
+  await k.maintain();
   await consume(child, "review-task-marker");
   await consume(manager, "review-result-marker");
   expect(managerTurn).toBe(3);
@@ -815,13 +914,13 @@ it("C25 replay with altered arguments is rejected and cannot change a delivered 
     s = await start(from);
   await s.call(
     "send_message",
-    { target: { kind: "agent", agentId: to.id }, message: "original" },
+    { kind: "update", target: { kind: "agent", agentId: to.id }, message: "original" },
     "immutable",
   );
   await expect(
     s.call(
       "send_message",
-      { target: { kind: "agent", agentId: to.id }, message: "replacement" },
+      { kind: "update", target: { kind: "agent", agentId: to.id }, message: "replacement" },
       "immutable",
     ),
   ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
@@ -834,7 +933,11 @@ it("C26 a stopped sender loses the authority to deliver a late tool call", async
     s = await start(from);
   await k.conversations.stop(from.id);
   await expect(
-    s.call("send_message", { target: { kind: "agent", agentId: to.id }, message: "too late" }),
+    s.call("send_message", {
+      kind: "update",
+      target: { kind: "agent", agentId: to.id },
+      message: "too late",
+    }),
   ).rejects.toMatchObject({ code: "STALE_EXECUTION" });
   expect(await incoming(to)).toHaveLength(0);
   expect(await runs(to)).toHaveLength(0);
@@ -852,10 +955,11 @@ it("C27 an invalid recipient model does not starve a healthy recipient or lose i
   });
   for (const node of [broken, healthy])
     await s.call("send_message", {
+      kind: "update",
       target: { kind: "agent", agentId: node.id },
       message: "not lost",
     });
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(broken)).toHaveLength(0);
   expect((await incoming(broken))[0].run_id).toBeNull();
   await consume(healthy, "not lost");
@@ -864,7 +968,7 @@ it("C27 an invalid recipient model does not starve a healthy recipient or lose i
     expectedRevision: (await k.graph.queries.node(broken.id)).revision,
     idempotencyKey: key(),
   });
-  await k.access.maintain();
+  await k.maintain();
   await consume(broken, "not lost");
 });
 
@@ -873,13 +977,21 @@ it("C28 a delivery after stop waits for cancellation to settle, then starts one 
     to = await agent(),
     s = await start(from),
     target = await start(to);
-  await s.call("send_message", { target: { kind: "agent", agentId: to.id }, message: "old work" });
+  await s.call("send_message", {
+    kind: "update",
+    target: { kind: "agent", agentId: to.id },
+    message: "old work",
+  });
   await k.conversations.stop(to.id);
-  await s.call("send_message", { target: { kind: "agent", agentId: to.id }, message: "new work" });
-  await k.access.maintain();
+  await s.call("send_message", {
+    kind: "update",
+    target: { kind: "agent", agentId: to.id },
+    message: "new work",
+  });
+  await k.maintain();
   expect(await runs(to)).toHaveLength(1);
   await k.runs.fail(target.run, new Error("cancellation acknowledged"));
-  await k.access.maintain();
+  await k.maintain();
   await consume(to, "new work");
   expect((await runs(to)).map((r) => r.state).sort()).toEqual(["cancelled", "succeeded"]);
   const inputs = requests.flatMap((r) =>
@@ -904,6 +1016,7 @@ it("C29 a broadcast append failure rolls back every delivery and the sender's br
   });
   await expect(
     s.call("send_message", {
+      kind: "update",
       target: { kind: "resource_readers", resourceIds: [r.id] },
       message: "atomic",
     }),
@@ -921,6 +1034,7 @@ it("C30 self-messages stay in the current run, and forged recipient fields canno
     unintended = await agent(),
     s = await start(from);
   const forged = await s.call("send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: from.id },
     recipients: [unintended.id],
     message: "self-note",
@@ -930,6 +1044,7 @@ it("C30 self-messages stay in the current run, and forged recipient fields canno
   expect(
     (
       await s.call("send_message", {
+        kind: "update",
         target: { kind: "agent", agentId: from.id },
         message: "self-note",
       })
@@ -937,12 +1052,12 @@ it("C30 self-messages stay in the current run, and forged recipient fields canno
   ).toEqual([from.id]);
   expect(await incoming(unintended)).toHaveLength(0);
   expect((await incoming(from))[0].run_id).toBe(s.run.id);
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(from)).toHaveLength(1);
   await consume(from, "self-note", s.run);
 });
 
-it("C31 a page of broken-model inboxes cannot starve a healthy recipient on the next page", async () => {
+it("C31 a page of retryable model failures cannot starve a healthy recipient on the next page", async () => {
   const from = await agent(),
     s = await start(from);
   const targets = [];
@@ -950,22 +1065,29 @@ it("C31 a page of broken-model inboxes cannot starve a healthy recipient on the 
     const node = await agent();
     targets.push({ node, conversation: await k.conversations.read.forAgent(node.id) });
     await s.call("send_message", {
+      kind: "update",
       target: { kind: "agent", agentId: node.id },
       message: "paged activation",
     });
   }
   // A fresh scanner and database ordering fix the page boundary independently
   // of random IDs, locale and the cursor left by earlier tests.
-  const maintainer = new AccessService(k.db, k.graph, k.conversations);
+  const maintainer = new InboxScheduler(k.db, k.conversations);
   const ordered = (
     await k.db.pool.query("select id from conversations where id=any($1::text[]) order by id", [
       targets.map((t) => t.conversation.id),
     ])
   ).rows.map((r) => r.id);
   targets.sort((a, b) => ordered.indexOf(a.conversation.id) - ordered.indexOf(b.conversation.id));
+  const capture = k.conversations.models.capture.bind(k.conversations.models);
+  vi.spyOn(k.conversations.models, "capture").mockImplementation(async (selection) => {
+    if (selection?.profileId === "temporarily-unavailable-profile")
+      throw new Error("temporary model lookup failure");
+    return capture(selection);
+  });
   for (const { node } of targets.slice(0, 128))
     await k.graph.updateNode(node.id, {
-      agent: { ...node.agent!, model: { profileId: "deleted-fixture-profile" } },
+      agent: { ...node.agent!, model: { profileId: "temporarily-unavailable-profile" } },
       expectedRevision: node.revision,
       idempotencyKey: key(),
     });
@@ -979,9 +1101,8 @@ it("C32 concurrent recruitment reserves distinct positions and Stop drains old r
   const manager = await agent(board, "admin"),
     s = await start(manager);
   const hires = await Promise.all(
-    Array.from({ length: 4 }, (_, i) =>
+    Array.from({ length: 4 }, () =>
       s.call("hire_agent", {
-        title: `member-${i}`,
         task: "Check the assigned fixture.",
         persona: "fixture",
         role: "write",
@@ -1022,7 +1143,7 @@ it("C32 concurrent recruitment reserves distinct positions and Stop drains old r
     [board],
   );
   await k.tools.tickSchedules();
-  await k.access.maintain();
+  await k.maintain();
   expect(
     (await runs(manager)).filter((r) => ["queued", "running", "waiting"].includes(r.state)),
   ).toHaveLength(0);
@@ -1034,14 +1155,13 @@ it.each([true, false])(
     const manager = await agent(board, "admin"),
       s = await start(manager);
     const args = {
-      title: "hired",
       persona: "role only",
       task: "INITIAL_TASK",
       role: "read",
       respondToResources: enabled,
     };
     const first = await s.call("hire_agent", args, "atomic-hire");
-    expect(first.value.initialTask).toEqual({ status: "pending" });
+    expect(first.value.initialTask).toMatchObject({ status: "pending", delivered: 1 });
     const child = await k.graph.queries.node(first.value.id);
     expect((await s.call("hire_agent", args, "atomic-hire")).value.id).toBe(child.id);
     expect(await incoming(child)).toHaveLength(1);
@@ -1058,7 +1178,7 @@ it.each([true, false])(
       (await k.db.pool.query("select resource_id from grants where subject_id=$1", [child.id]))
         .rows,
     ).toHaveLength(0);
-    await k.access.maintain();
+    await k.maintain();
     await consume(child, "INITIAL_TASK");
   },
 );
@@ -1067,7 +1187,6 @@ it("C34 a missing initial task cannot silently create an idle hire", async () =>
   const manager = await agent(board, "admin"),
     s = await start(manager);
   const output = await s.call("hire_agent", {
-    title: "missing",
     persona: "do work",
     role: "read",
     respondToResources: true,
@@ -1121,14 +1240,24 @@ it("C35 status inspection is bounded, private and does not wake targets or consu
 it("C36 collaboration activity retains deleted identities and applies team and selection filters before pagination", async () => {
   const manager = await agent(board, "admin"),
     child = await agent(manager.id),
-    peer = await agent();
+    peer = await agent(board, "admin"),
+    unrelated = await agent(peer.id);
   const s = await start(manager),
     p = await start(peer);
   await s.call("send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: child.id },
     message: "team-message",
   });
-  for (let i = 0; i < 101; i++) await p.call("report_result", { message: `unrelated-${i}` });
+  for (let i = 0; i < 101; i++) {
+    const sent = await p.call("send_message", {
+      kind: "update",
+      target: { kind: "agent", agentId: unrelated.id },
+      message: `unrelated-${i}`,
+    });
+    expect(sent.result.isError).not.toBe(true);
+  }
+  expect((await k.activity.board(board, false)).events).toHaveLength(100);
   const filtered = await app.inject({
     method: "GET",
     url: `/api/v2/canvas-activity?canvasId=${board}&groupId=${manager.id}`,
@@ -1163,7 +1292,6 @@ it("C37 a failed initial-task append rolls back the member, grant and outgoing m
     return output;
   });
   const response = await s.call("hire_agent", {
-    title: "atomic failure",
     persona: "",
     task: "FIRST",
     respondToResources: true,
@@ -1183,20 +1311,19 @@ it("C38 a full run queue retains the hire task and admits it when capacity retur
   const settings = await k.runs.settings.read();
   await k.runs.settings.save(settings.revision, { ...settings.policy, pendingPerCanvas: 1 });
   const hired = await s.call("hire_agent", {
-    title: "queued hire",
     persona: "",
     task: "WAIT_FOR_CAPACITY",
     respondToResources: false,
     role: "read",
   });
   const child = await k.graph.queries.node(hired.value.id);
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(child)).toHaveLength(0);
   expect(
     (await s.call("get_agent_status", { agentIds: [child.id] })).value.agents[0],
   ).toMatchObject({ runState: "idle", pendingMessages: 1 });
   await k.runs.finish(s.run, "succeeded");
-  await k.access.maintain();
+  await k.maintain();
   await consume(child, "WAIT_FOR_CAPACITY");
 });
 
@@ -1207,7 +1334,6 @@ it("C39 workspace recruitment submits the task once and labels the workspace sen
     tools = await k.tools.create(ctx, run.frozen_input);
   const hire = tools.find((t) => t.name === "hire_agent")!;
   const args = {
-    title: "workspace member",
     persona: "",
     task: "WORKSPACE_TASK",
     role: "read",
@@ -1224,7 +1350,7 @@ it("C39 workspace recruitment submits the task once and labels the workspace sen
   expect(await incoming(child)).toHaveLength(1);
   expect((await k.activity.board(board)).events[0]!.data.senderId).toBe("workspace");
   expect(run.id).toBe(submission.run.id);
-  await k.access.maintain();
+  await k.maintain();
   await consume(child, "WORKSPACE_TASK");
 });
 
@@ -1269,3 +1395,270 @@ it("C40 a steer submitted just after completion persists once and starts the nex
     ).rows,
   ).toHaveLength(1);
 });
+
+it("C41 admins send across teams and resource scopes without granting resource access", async () => {
+  const sender = await agent(board, "admin"),
+    otherTeam = await agent(board, "admin"),
+    recipients = await Promise.all(
+      (["read", "write", "admin"] as const).map((role) => agent(otherTeam.id, role, false)),
+    ),
+    hidden = await resource();
+  await connect(recipients[1]!, hidden);
+  const s = await start(sender);
+  const before = (
+    await k.db.pool.query("select * from grants where canvas_id=$1 order by id", [board])
+  ).rows;
+  for (const recipient of recipients) {
+    const sent = await s.call("send_message", {
+      kind: "update",
+      target: { kind: "agent", agentId: recipient.id },
+      message: key(),
+    });
+    expect(sent.value.delivered).toBe(1);
+    expect(sent.waiting).toBeUndefined();
+  }
+  const args = {
+    kind: "update",
+    target: {
+      kind: "agents",
+      agentIds: [sender.id, ...recipients.map((r) => r.id), recipients[0]!.id],
+    },
+    message: key(),
+  };
+  const broadcast = await s.call("send_message", args);
+  expect(broadcast.value.recipients).toEqual(recipients.map((r) => r.id).sort());
+  expect((await s.call("send_message", args, broadcast.logical)).value).toEqual(broadcast.value);
+  for (const recipient of recipients) expect(await incoming(recipient)).toHaveLength(2);
+  expect(await incoming(sender)).toHaveLength(0);
+  const all = await s.call("send_message", {
+    kind: "update",
+    target: { kind: "canvas" },
+    message: key(),
+  });
+  expect(all.value.recipients).toEqual([otherTeam.id, ...recipients.map((r) => r.id)].sort());
+  expect((await k.access.list(board, { status: "pending" })).total).toBe(0);
+  expect(
+    (await k.db.pool.query("select * from grants where canvas_id=$1 order by id", [board])).rows,
+  ).toEqual(before);
+  expect((await s.call("read", { target: { kind: "node", nodeId: hidden.id } })).waiting).toBe(
+    "approval",
+  );
+});
+
+it.each(["read", "write"] as const)(
+  "C42 %s senders retain scope checks and cannot use administrator broadcast targets",
+  async (role) => {
+    const sender = await agent(board, role),
+      target = await agent(board, "write"),
+      secret = await resource();
+    await connect(target, secret);
+    const s = await start(sender);
+    for (const audience of [{ kind: "agents", agentIds: [target.id] }, { kind: "canvas" }]) {
+      expect(
+        (await s.call("send_message", { kind: "update", target: audience, message: key() })).result
+          .isError,
+      ).toBe(true);
+    }
+    expect(
+      (
+        await s.call("send_message", {
+          kind: "update",
+          target: { kind: "agent", agentId: target.id },
+          message: key(),
+        })
+      ).waiting,
+    ).toBe("approval");
+    expect(await incoming(target)).toHaveLength(0);
+  },
+);
+
+async function freezeSend(s: Awaited<ReturnType<typeof start>>, args: object) {
+  const logical = key(),
+    callId = key();
+  const _tool = s.tools.find((t) => t.name === "send_message")!;
+  const frozen = args;
+  await k.db.canvas(board, async (tx) => {
+    const dispatchId = key();
+    const intent = await resolveTarget(
+      tx,
+      {
+        canvasId: board,
+        conversationId: s.run.subject_id,
+        agentId: s.run.frozen_input.agentId,
+        causeId: s.run.cause_id,
+        dispatchId,
+      },
+      args as any,
+    );
+    await tx.query(
+      `insert into message_dispatches(id,canvas_id,conversation_id,run_id,logical_id,input_hash,origin,generation,payload,intent)
+      values($1,$2,$3,$4,$5,$6,'tool',0,$7,$8)`,
+      [
+        dispatchId,
+        board,
+        s.run.subject_id,
+        s.run.id,
+        `tool:${s.run.id}:${logical}`,
+        digest(args),
+        JSON.stringify(args),
+        JSON.stringify(intent),
+      ],
+    );
+  });
+  await k.db.pool.query(
+    "insert into tool_calls(id,run_id,attempt_id,logical_call_id,name,args,args_hash,execution_input,effect_class,state) values($1,$2,$3,$4,'send_message',$5,$6,$7,'graph','prepared')",
+    [
+      callId,
+      s.run.id,
+      s.run.attemptId,
+      logical,
+      JSON.stringify(args),
+      digest(args),
+      JSON.stringify(frozen),
+    ],
+  );
+  return logical;
+}
+
+it("C43 broadcasts retain the frozen audience during recovery and reject removed targets atomically", async () => {
+  const sender = await agent(board, "admin"),
+    first = await agent(),
+    second = await agent(),
+    s = await start(sender);
+  const args = { kind: "update", target: { kind: "canvas" }, message: key() };
+  const logical = await freezeSend(s, args);
+  const late = await agent();
+  expect((await s.call("send_message", args, logical)).value.recipients).toEqual(
+    [first.id, second.id].sort(),
+  );
+  expect(await incoming(late)).toHaveLength(0);
+  const stale = {
+    kind: "update",
+    target: { kind: "agents", agentIds: [first.id, second.id] },
+    message: key(),
+  };
+  const staleLogical = await freezeSend(s, stale);
+  await k.graph.deleteNodes({ nodeIds: [second.id], idempotencyKey: key() });
+  expect((await s.call("send_message", stale, staleLogical)).result.isError).toBe(true);
+  expect(await incoming(first)).toHaveLength(1);
+  const foreignBoard = (await k.graph.createCanvas({ title: key(), idempotencyKey: key() })).node;
+  const foreign = await agent(foreignBoard.id);
+  expect(
+    (
+      await s.call("send_message", {
+        kind: "update",
+        target: { kind: "agents", agentIds: [first.id, foreign.id] },
+        message: key(),
+      })
+    ).result.isError,
+  ).toBe(true);
+  expect(await incoming(first)).toHaveLength(1);
+  expect(await incoming(foreign)).toHaveLength(0);
+  const demoted = { kind: "update", target: { kind: "canvas" }, message: key() };
+  const beforeDemotion = await freezeSend(s, demoted);
+  await k.db.pool.query(
+    "update agent_configs set config=jsonb_set(config,'{role}','\"write\"') where node_id=$1",
+    [sender.id],
+  );
+  expect((await s.call("send_message", demoted, beforeDemotion)).result.isError).toBe(true);
+  expect((await s.call("send_message", args, logical)).value.delivered).toBe(2);
+  expect(await incoming(first)).toHaveLength(1);
+});
+
+it("C44 empty canvas broadcasts do not activate any conversation", async () => {
+  const sender = await agent(board, "admin"),
+    s = await start(sender);
+  for (const target of [{ kind: "canvas" }, { kind: "agents", agentIds: [sender.id, sender.id] }])
+    expect(
+      (await s.call("send_message", { kind: "update", target, message: key() })).value,
+    ).toMatchObject({
+      delivered: 0,
+      recipients: [],
+    });
+  expect(await incoming(sender)).toHaveLength(0);
+  expect(
+    (await k.db.pool.query("select count(*)::int as n from runs where canvas_id=$1", [board]))
+      .rows[0].n,
+  ).toBe(1);
+});
+
+it("resource-reader broadcasts require an explicit resource filter", async () => {
+  const sender = await agent(board, "admin"),
+    target = await agent(),
+    s = await start(sender);
+  expect(
+    (
+      await s.call("send_message", {
+        target: { kind: "resource_readers" },
+        kind: "update",
+        message: "invalid",
+      })
+    ).result.isError,
+  ).toBe(true);
+  expect(await incoming(target)).toHaveLength(0);
+});
+
+it("C45 gaining admin authority resumes the original pending send instead of dropping it", async () => {
+  const manager = await agent(board, "admin"),
+    sender = await agent(manager.id, "write"),
+    target = await agent(),
+    secret = await resource();
+  await connect(target, secret);
+  const s = await start(sender),
+    args = { kind: "update", target: { kind: "agent", agentId: target.id }, message: key() };
+  const pending = await s.call("send_message", args);
+  expect(pending.waiting).toBe("approval");
+  await k.db.pool.query(
+    "update agent_configs set config=jsonb_set(config,'{role}','\"admin\"') where node_id=$1",
+    [sender.id],
+  );
+  await k.maintain();
+  expect(
+    (await k.db.pool.query("select status from approvals where id=$1", [pending.value.requestId]))
+      .rows[0].status,
+  ).toBe("satisfied");
+  expect(
+    (
+      await k.db.pool.query("select state from tool_calls where run_id=$1 and logical_call_id=$2", [
+        s.run.id,
+        pending.logical,
+      ])
+    ).rows[0].state,
+  ).toBe("prepared");
+  expect(await incoming(target)).toHaveLength(0);
+  expect((await s.call("send_message", args, pending.logical)).value.delivered).toBe(1);
+  await s.call("send_message", args, pending.logical);
+  expect(await incoming(target)).toHaveLength(1);
+});
+
+it.each(["denied", "expired", "escalated"])(
+  "C46 admin authority does not replay a %s send",
+  async (state) => {
+    const manager = await agent(board, "admin"),
+      sender = await agent(manager.id, "write"),
+      target = await agent(),
+      secret = await resource();
+    await connect(target, secret);
+    const s = await start(sender),
+      args = { kind: "update", target: { kind: "agent", agentId: target.id }, message: key() };
+    const pending = await s.call("send_message", args);
+    if (state === "denied") await approve(pending.value.requestId, "deny");
+    if (state === "expired")
+      await k.db.pool.query(
+        "update approvals set expires_at=now()-interval '1 second' where id=$1",
+        [pending.value.requestId],
+      );
+    if (state === "escalated")
+      await k.access.decide(pending.value.requestId, 1, "escalate", "explicit user review");
+    await k.db.pool.query(
+      "update agent_configs set config=jsonb_set(config,'{role}','\"admin\"') where node_id=$1",
+      [sender.id],
+    );
+    await k.maintain();
+    expect(
+      (await k.db.pool.query("select status from approvals where id=$1", [pending.value.requestId]))
+        .rows[0].status,
+    ).not.toBe("satisfied");
+    expect(await incoming(target)).toHaveLength(0);
+  },
+);

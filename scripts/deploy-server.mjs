@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createReadStream } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { isIP } from "node:net";
 import { tmpdir } from "node:os";
@@ -77,22 +77,25 @@ export function sshArguments(alias, { configuration = false, command } = {}) {
   ];
 }
 
+// Keep the standalone installer and the read-only doctor on one set of rules.
+const installerSource = readFileSync(new URL("./install-server.sh", import.meta.url), "utf8");
+export const prerequisiteScript = installerSource.match(
+  /# BEGIN INTRICA_PREREQUISITES\n([\s\S]*?)# END INTRICA_PREREQUISITES/,
+)?.[1];
+if (!prerequisiteScript) throw new Error("Missing shared server prerequisites.");
+export const prepareScript = `set -eu\n${prerequisiteScript}\nintrica_prerequisites prepare\n`;
+
 // No config/token is returned. An installed runtime is not required for this check.
 export const preflightScript = `set -eu
-test "$(uname -s)-$(uname -m)" = Linux-x86_64 || { echo 'Only Linux x64 native servers are supported.' >&2; exit 1; }
-test "$(id -u)" != 0 || { echo 'Use a regular user, not root.' >&2; exit 1; }
-for program in bash systemctl loginctl sha256sum tar flock; do
-  command -v "$program" >/dev/null || { echo "Missing prerequisite: $program. Ask your administrator to install it; no sudo will be run." >&2; exit 1; }
-done
+${prerequisiteScript}
+intrica_prerequisites inspect
 if test -x /usr/bin/bwrap && /usr/bin/bwrap --unshare-all --die-with-parent --new-session --ro-bind / / --proc /proc --dev /dev /bin/true >/dev/null 2>&1; then
   printf 'sandboxAvailable=yes\\n'
 else
   printf 'sandboxAvailable=no\\n'
 fi
-systemctl --user show-environment >/dev/null || { echo 'A working systemd user session is required.' >&2; exit 1; }
-test "$(loginctl show-user "$(id -un)" -p Linger --value)" = yes || { echo 'Ask your administrator to run: loginctl enable-linger USER. No sudo will be run.' >&2; exit 1; }
 base="$HOME/.local/share/intrica-server"
-printf 'platform=linux\narchitecture=x64\ninstallation=%s\nconfig=%s\n' "$base" "$HOME/.config/intrica/server.json"
+printf 'installation=%s\nconfig=%s\n' "$base" "$HOME/.config/intrica/server.json"
 printf 'service=%s\n' "$(systemctl --user is-active intrica-server.service 2>/dev/null || true)"
 if test -f "$HOME/.config/intrica/server.json"; then printf 'configured=yes\n'; else printf 'configured=no\n'; fi
 if test -L "$base/current"; then printf 'current=%s\n' "$(readlink "$base/current")"; else printf 'current=\n'; fi
@@ -169,6 +172,17 @@ export function parsePreflight(output) {
   return result;
 }
 
+export class DeploymentError extends Error {
+  constructor(code, message, { uid, details } = {}) {
+    super(message);
+    this.code = code;
+    this.details = details;
+    if (/^[1-9]\d{0,9}$/.test(uid ?? "")) this.uid = uid;
+    if (code === "LINGER_PERMISSION_REQUIRED" && this.uid)
+      this.remediation = `loginctl enable-linger ${this.uid}`;
+  }
+}
+
 export function planDeployment(options, host, metadata) {
   const asset = selectAsset(metadata, "server-linux-x64.tar.gz");
   const sandbox = options.sandbox ?? host.sandbox;
@@ -225,7 +239,12 @@ export function planDeployment(options, host, metadata) {
 
 // Arguments are never evaluated by a local shell. Only validated constants and
 // the validated remote mktemp path enter the remote command; script bytes use stdin.
-export async function runCommand(command, args, { input, inputFile, timeout = 30_000, env } = {}) {
+export async function runCommand(
+  command,
+  args,
+  { input, inputFile, timeout = 30_000, env, signal, onProgress, onStdout } = {},
+) {
+  signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
@@ -243,15 +262,24 @@ export async function runCommand(command, args, { input, inputFile, timeout = 30
       killTimer = setTimeout(() => child.kill("SIGKILL"), 1000);
     };
     const timer = setTimeout(() => fail(new Error(`${command} exceeded its time limit.`)), timeout);
+    const abort = () => fail(signal.reason ?? new Error("Operation cancelled."));
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
     const cleanup = () => {
       clearTimeout(timer);
       clearTimeout(killTimer);
       source?.destroy();
+      signal?.removeEventListener("abort", abort);
     };
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (data) => {
       stdout += data;
+      try {
+        onStdout?.(data);
+      } catch (error) {
+        fail(error);
+      }
       if (stdout.length > 1024 * 1024) fail(new Error(`${command} output limit exceeded.`));
     });
     child.stderr.on("data", (data) => {
@@ -265,15 +293,42 @@ export async function runCommand(command, args, { input, inputFile, timeout = 30
     child.on("close", (code) => {
       cleanup();
       if (failure) reject(failure);
-      else if (code !== 0)
-        reject(new Error(`${command} failed (${code}): ${stderr.trim().slice(0, 4000)}`));
-      else resolve(stdout);
+      else if (code !== 0) {
+        const kind = stderr.match(/^INTRICA_ERROR=([A-Z_]+)$/m)?.[1];
+        reject(
+          new DeploymentError(
+            kind ??
+              (command === "ssh" && code === 255
+                ? "SSH_TRANSPORT_FAILED"
+                : "REMOTE_COMMAND_FAILED"),
+            kind
+              ? stderr
+                  .replace(/^INTRICA_(ERROR|UID)=.*\n/gm, "")
+                  .trim()
+                  .slice(0, 4000)
+              : `${command} failed (${code}): ${stderr.trim().slice(0, 4000)}`,
+            {
+              uid: stderr.match(/^INTRICA_UID=(\d+)$/m)?.[1],
+              details: stderr.trim().slice(0, 4000),
+            },
+          ),
+        );
+      } else resolve(stdout);
     });
     child.stdin.on("error", (error) => {
       if (error.code !== "EPIPE") fail(error);
     });
     if (inputFile) {
       source = createReadStream(inputFile);
+      let bytes = 0;
+      source.on("data", (chunk) => {
+        try {
+          bytes += chunk.length;
+          onProgress?.(bytes);
+        } catch (error) {
+          fail(error);
+        }
+      });
       source.on("error", fail).pipe(child.stdin);
     } else child.stdin.end(input);
   });
@@ -281,7 +336,14 @@ export async function runCommand(command, args, { input, inputFile, timeout = 30
 
 export async function deployServer(
   options,
-  { run = runCommand, log = console.log, expectedPlan, fetchImpl = fetch } = {},
+  {
+    run = runCommand,
+    log = console.log,
+    expectedPlan,
+    fetchImpl = fetch,
+    signal,
+    onProgress = () => {},
+  } = {},
 ) {
   if (!["auto", "install", "update"].includes(options.mode) || typeof options.apply !== "boolean")
     throw new Error("Invalid deployment mode.");
@@ -298,7 +360,10 @@ export async function deployServer(
     ...(options.port === undefined ? [] : ["--port", options.port]),
     ...(options.bind === undefined ? [] : ["--bind", options.bind]),
   ]);
-  const configuration = await run("ssh", sshArguments(options.alias, { configuration: true }));
+  onProgress({ phase: "checking", cancellable: true });
+  const configuration = await run("ssh", sshArguments(options.alias, { configuration: true }), {
+    signal,
+  });
   const user = configuration.match(/^user (.+)$/m)?.[1];
   const hostname = configuration.match(/^hostname (.+)$/m)?.[1];
   if (
@@ -313,9 +378,10 @@ export async function deployServer(
   const host = parsePreflight(
     await run("ssh", sshArguments(options.alias, { command: "bash -s --" }), {
       input: preflightScript,
+      signal,
     }),
   );
-  const metadata = await readRelease(options.release.slice(1), fetchImpl);
+  const metadata = await readRelease(options.release.slice(1), fetchImpl, signal);
   const plan = planDeployment(options, host, metadata);
   const { asset } = plan;
   plan.sshTarget = `${user}@${hostname}:${configuration.match(/^port (.+)$/m)?.[1] ?? "22"}`;
@@ -337,17 +403,57 @@ export async function deployServer(
   if (expectedPlan && plan.asset.sha256 !== expectedPlan.asset.sha256)
     throw new Error("Release changed since preflight. Run preflight again.");
   log(JSON.stringify(plan, null, 2));
-  if (!options.apply || plan.action === "no-op") return plan;
+  if (!options.apply) return plan;
+  if (host.prerequisiteError)
+    throw new DeploymentError(
+      host.prerequisiteError,
+      "Cannot query the remote account linger setting.",
+    );
+  if (host.linger === "no" || host.userManager === "no") {
+    onProgress({ phase: "preparing", cancellable: false });
+    let preparationOutput = "";
+    await run("ssh", sshArguments(options.alias, { command: "bash -s --" }), {
+      input: prepareScript,
+      onStdout: (chunk) => {
+        preparationOutput += chunk;
+        if (preparationOutput.includes("INTRICA_LINGER_CHANGED=yes\n")) {
+          onProgress({ phase: "preparing", cancellable: false, lingerChanged: true });
+          preparationOutput = "";
+        }
+      },
+    });
+    signal?.throwIfAborted();
+  }
+  if (plan.action === "no-op") return plan;
 
   const temporary = await mkdtemp(join(tmpdir(), "intrica-deploy-"));
   let remoteDirectory;
   try {
     const archive = join(temporary, "server.tar.gz");
     log("Downloading and verifying the pinned public package locally.");
-    await downloadAsset(metadata.version, asset, archive, { fetchImpl });
+    onProgress({
+      phase: "downloading",
+      cancellable: true,
+      totalBytes: asset.size,
+      transferredBytes: 0,
+    });
+    await downloadAsset(metadata.version, asset, archive, {
+      fetchImpl,
+      signal,
+      onProgress: (transferredBytes) =>
+        onProgress({
+          phase: "downloading",
+          cancellable: true,
+          totalBytes: asset.size,
+          transferredBytes,
+        }),
+      onVerification: () => onProgress({ phase: "verifying", cancellable: true }),
+    });
+    signal?.throwIfAborted();
     remoteDirectory = (
       await run("ssh", sshArguments(options.alias, { command: "bash -s --" }), {
         input: "umask 077\nmktemp -d /tmp/intrica-deploy.XXXXXXXXXX\n",
+        signal,
       })
     ).trim();
     if (!stagingPattern.test(remoteDirectory)) {
@@ -355,12 +461,29 @@ export async function deployServer(
       throw new Error("Remote staging directory was not valid; refusing transfer and cleanup.");
     }
     log("Transferring verified package over SSH; the existing service is still running.");
+    onProgress({
+      phase: "uploading",
+      cancellable: true,
+      totalBytes: asset.size,
+      transferredBytes: 0,
+    });
     await run(
       "ssh",
       sshArguments(options.alias, {
         command: `dd of='${remoteDirectory}/server.tar.gz' status=none`,
       }),
-      { inputFile: archive, timeout: 15 * 60_000 },
+      {
+        inputFile: archive,
+        timeout: 15 * 60_000,
+        signal,
+        onProgress: (transferredBytes) =>
+          onProgress({
+            phase: "uploading",
+            cancellable: true,
+            totalBytes: asset.size,
+            transferredBytes,
+          }),
+      },
     );
     const parameters = [
       options.release,
@@ -377,13 +500,29 @@ export async function deployServer(
     if (options.port) parameters.push("--port", options.port);
     if (options.bind) parameters.push("--bind", options.bind);
     const script = await readFile(new URL("./install-server.sh", import.meta.url), "utf8");
+    signal?.throwIfAborted();
+    onProgress({ phase: "installing", cancellable: false });
+    let phaseOutput = "";
     log("Installing and checking authenticated health; access tokens are not returned or logged.");
     const result = await run(
       "ssh",
       sshArguments(options.alias, {
         command: `bash -s -- ${parameters.map((parameter) => `'${parameter}'`).join(" ")}`,
       }),
-      { input: script, timeout: 10 * 60_000 },
+      {
+        input: script,
+        timeout: 10 * 60_000,
+        onStdout: (chunk) => {
+          phaseOutput += chunk;
+          const lines = phaseOutput.split("\n");
+          phaseOutput = lines.pop();
+          for (const line of lines) {
+            if (line === "INTRICA_STEP=health") onProgress({ phase: "health", cancellable: false });
+            if (line === "INTRICA_LINGER_CHANGED=yes")
+              onProgress({ phase: "installing", cancellable: false, lingerChanged: true });
+          }
+        },
+      },
     );
     log(result.trim());
     log(

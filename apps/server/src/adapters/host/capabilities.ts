@@ -10,7 +10,7 @@ import { cleanEnvironment, isolationAvailable } from "./sandbox.js";
 
 export async function hostCapabilities() {
   const skills: Array<{ name: string; path: string }> = [];
-  const commands: Array<{ name: string; path: string }> = [];
+  const commands: Array<{ name: string; path: string; version: string | null }> = [];
   for (const dir of [join(homedir(), ".agents/skills"), join(homedir(), ".codex/skills")])
     for (const entry of (await readdir(dir, { withFileTypes: true }).catch(() => [])).slice(
       0,
@@ -28,7 +28,7 @@ export async function hostCapabilities() {
           () => false,
         )
       ) {
-        commands.push({ name, path });
+        commands.push({ name, path, version: path === process.execPath ? process.version : null });
         break;
       }
     }
@@ -38,7 +38,7 @@ export async function hostCapabilities() {
     isolation: await isolationAvailable(),
     mcp: "stdio",
     installation:
-      "角色及资源授权在隔离外仍有效；管理员和连接目录可直接执行宿主及网络命令。无隔离时使用服务账户权限，cwd 不是文件系统边界",
+      "执行方式由当前角色、显式授权和隔离可用性确定。目录连接提供文件访问和工作目录参考；宿主命令使用服务账户权限，cwd 不是文件系统边界",
   };
 }
 

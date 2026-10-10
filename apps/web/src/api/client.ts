@@ -24,6 +24,7 @@ import type {
   UndoResponse,
   UpdateNodeRequest,
 } from "@intrica/contracts";
+import { applyMessage, type StreamMessage } from "@intrica/contracts";
 
 export type { OperationDecisionResponse };
 
@@ -55,6 +56,7 @@ export function createApiClient(
         message: string;
         sessionId: string;
         resumeRunId?: string;
+        association?: import("@intrica/contracts").InputAssociation;
         selection: string[];
         scopeId: string;
         model?: import("@intrica/contracts").ModelSelection | null;
@@ -65,11 +67,17 @@ export function createApiClient(
       const response = await requestFetch(url("/api/v2/agent/chat"), {
         method: "POST",
         headers: { ...(await requestHeaders()), "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, streamFormat: "delta" }),
         signal,
         credentials: "include",
       });
-      await readJsonLines(response, onEvent);
+      let message: StreamMessage | undefined;
+      await readJsonLines(response, (event) => {
+        if (event.type === "message") {
+          message = applyMessage(message, event);
+          onEvent({ ...message, type: "message" });
+        } else onEvent(event);
+      });
     },
     retryCandidate(opId: string, candidateId: string) {
       return jsonRequest(

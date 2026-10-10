@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
 import { assertFence, digest } from "../../apps/server/dist/adapters/postgres/database.js";
 import { invokeTool, result } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { Worker } from "../../apps/server/dist/modules/execution/worker.js";
+import { removeAddressedSchema } from "../fixtures/remove-addressed-schema.mjs";
 
 const key = () => randomUUID();
 let admin: pg.Client, app: Awaited<ReturnType<typeof buildServer>>, k: Kernel;
@@ -152,6 +153,10 @@ async function checkpoint(calls: Array<{ providerId: string; name: string; args:
   ]);
 }
 async function version(value: 8 | 9) {
+  await removeAddressedSchema(k.db.pool);
+  await k.db.pool.query(
+    "alter table schedules drop column revision, drop column dispatch_state, drop column blocked_reason, drop column delivery_seq, drop column delivery_run_id",
+  );
   if (value === 8)
     await k.db.pool.query(
       "drop index runs_handoffs; alter table runs drop column superseded_by_run_id; alter table messages drop column consumed_run_id",
@@ -211,7 +216,7 @@ it.each([8, 9] as const)(
       .rows;
     await version(schema);
     await reopen();
-    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(10);
+    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(16);
     expect((await stored(success.id)).result).toEqual(result({ written: true }));
     expect((await stored(prepared.id)).state).toBe("failed");
     expect((await stored(dispatched.id)).state).toBe("unknown");
@@ -390,7 +395,7 @@ it("unread messages and schedules cannot lift upgrade pause, and unrelated conve
     [agentId],
   );
   await k.tools.tickSchedules();
-  await k.access.maintain();
+  await k.maintain();
   expect(await k.runs.get(r.id)).toMatchObject({
     state: "waiting",
     reason: "tool_contract_upgrade",

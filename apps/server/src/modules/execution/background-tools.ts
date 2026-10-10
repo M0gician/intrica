@@ -6,10 +6,12 @@ import {
   invokeTool,
   storedToolResult,
 } from "./tool-calls.js";
+import type { ToolObservation } from "./tool-ledger.js";
 import type { ExecutionContext } from "./worker.js";
 
 export type ToolNotice = {
   text: string;
+  workItemId?: string | undefined;
   callId: string;
   status: string;
   progress: boolean;
@@ -36,7 +38,12 @@ export class BackgroundTools {
     tool: ExecutionTool | string,
     logicalId: string,
     args: unknown,
-    resumed = false,
+    options: {
+      resumed?: boolean;
+      interrupt?: AbortSignal | undefined;
+      inputVersion?: number;
+      observation?: ToolObservation;
+    } = {},
   ): ReturnType<typeof invokeTool> {
     const active = this.pending.get(logicalId);
     if (active)
@@ -59,7 +66,8 @@ export class BackgroundTools {
         if (row && !["prepared", "dispatching"].includes(row.state)) await this.publish(tx, row);
       },
       {
-        afterMs: resumed ? 0 : this.ctx.store.limits.toolAsyncAfterMs,
+        afterMs: options.resumed ? 0 : this.ctx.store.limits.toolAsyncAfterMs,
+        interrupt: options.interrupt,
         detach: (callId, completion) => {
           const pending = completion
             .then(
@@ -76,6 +84,8 @@ export class BackgroundTools {
           this.pending.set(logicalId, { callId, completion: pending });
         },
       },
+      options.inputVersion,
+      options.observation,
     );
   }
   async resume(recover = true) {
@@ -87,8 +97,40 @@ export class BackgroundTools {
     ).rows;
     for (const row of rows) {
       const tool = this.tools.find((t) => t.name === row.name);
-      await this.invoke(tool ?? row.name, row.logical_call_id, row.args, true);
+      // The durable admission policy checks dependencies for both new and resumed calls.
+      await this.invoke(tool ?? row.name, row.logical_call_id, row.args, { resumed: true });
     }
+  }
+  /** Only the current lease owner dispatches. No checkpoint or model context is changed here. */
+  async monitorInference(checkInput: () => Promise<void>) {
+    let closed = false,
+      work: Promise<void> | undefined;
+    const tick = () => {
+      if (closed || work || this.ctx.signal.aborted) return;
+      work = (async () => {
+        this.ctx.progress();
+        await checkInput();
+        await this.deliver();
+      })()
+        .catch((error) => {
+          this.failure = error;
+        })
+        .finally(() => {
+          work = undefined;
+        });
+    };
+    const unlisten = await this.ctx.store.db.listen("intrica_run_wake", (runId) => {
+      if (runId === this.ctx.run.id) tick();
+    });
+    const timer = setInterval(tick, 500);
+    tick();
+    return async () => {
+      closed = true;
+      clearInterval(timer);
+      unlisten();
+      await work;
+      if (this.failure) throw this.failure;
+    };
   }
   /** A pending approval suspends one call, not the conversation's inbox. */
   async parkApproval(logicalId: string) {
@@ -114,6 +156,7 @@ export class BackgroundTools {
       : `background-${row.id}-${row.state}-${row.approval_id ?? "result"}`;
     await this.notify(tx, key, {
       callId: row.id,
+      workItemId: row.work_item_id ?? undefined,
       status: row.state,
       progress: active,
       elapsedSeconds,

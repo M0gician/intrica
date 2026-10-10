@@ -1,0 +1,67 @@
+diff --git a/dist/api/openai-responses-shared.js b/dist/api/openai-responses-shared.js
+index 43e463dbfd1e6cc437ebc680468036f47678de26..104dde7d2002b81e2d6306875ee77d8177f5a4e0 100644
+--- a/dist/api/openai-responses-shared.js
++++ b/dist/api/openai-responses-shared.js
+@@ -134,6 +134,11 @@ export function convertResponsesMessages(model, context, allowedToolCallProvider
+             const isDifferentModel = isSameProviderAndApi && assistantMsg.model !== model.id;
+             let textBlockIndex = 0;
+             for (const block of msg.content) {
++                // Replay verified native items without reconstructing IDs, arguments, or opaque continuation data.
++                if (block.nativeItem && msg.api === model.api && msg.provider === model.provider && msg.model === model.id) {
++                    output.push(structuredClone(block.nativeItem));
++                    continue;
++                }
+                 if (block.type === "thinking") {
+                     if (block.thinkingSignature) {
+                         const reasoningItem = JSON.parse(block.thinkingSignature);
+@@ -424,10 +429,8 @@ export async function processResponsesStream(openaiStream, output, stream, model
+             const storedItem = JSON.parse(block.thinkingSignature);
+             if (storedItem.encrypted_content)
+                 continue;
+-            block.thinkingSignature = JSON.stringify({
+-                ...storedItem,
+-                encrypted_content: item.encrypted_content,
+-            });
++            block.nativeItem = { ...storedItem, ...structuredClone(item) };
++            block.thinkingSignature = JSON.stringify(block.nativeItem);
+         }
+     };
+     const finalizeResponse = (response) => {
+@@ -578,6 +581,8 @@ export async function processResponsesStream(openaiStream, output, stream, model
+             const item = event.item;
+             applyMessagePhaseStopReason(item);
+             const slot = getOrCreateSlot(event.output_index, item);
++            // Content closure and replay readiness are distinct; retain the provider's status and payload.
++            if (slot) slot.block.nativeItem = structuredClone(item);
+             if (item.type === "reasoning" && slot?.type === "thinking") {
+                 const summaryText = item.summary?.map((s) => s.text).join("\n\n") || "";
+                 const contentText = item.content?.map((c) => c.text).join("\n\n") || "";
+diff --git a/dist/types.d.ts b/dist/types.d.ts
+index 85f95217bae764ef5a4fe4e9195ccbd8f2562a1e..d1824b46af516964451483677400ff97a2002744 100644
+--- a/dist/types.d.ts
++++ b/dist/types.d.ts
+@@ -235,11 +235,15 @@ export interface TextSignatureV1 {
+     phase?: "commentary" | "final_answer";
+ }
+ export interface TextContent {
++    /** Lossless provider output item. Replay is subject to adapter continuation validation. */
++    nativeItem?: Record<string, unknown>;
+     type: "text";
+     text: string;
+     textSignature?: string;
+ }
+ export interface ThinkingContent {
++    /** Lossless provider output item. Replay is subject to adapter continuation validation. */
++    nativeItem?: Record<string, unknown>;
+     type: "thinking";
+     thinking: string;
+     thinkingSignature?: string;
+@@ -254,6 +258,8 @@ export interface ImageContent {
+     mimeType: string;
+ }
+ export interface ToolCall {
++    /** Lossless provider output item. Replay is subject to adapter continuation validation. */
++    nativeItem?: Record<string, unknown>;
+     type: "toolCall";
+     id: string;
+     name: string;

@@ -40,6 +40,9 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await k.db.pool.query("update conversations set consumed_message_seq=message_seq");
+  await k.db.pool.query(
+    "update messages set content=content||'{\"closed\":true}'::jsonb where consumed_run_id is null",
+  );
   await k.db.pool.query("update schedules set enabled=false");
   await k.db.pool.query("update approvals set status='cancelled' where status='pending'");
   await k.db.pool.query(
@@ -160,6 +163,7 @@ it("M01 four-level cross-branch coordination preserves recipients, roles and dis
     before = await Promise.all([scope(worker), scope(cousin)]);
   expect(await managementChain(k.db.pool, worker.id)).toEqual([lead.id, division.id, top.id]);
   const args = {
+    kind: "update",
     target: { kind: "agent", agentId: cousin.id },
     message: "inspect your branch, not my files",
   };
@@ -171,13 +175,20 @@ it("M01 four-level cross-branch coordination preserves recipients, roles and dis
   expect(
     (
       await peer.call("send_message", {
+        kind: "update",
         target: { kind: "agent", agentId: worker.id },
         message: "branch checked",
       })
     ).value.delivered,
   ).toBe(1);
   expect(
-    (await child.call("report_result", { message: "direct result" })).value.recipients,
+    (
+      await child.call("send_message", {
+        kind: "result",
+        target: { kind: "manager" },
+        message: "direct result",
+      })
+    ).value.recipients,
   ).toEqual([lead.id]);
   expect(await incoming(top)).toHaveLength(0);
   expect(await incoming(division)).toHaveLength(0);
@@ -195,7 +206,11 @@ it("M02 one private leaf resource blocks cross-branch delivery despite a common 
   for (const a of [top, worker, cousin]) await connect(a, publicResource);
   await connect(worker, privateResource);
   const sender = await start(worker),
-    args = { target: { kind: "agent", agentId: cousin.id }, message: "must remain private" };
+    args = {
+      kind: "update",
+      target: { kind: "agent", agentId: cousin.id },
+      message: "must remain private",
+    };
   const pending = await sender.call("send_message", args, "private-branch-once");
   expect(pending.waiting).toBe("approval");
   expect(await incoming(cousin)).toHaveLength(0);
@@ -218,7 +233,7 @@ it("M03 three review hops retain one frozen call and user steering, then execute
     manager = await start(lead),
     child = await start(worker);
   const args = {
-      scope: { kind: "path", path: area, access: "directory_and_commands" },
+      scope: { kind: "path", path: area, access: "directory", mode: "read", execution: "none" },
       reason: "read assigned evidence",
     },
     pending = await child.call("request_permission", args, "three-hop-request");
@@ -347,6 +362,7 @@ it.each(["move-middle", "revoke-root", "downgrade-root"] as const)(
     ).toBe("source evidence");
     await expect(
       manager.call("send_message", {
+        kind: "update",
         target: { kind: "agent", agentId: worker.id },
         message: "stale manager work",
       }),
@@ -368,12 +384,19 @@ it("M05 a normal node breaks the management chain even when Agents are deeply ne
   await connect(worker, localEvidence);
   const child = await start(worker);
   expect(await managementChain(k.db.pool, worker.id)).toEqual([lead.id]);
-  expect((await child.call("report_result", { message: "local report" })).value.recipients).toEqual(
-    [lead.id],
-  );
   expect(
     (
       await child.call("send_message", {
+        kind: "result",
+        target: { kind: "manager" },
+        message: "local report",
+      })
+    ).value.recipients,
+  ).toEqual([lead.id]);
+  expect(
+    (
+      await child.call("send_message", {
+        kind: "update",
         target: { kind: "agent", agentId: top.id },
         message: "not an ancestor team",
       })
@@ -386,7 +409,15 @@ it("M05 a normal node breaks the management chain even when Agents are deeply ne
     idempotencyKey: key(),
   });
   expect(await managementChain(k.db.pool, worker.id)).toEqual([]);
-  expect((await child.call("report_result", { message: "no manager" })).value.delivered).toBe(0);
+  expect(
+    (
+      await child.call("send_message", {
+        kind: "result",
+        target: { kind: "manager" },
+        message: "no manager",
+      })
+    ).result.isError,
+  ).toBe(true);
   expect(await incoming(lead)).toHaveLength(1);
   await k.graph.undoGraphOp(moved.graphOpId);
   expect(await managementChain(k.db.pool, worker.id)).toEqual([lead.id]);
@@ -427,8 +458,13 @@ it("M06 a deep artifact is shared only with readable ancestors and explicitly re
     expect(JSON.stringify(blocked.result)).not.toContain("private branch evidence");
   }
   expect(
-    (await child.call("report_result", { message: "report ready for direct manager" })).value
-      .recipients,
+    (
+      await child.call("send_message", {
+        kind: "result",
+        target: { kind: "manager" },
+        message: "report ready for direct manager",
+      })
+    ).value.recipients,
   ).toEqual([lead.id]);
   expect(await incoming(top)).toHaveLength(0);
   expect(await incoming(division)).toHaveLength(0);
@@ -462,7 +498,7 @@ it("M07 an expired branch request cannot cancel or authorize its cousin's concur
   await k.db.pool.query("update approvals set expires_at=now()-interval '1 second' where id=$1", [
     left.value.requestId,
   ]);
-  await k.access.maintain();
+  await k.maintain();
   expect((await request(left.value.requestId)).status).toBe("expired");
   expect((await request(right.value.requestId)).status).toBe("pending");
   await expect(decide(left.value.requestId, manager)).rejects.toMatchObject({
@@ -502,6 +538,7 @@ it("M08 concurrent deep-team broadcasts use resource intersection, deduplicate r
   const child = await start(worker),
     peer = await start(cousin),
     args = {
+      kind: "update",
       target: {
         kind: "resource_readers",
         resourceIds: [firstResource.id, secondResource.id, firstResource.id],
@@ -522,7 +559,7 @@ it("M08 concurrent deep-team broadcasts use resource intersection, deduplicate r
     );
   }
   expect((await child.call("send_message", args, "leaf-broadcast")).value).toEqual(sends[0]!.value);
-  await k.access.maintain();
+  await k.maintain();
   for (const a of participants) {
     const received = await incoming(a);
     expect(received.map((m) => m.content.from).sort()).toEqual(
@@ -541,7 +578,7 @@ it("M08 concurrent deep-team broadcasts use resource intersection, deduplicate r
     ).toHaveLength(1);
   }
   for (const a of [partial, none]) expect(await incoming(a)).toHaveLength(0);
-  await k.access.maintain();
+  await k.maintain();
   expect(await incoming(outsideTeam)).toHaveLength(2);
   const remaining = new Set(
     participants.filter((a) => ![worker.id, cousin.id].includes(a.id)).map((a) => a.id),
@@ -565,7 +602,7 @@ it("M08 concurrent deep-team broadcasts use resource intersection, deduplicate r
     );
     remaining.delete(run.frozen_input.agentId);
   }
-  await k.access.maintain();
+  await k.maintain();
   expect(await k.runs.claim("multi-level-drained")).toBeNull();
 });
 
@@ -583,8 +620,13 @@ it("M09 hierarchy does not expose private transcripts to ancestors, siblings or 
     message: "private user instruction: do not redistribute",
     key: key(),
   });
-  await child.call("report_result", { message: "public direct-manager report" });
   await child.call("send_message", {
+    kind: "result",
+    target: { kind: "manager" },
+    message: "public direct-manager report",
+  });
+  await child.call("send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: sibling.id },
     message: "sibling-only coordination",
   });

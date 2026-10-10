@@ -1,5 +1,5 @@
+import { useState } from "react";
 import {
-  boundedToolText,
   isRecord,
   parsedToolOutput,
   readableToolOutput,
@@ -12,8 +12,10 @@ import { tr } from "../i18n";
 import { Button } from "../ui/button";
 import { DeferredDetails } from "./DeferredDetails";
 import { ExecutionTarget } from "./ExecutionTarget";
+import { ExpandableText } from "./ExpandableText";
 import { ToolResultSummary } from "./ToolResultSummary";
 import "./tool-call-details.css";
+import { useSessionConnection } from "../api/connection";
 
 export type ToolNavigation = {
   onSelectNode?: ((id: string) => void) | undefined;
@@ -22,11 +24,19 @@ export type ToolNavigation = {
 };
 export function ToolCallDetails({
   data,
+  load,
+  loadKey,
   ...navigation
-}: { data: Record<string, unknown> } & ToolNavigation) {
+}: {
+  data: Record<string, unknown>;
+  load?: (() => Promise<void>) | undefined;
+  loadKey?: string | undefined;
+} & ToolNavigation) {
   return (
     <DeferredDetails
       className="tool-call-details"
+      load={load}
+      loadKey={loadKey}
       summary={
         <>
           <span className="tool-call-name">
@@ -46,6 +56,8 @@ export function ToolCallBody({
   onOpenFile,
   nodeName,
 }: { data: Record<string, unknown> } & ToolNavigation) {
+  const { assetUrl, serverId } = useSessionConnection();
+  const [matchCount, setMatchCount] = useState(200);
   const output = parsedToolOutput(data.result);
   const args = isRecord(data.args) ? data.args : undefined;
   const target = isRecord(args?.target) ? args.target : undefined;
@@ -104,14 +116,22 @@ export function ToolCallBody({
     );
   const name = (id: string) => nodeName?.(id) || id;
   const result = data.result as
-    | { content?: Array<{ type: string; data?: string; mimeType?: string }> }
+    | {
+        content?: Array<{
+          type: string;
+          data?: string;
+          mimeType?: string;
+          intricaMedia?: { id: string; serverId?: string };
+        }>;
+      }
     | undefined;
   const images = Array.isArray(result?.content)
     ? result.content.filter(
         (part) =>
           isRecord(part) &&
+          (!part.intricaMedia?.serverId || part.intricaMedia.serverId === serverId) &&
           part.type === "image" &&
-          typeof part.data === "string" &&
+          (Boolean(part.data) || Boolean(part.intricaMedia?.id)) &&
           typeof part.mimeType === "string" &&
           /^image\/(png|jpeg|webp|gif)$/.test(part.mimeType),
       )
@@ -134,8 +154,7 @@ export function ToolCallBody({
       {input && (
         <>
           <h3 className="tool-call-heading">{tr("输入")}</h3>
-          {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Scrollable tool text must be reachable for keyboard reading. */}
-          <pre tabIndex={0}>{boundedToolText(input)}</pre>
+          <ExpandableText text={input} />
         </>
       )}
       {nodeId &&
@@ -156,8 +175,7 @@ export function ToolCallBody({
       {text && (
         <>
           <h3 className="tool-call-heading">{tr("输出")}</h3>
-          {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Scrollable tool text must be reachable for keyboard reading. */}
-          <pre tabIndex={0}>{boundedToolText(text)}</pre>
+          <ExpandableText text={text} />
         </>
       )}
       {output &&
@@ -173,14 +191,18 @@ export function ToolCallBody({
       )}
       {matches && (
         <ul className="tool-search-results">
-          {matches.slice(0, 200).map((match) => (
+          {matches.slice(0, matchCount).map((match) => (
             <li key={`${match.path}:${match.lineNumber}`}>
               {fileLink(match.path, `${match.path}:${match.lineNumber}`)}
-              {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Long search lines must be reachable for keyboard reading. */}
-              <pre tabIndex={0}>{boundedToolText(match.text, 2000)}</pre>
+              <ExpandableText text={match.text} step={2000} />
             </li>
           ))}
         </ul>
+      )}
+      {matches && matches.length > matchCount && (
+        <Button onClick={() => setMatchCount((value) => value + 200)}>
+          {tr("显示更多匹配项")}
+        </Button>
       )}
       {output?.truncated === true && <p>{tr("结果未完整，请缩小范围或继续分页读取。")}</p>}
       {output?.sharing !== null &&
@@ -213,9 +235,13 @@ export function ToolCallBody({
       {images.map((p) => (
         <img
           className="tool-result-image"
-          key={p.data}
+          key={p.intricaMedia?.id ?? p.data}
           alt={tr("工具返回的图片")}
-          src={`data:${p.mimeType};base64,${p.data}`}
+          src={
+            p.intricaMedia?.id
+              ? assetUrl(`/api/v2/media/${encodeURIComponent(p.intricaMedia.id)}`)
+              : `data:${p.mimeType};base64,${p.data}`
+          }
         />
       ))}
       <DeferredDetails summary={tr("原始参数、结果与内部标识")}>
@@ -227,8 +253,7 @@ export function ToolCallBody({
                 {tr("状态更新：{{v0}}", { v0: new Date(data.updatedAt).toLocaleString() })}
               </small>
             )}
-            {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Scrollable diagnostics must be reachable for keyboard reading. */}
-            <pre tabIndex={0}>{toolDiagnosticText(data)}</pre>
+            <ExpandableText text={toolDiagnosticText(data, true)} />
           </>
         )}
       </DeferredDetails>

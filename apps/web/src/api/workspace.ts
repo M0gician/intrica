@@ -9,10 +9,4 @@ export type DirectoryListing = {
   entries: WorkspaceEntry[];
   truncated: boolean;
 };
-export type FileContent = {
-  path: string;
-  name: string;
-  mime: string;
-  text?: string;
-  data?: string;
-};
+export type { FileContent } from "@intrica/contracts";

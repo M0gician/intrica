@@ -24,6 +24,11 @@ export async function publishRunNotice(
   reason: string | null,
 ) {
   if (run.kind !== "conversation" || !["succeeded", "failed", "waiting"].includes(state)) return;
+  if (state === "failed" || state === "waiting")
+    await tx.query(
+      "update message_requests set work_state='waiting',blocked_reason=$2 where recipient_conversation_id=$1 and state='open' and work_state='active'",
+      [run.subject_id, state === "failed" ? (reason ?? "run_failed") : reason],
+    );
   const subject = (
     await tx.query(
       `select c.agent_id,n.body->>'title' as title,manager.id as manager_conversation,

@@ -8,6 +8,7 @@ import type {
   ModelProfileInput,
   ModelSelection,
 } from "@intrica/contracts";
+import { recoverModelSchedules } from "../../modules/execution/schedules.js";
 import { type Database, DomainError, id, type Sql, type Tx } from "../postgres/database.js";
 import { modelCapabilities } from "./model-catalog.js";
 import { initialModelProfile, normalizeModelProfile } from "./model-settings.js";
@@ -25,7 +26,8 @@ export class ModelRegistry {
   constructor(
     readonly db: Database,
     readonly dataDir: string,
-    readonly fallback: ModelConfig,
+    /** Trusted programmatic test injection; never loaded from HTTP or environment. */
+    readonly fallback: ModelConfig | null,
   ) {}
   async secret(value: string): Promise<string> {
     const key = createHash("sha256").update(value).digest("hex");
@@ -39,31 +41,28 @@ export class ModelRegistry {
   private edit<T>(action: (tx: Tx) => Promise<T>) {
     return this.db.transaction(async (tx) => {
       await tx.query("select pg_advisory_xact_lock(hashtextextended('intrica-model-profiles',0))");
-      return action(tx);
+      const value = await action(tx);
+      await recoverModelSchedules(tx);
+      return value;
     });
   }
   async initialize() {
     await this.edit(async (tx) => {
+      await tx.query(
+        "update agent_configs set config=config-'model' where config->'model'->>'profileId' in (select id from model_profiles where public_config->>'kind'='mock')",
+      );
+      await tx.query(
+        "update conversations set model=null where model->>'profileId' in (select id from model_profiles where public_config->>'kind'='mock')",
+      );
+      await tx.query("delete from model_profiles where public_config->>'kind'='mock'");
+      if (this.fallback?.kind !== "mock")
+        await tx.query(
+          "update runs set cancel_requested_at=coalesce(cancel_requested_at,now()),reason='model_not_configured' where state in ('queued','running','waiting') and frozen_input->'model'->'config'->>'kind'='mock'",
+        );
       if ((await tx.query("select models_initialized from schema_info")).rows[0].models_initialized)
         return;
       if (!(await tx.query("select id from model_profiles limit 1")).rowCount) {
-        if (this.fallback.kind === "mock") {
-          await tx.query(
-            "insert into model_profiles(id,public_config,selected) values('mock',$1,true)",
-            [
-              JSON.stringify({
-                name: "Mock model",
-                provider: "intrica-mock",
-                modelId: "mock",
-                kind: "mock",
-                api: "openai-completions",
-                reasoning: false,
-                supportsVision: this.fallback.supportsVision,
-                thinkingLevel: "off",
-              }),
-            ],
-          );
-        } else {
+        if (this.fallback?.kind === "pi") {
           for (const profile of [initialModelProfile(this.fallback)].filter((p) => p !== null)) {
             const { apiKey, baseUrl, id: profileId, ...config } = profile;
             await tx.query(
@@ -99,17 +98,16 @@ export class ModelRegistry {
       revision: e.revision,
       hasKey: e.has_key,
     }));
-    const profiles = rows.map((r) => ({
-      ...r.public_config,
-      id: r.id,
-      endpointId: r.endpoint_id,
-      revision: r.version,
-      thinkingLevels:
-        r.public_config.kind === "mock"
-          ? ["off"]
-          : modelCapabilities({ kind: "pi", ...r.public_config, baseUrl: r.base_url })
-              .thinkingLevels,
-    }));
+    const profiles = rows
+      .filter((r) => r.public_config.kind !== "mock" && r.endpoint_id && r.base_url)
+      .map((r) => ({
+        ...r.public_config,
+        id: r.id,
+        endpointId: r.endpoint_id,
+        revision: r.version,
+        thinkingLevels: modelCapabilities({ ...r.public_config, kind: "pi", baseUrl: r.base_url })
+          .thinkingLevels,
+      }));
     const active = profiles.find((p) => rows.find((r) => r.id === p.id)?.selected);
     return {
       endpoints,
@@ -125,40 +123,54 @@ export class ModelRegistry {
         : { name: "Not configured", modelId: "", thinkingLevel: "off", thinkingLevels: ["off"] },
     };
   }
-  async capture(selection?: ModelSelection | null): Promise<FrozenModel> {
+  async capture(selection?: ModelSelection | null, sql: Sql = this.db.pool): Promise<FrozenModel> {
     const r = (
-      await this.db.pool.query(
+      await sql.query(
         "select p.*,e.base_url,e.credential_ref from model_profiles p left join model_endpoints e on e.id=p.endpoint_id where ($1::text is null and p.selected) or p.id=$1",
         [selection?.profileId ?? null],
       )
     ).rows[0];
-    if (!r)
+    if (!r && !selection?.profileId && this.fallback?.kind === "mock")
+      return { config: this.fallback };
+    if (
+      !r ||
+      r.public_config.kind === "mock" ||
+      !r.endpoint_id ||
+      !r.base_url ||
+      !r.public_config.modelId?.trim()
+    )
       throw new DomainError(
         "MODEL_NOT_CONFIGURED",
         "Select a configured model before starting work",
       );
-    if (r.public_config.kind === "mock")
-      return {
-        config:
-          this.fallback.kind === "mock"
-            ? this.fallback
-            : { kind: "mock", streamDelayMs: 0, supportsVision: false },
-        profileId: r.id,
-      };
     const config: ModelConfig = {
-      kind: "pi",
       ...r.public_config,
+      kind: "pi",
       baseUrl: r.base_url,
       ...(selection?.thinkingLevel ? { thinkingLevel: selection.thinkingLevel } : {}),
     };
-    modelCapabilities(config);
+    try {
+      normalizeModelProfile({ ...r.public_config, baseUrl: r.base_url, apiKey: "" });
+      modelCapabilities(config);
+    } catch {
+      throw new DomainError(
+        "MODEL_NOT_CONFIGURED",
+        "The selected model configuration is invalid; edit the endpoint and model",
+      );
+    }
     return { config, credentialRef: r.credential_ref, endpointId: r.endpoint_id, profileId: r.id };
   }
   async resolve(selection?: ModelSelection | null) {
     return this.materialize(await this.capture(selection));
   }
   async materialize(frozen: FrozenModel): Promise<ModelConfig> {
-    if (frozen.config.kind === "mock") return frozen.config;
+    if (frozen.config.kind === "mock") {
+      if (this.fallback?.kind === "mock") return frozen.config;
+      throw new DomainError(
+        "MODEL_NOT_CONFIGURED",
+        "Add an endpoint and model before starting work",
+      );
+    }
     if (frozen.credentialRef && !/^[a-f0-9]{64}$/.test(frozen.credentialRef))
       throw new DomainError("VALIDATION", "Invalid credential reference");
     return {
@@ -254,7 +266,12 @@ export class ModelRegistry {
       if (current !== expectedSelectedId) throw conflict();
       if (
         profileId &&
-        !(await tx.query("select id from model_profiles where id=$1", [profileId])).rowCount
+        !(
+          await tx.query(
+            "select id from model_profiles where id=$1 and endpoint_id is not null and public_config->>'kind' is distinct from 'mock'",
+            [profileId],
+          )
+        ).rowCount
       )
         throw new DomainError("NOT_FOUND", "Model no longer exists");
       await tx.query("update model_profiles set selected=false where selected");

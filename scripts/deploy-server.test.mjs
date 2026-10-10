@@ -136,8 +136,6 @@ test("preflight is read-only and reports only non-secret installation/service fi
     preflightScript,
     /^\s*(sudo |mkdir |rm -|systemctl --user enable |loginctl enable-linger )/m,
   );
-  assert.match(preflightScript, /Missing prerequisite/);
-  assert.match(preflightScript, /Only Linux x64/);
   assert.match(preflightScript, /Authorization:'Bearer ' \+ config.accessToken/);
   assert.doesNotMatch(preflightScript, /console\.log/);
   assert.throws(() => parsePreflight(`${preflight()}\nservice=active`));

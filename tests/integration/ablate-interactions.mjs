@@ -91,8 +91,8 @@ const cases = [
   [
     "PDF node identity and revision",
     "work/tools/node-read.js",
-    "...nodeContent(node, args.offset, args.limit),",
-    "/* PDF node metadata removed */",
+    "const metadata = nodeContent(node, args.offset, args.limit);",
+    "const metadata = {};",
     "PDF05 ",
   ],
   [
@@ -104,8 +104,8 @@ const cases = [
   ],
   [
     "read model vision boundary",
-    "../adapters/host/media-read.js",
-    'if (!supportsVision && (!pdf || args.mode === "image"))',
+    "../adapters/host/media-content.js",
+    'if (!supportsVision && args.mode !== "text")',
     "if (false)",
     "T47 multimodal read",
   ],
@@ -140,20 +140,20 @@ const cases = [
   [
     "manager workspace ownership review",
     "access/intents.js",
-    'if (intent.kind === "path" && intent.workspaceOwnerId === reviewer)',
-    "if (false)",
+    "intent.workspaceOwnerId === reviewer &&",
+    "false &&",
     "T40 a reviewer",
   ],
   [
     "workspace owner resource alignment",
-    "access/service.js",
+    "access/apply-intent.js",
     'if (workspaceOwner?.agent?.role === "admin" && workspaceOwner.id !== subject)',
     "if (false)",
     "T40 a reviewer",
   ],
   [
     "non-admin workspace owner capability boundary",
-    "access/service.js",
+    "access/apply-intent.js",
     'if (workspaceOwner?.agent?.role === "admin" && workspaceOwner.id !== subject)',
     "if (workspaceOwner && workspaceOwner.id !== subject)",
     "T46 a member's approved",
@@ -167,7 +167,7 @@ const cases = [
   ],
   [
     "on-demand activation",
-    "access/service.js",
+    "work/inbox-scheduler.js",
     "const eligible = pendingInboxMessage;",
     'const eligible = "(" + pendingInboxMessage + ") and (cfg.config->>\'enabled\')::boolean";',
     "C02 explicit message",
@@ -181,24 +181,25 @@ const cases = [
   ],
   [
     "transactional inbox recheck",
-    "access/service.js",
-    "where c.id=$1 and m.seq>c.consumed_message_seq and m.run_id is null",
-    "where c.id=$1 and m.run_id is null",
+    "work/inbox-scheduler.js",
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: exact generated-code mutation anchor
+    "where c.id=$1 and m.consumed_run_id is null and (m.seq>c.consumed_message_seq or m.content->>'workItemId' is not null) and m.run_id is null and ${eligible}",
+    "where c.id=$1 and m.run_id is null and m.role='message'",
     "C18 stop between",
   ],
   [
     "independent cause budgets",
-    "access/service.js",
+    "work/inbox-scheduler.js",
     "and content->>'causeId' is not distinct from $2",
     "and ($2::text is null or $2::text is not null)",
     "C21 limited causes",
   ],
-  ["fair inbox scan", "access/service.js", "(c.id<=$1)", "($1::text='')", "C31 a page"],
+  ["fair inbox scan", "work/inbox-scheduler.js", "(c.id<=$1)", "($1::text='')", "C31 a page"],
   [
     "pending resource trigger cancellation",
-    "execution/cancellation.js",
-    "kind='resource_change'",
-    "kind='ablation_disabled'",
+    "execution/schedules.js",
+    "where agent_id=any($1::text[]) and kind='resource_change'",
+    "where agent_id=any($1::text[]) and kind='ablation_disabled'",
     "C32 concurrent recruitment",
   ],
   [
@@ -231,10 +232,10 @@ const cases = [
   ],
   [
     "completion transaction input recheck",
-    "work/conversations.js",
+    "work/conversation-runner.js",
     "if ((await hasUnread(tx)) ||",
     "if (false ||",
-    "L11 input arriving before",
+    "L11a peer input",
   ],
   [
     "explicit continuation after turn limit",
@@ -302,8 +303,8 @@ const cases = [
   [
     "hierarchical review routing",
     "access/intents.js",
-    "return chain[after ? chain.indexOf(after) + 1 : 0] ?? null;",
-    "return null;",
+    '(await agentIdentity(sql, candidate)).config.role === "admin"',
+    "false",
     "T03 on-demand managers",
   ],
   [
@@ -322,16 +323,16 @@ const cases = [
   ],
   [
     "nonblocking limit summary",
-    "work/conversations.js",
+    "work/conversation-runner.js",
     "const closing = ctx.store.limits.conversationTurns > 0 && budget >= ctx.store.limits.conversationTurns;",
     "const closing = ctx.store.limits.conversationTurns > 0 && budget >= ctx.store.limits.conversationTurns; if (closing) while (await background.deliver()) await background.wait();",
     "L21 a limit summary",
   ],
   [
-    "empty summary fallback",
-    "work/conversations.js",
-    'if (closing && !message.content.some((p) => p.type === "text" && p.text.trim())) {',
-    "if (false) {",
+    "empty summary publication barrier",
+    "collaboration/message-contract.js",
+    "export function addressedMessage(value) {",
+    "export function addressedMessage(value) { if (value && typeof value.message === 'string' && !value.message.trim()) value = {...value, message: 'fabricated summary'};",
     "L22 an empty limit",
   ],
   [
@@ -407,15 +408,15 @@ const cases = [
   [
     "host capability independent of cwd",
     "../adapters/host/executor.js",
-    "scope.commandRoots.length > 0",
+    "scope.commandRoots.length",
     "scope.commandRoots.some((root) => withinPath(root, scope.cwd))",
     "T28 nested directory",
   ],
   [
     "admin one-off host approval",
     "access/intents.js",
-    'if (intent.kind === "host" && ["bash", "mcp"].includes(intent.tool))',
-    "if (false)",
+    'if (intent.kind === "host" && ["bash", "mcp"].includes(intent.tool))\n            return canReadAgentResources(sql, reviewer, subject);',
+    "if (false) return canReadAgentResources(sql, reviewer, subject);",
     "T29 managers can approve",
   ],
   [
@@ -427,7 +428,7 @@ const cases = [
   ],
   [
     "turn budget persisted across approval",
-    "work/conversations.js",
+    "work/conversation-runner.js",
     "let budget = Number(conversation.context?.turnsSinceInput ?? 0);",
     "let budget = 0;",
     "L26 an explicit turn budget",
@@ -477,15 +478,15 @@ const cases = [
   [
     "strict tool input fields",
     "execution/tool-calls.js",
-    "if (!Value.Check(parameters, args))",
-    "if (false)",
+    "if (inputError) {",
+    "if (false) {",
     "T35 missing attachments",
   ],
   [
     "safe approval routing summary",
     "access/intents.js",
-    "recipients: intent.recipients",
-    "recipients: []",
+    "return { operation: intent.messageKind, recipients: intent.recipients };",
+    "return { operation: intent.messageKind, recipients: [] };",
     "T36 an unauthorized reviewer",
   ],
   [
@@ -505,8 +506,8 @@ const cases = [
   [
     "content-only resource subscription",
     "graph/mutation.js",
-    '["text", "resource", "todo", "alt"]',
-    '["text", "resource", "todo", "alt", "title"]',
+    '["text", "summary", "resource", "todo", "alt"]',
+    '["text", "summary", "resource", "todo", "alt", "title"]',
     "T39 cosmetic report",
   ],
   [
@@ -518,7 +519,7 @@ const cases = [
   ],
   [
     "limit summary checkpoint preserves unfinished state",
-    "work/conversations.js",
+    "work/conversation-runner.js",
     "let exhausted = conversation.context?.turnLimitReached === true;",
     "let exhausted = false;",
     "L28 recovery after a persisted",

@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { glob, readFile, realpath } from "node:fs/promises";
 import { createServer, isIP } from "node:net";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { createSshOperations } from "./ssh-operations.mjs";
 import { applySshTarget, sshTarget } from "./ssh-target.mjs";
 
 const aliasPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -132,9 +132,11 @@ export function createSshManager({
   aliases = sshAliases,
   tunnel = openTunnel,
   now = Date.now,
+  version,
+  userData,
+  activateManaged,
 }) {
-  const plans = new Map(),
-    tunnels = new Map();
+  const tunnels = new Map();
   const targets = new Map();
   const define = (input) => {
     const target = sshTarget(input);
@@ -217,9 +219,52 @@ export function createSshManager({
     }
     return { baseUrl: current.baseUrl, token: secret.token };
   };
+  const installations = createSshOperations({
+    version,
+    userData,
+    now,
+    execute: async (operation, hooks) =>
+      exclusive(async () => {
+        const alias = define(operation.target);
+        const options = {
+          alias,
+          release: operation.release,
+          mode: "auto",
+          sandbox: operation.sandbox,
+        };
+        const plan = await engine.deployServer(
+          { ...options, apply: false },
+          { run, log: () => {}, ...hooks },
+        );
+        await engine.deployServer(
+          { ...options, apply: true },
+          { run, log: () => {}, ...hooks, expectedPlan: plan },
+        );
+        hooks.signal.throwIfAborted();
+        hooks.onProgress({ phase: "connecting", cancellable: false });
+        const endpoint = await target(alias);
+        const profile = await saveManaged({
+          alias,
+          ...endpoint,
+          ...(targets.get(alias).manual && { sshTarget: targets.get(alias).manual }),
+        });
+        await activateManaged?.(profile.id);
+        return profile;
+      }),
+  });
   return {
     aliases,
     target,
+    install: installations.install,
+    state(input) {
+      const state = installations.state();
+      if (input !== undefined && state.operation?.alias !== sshTarget(input).alias)
+        return { ...state, operation: null };
+      return state;
+    },
+    cancel: installations.cancel,
+    safeToQuit: installations.safeToQuit,
+    settle: installations.settle,
     connect: (input) =>
       exclusive(async () => {
         const alias = define(input);
@@ -248,51 +293,26 @@ export function createSshManager({
             installation: host.installation,
             sandbox: host.sandbox,
             sandboxAvailable: host.sandboxAvailable === "yes",
+            prerequisitesReady: host.linger === "yes" && host.userManager === "yes",
+            linger: host.linger,
+            userManager: host.userManager,
+            prerequisiteError: host.prerequisiteError || undefined,
+            error: host.prerequisiteDetail || undefined,
+            user: host.user,
+            uid: host.uid,
           };
         } catch (error) {
-          return { alias, supported: false, error: error.message };
+          return {
+            alias,
+            supported: error.code
+              ? error.code !== "UNSUPPORTED_PLATFORM" && error.code !== "INVALID_ACCOUNT"
+              : false,
+            prerequisitesReady: false,
+            error: error.message,
+            errorCode: error.code ?? "SSH_TRANSPORT_FAILED",
+            remediation: error.remediation,
+          };
         }
-      }),
-    plan: async (input) =>
-      exclusive(async () => {
-        const alias = define(input?.target);
-        const plan = await engine.deployServer(
-          { alias, release: input.release, mode: "auto", apply: false, sandbox: input.sandbox },
-          { run, log: () => {} },
-        );
-        plans.clear();
-        const id = randomUUID();
-        plans.set(id, {
-          plan,
-          target: targets.get(alias).manual ?? alias,
-          expires: now() + 5 * 60_000,
-        });
-        return { id, ...plan };
-      }),
-    apply: async (input) =>
-      exclusive(async () => {
-        const entry = plans.get(input?.id);
-        plans.delete(input?.id);
-        if (!entry || entry.expires < now() || input.confirm !== true)
-          throw new Error("Preflight expired. Run preflight and confirm again.");
-        const { plan } = entry;
-        define(entry.target);
-        await engine.deployServer(
-          {
-            alias: plan.alias,
-            release: plan.release,
-            mode: "auto",
-            apply: true,
-            sandbox: plan.sandbox,
-          },
-          { run, expectedPlan: plan, log: () => {} },
-        );
-        const endpoint = await target(plan.alias);
-        return saveManaged({
-          alias: plan.alias,
-          ...endpoint,
-          ...(targets.get(plan.alias).manual && { sshTarget: targets.get(plan.alias).manual }),
-        });
       }),
     restart: async (input) =>
       exclusive(async () => {
@@ -304,7 +324,6 @@ export function createSshManager({
       }),
     close() {
       closed = true;
-      plans.clear();
       for (const value of tunnels.values()) value.close();
       tunnels.clear();
     },

@@ -28,7 +28,7 @@ export function AddServer({
   const [selected, setSelected] = useState("");
   const [manual, setManual] = useState<ManualSshTarget>({ hostname: "", username: "", port: 22 });
   const [deployment, setDeployment] = useState<SshTarget | null>(null);
-  const [busy, setBusy] = useState(false);
+  const busy = false;
   const [error, setError] = useState("");
   const form = useRef<HTMLFormElement>(null);
   useEffect(() => {
@@ -39,7 +39,7 @@ export function AddServer({
       busy,
     );
     return () => register(false);
-  }, [register, selected, manual, busy, mode, deployment]);
+  }, [register, selected, manual, mode, deployment]);
   useEffect(() => {
     if (!ssh) return;
     let current = true;
@@ -63,18 +63,8 @@ export function AddServer({
   };
   const add = async () => {
     if (!validate()) return;
-    setBusy(true);
     setError("");
-    try {
-      await ssh!.connect(target);
-      await actions.refresh!();
-      register(false);
-      onClose();
-    } catch (error) {
-      setError(settingsError(error));
-    } finally {
-      setBusy(false);
-    }
+    setDeployment(target);
   };
   if (deployment !== null)
     return (
@@ -199,18 +189,9 @@ export function AddServer({
           )}
           <Notice error={error} />
           <div className="settings-form-actions settings-actions">
-            <Button
-              variant="quiet"
-              disabled={mode === "choose" && !selected}
-              onClick={() => {
-                if (validate()) setDeployment(target);
-              }}
-            >
-              {t("deployServer")}
-            </Button>
             <Button onClick={() => navigate(onClose)}>{t("cancel")}</Button>
             <Button variant="primary" type="submit" disabled={mode === "choose" && !selected}>
-              {t(busy ? "saving" : "add")}
+              {t("下一步", { ns: "ui" })}
             </Button>
           </div>
         </fieldset>

@@ -1,14 +1,12 @@
 import type { AgentConfig, CreateNodeRequest, Node, Rect, TodoConfig } from "@intrica/contracts";
 import { ApiError, newIdempotencyKey } from "../../api/client";
 import { tr } from "../../i18n";
-import { nextAgentName } from "../../utils/agent-names";
 import { nodeBookmark } from "../../utils/resource-view";
 import type { CommandContext } from "./context";
 
 export function createNodeCommands(context: CommandContext) {
   const { api, store, session, feedback } = context;
   const titleRequests = new Set<string>();
-  const reservedNames = new Set<string>();
   const saves = new Map<string, Promise<unknown>>();
   const create = async (input: Omit<CreateNodeRequest, "idempotencyKey">, failure: string) => {
     try {
@@ -172,28 +170,16 @@ export function createNodeCommands(context: CommandContext) {
         tr("新建待办失败"),
       );
     },
-    async createAgentNode(parentId: string, position: Rect, role: AgentConfig["role"] = "read") {
-      const title = nextAgentName(
-        [...store.getState().graph.nodes.values()]
-          .filter((node) => node.kind === "agent")
-          .map((node) => node.title ?? "")
-          .concat([...reservedNames]),
+    createAgentNode(parentId: string, position: Rect, role: AgentConfig["role"] = "read") {
+      return create(
+        {
+          kind: "agent",
+          parentId,
+          position,
+          agent: { persona: "", role, enabled: false },
+        },
+        tr("新建 Agent 失败"),
       );
-      reservedNames.add(title);
-      try {
-        return await create(
-          {
-            kind: "agent",
-            parentId,
-            position,
-            title,
-            agent: { persona: "", role, enabled: false },
-          },
-          tr("新建 Agent 失败"),
-        );
-      } finally {
-        reservedNames.delete(title);
-      }
     },
   };
 }

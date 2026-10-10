@@ -48,7 +48,7 @@ export function registerGraph(app: AppInstance, k: Kernel) {
   app.post("/api/v2/nodes", { schema: { body: schemas.CreateNodeBodySchema } }, async (req) => {
     if (req.body.agent?.schedule)
       req.body.agent.schedule.language = promptLanguage(req.headers["accept-language"]);
-    return k.graph.createNode(req.body);
+    return k.graph.createNode(req.body, undefined, promptLanguage(req.headers["accept-language"]));
   });
   app.post(
     "/api/v2/graph-ops/copy",

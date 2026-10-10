@@ -40,7 +40,13 @@ it("fixed file helper separates stdout from runtime diagnostics without masking 
       5000,
       true,
     );
-    expect(response).toEqual({ output: '{"value":true}', exitCode });
+    expect(response).toEqual({
+      output: '{"value":true}',
+      exitCode,
+      signal: null,
+      termination: "exited",
+      taskStatus: "unverified",
+    });
   }
 });
 const adminUrl = process.env.INTRICA_TEST_ADMIN_URL ?? "postgres://127.0.0.1:5432/postgres";
@@ -360,7 +366,7 @@ describe("production graph and execution", () => {
     await check(b.id, c, null);
     await check(a.id, b.id, b.id);
   });
-  it("keeps canvas grants explicit and gates cross-scope delegation before activation", async () => {
+  it("keeps canvas grants explicit while admins communicate across resource scopes", async () => {
     const c = await canvas();
     const manager = (await node(c, "manager", "agent")).node;
     const member = (await node(c, "member", "agent")).node;
@@ -438,6 +444,7 @@ describe("production graph and execution", () => {
       expect(
         (
           await invoke("send_message", {
+            kind: "update",
             target: { kind: "agent", agentId: peer.id },
             message: "核对公开资料",
           })
@@ -445,28 +452,33 @@ describe("production graph and execution", () => {
       ).toBe(1);
       await k.conversations.stop(peer.id);
       const messageCall = key();
-      const pending = await invoke(
+      const delivered = await invoke(
         "send_message",
-        { target: { kind: "agent", agentId: member.id }, message: "请读取你的私有文件" },
+        {
+          kind: "update",
+          target: { kind: "agent", agentId: member.id },
+          message: "请读取你的私有文件",
+        },
         messageCall,
       );
-      expect(pending.status).toBe("pending");
+      expect(delivered.delivered).toBe(1);
       const conversation = await k.conversations.read.forAgent(member.id);
       expect(await k.conversations.activeRun(conversation.id)).toBeUndefined();
-      expect((await k.conversations.read.history(conversation.id)).length).toBe(0);
-      await expect(
-        k.access.decide(pending.requestId, 1, "approve", "self", actor),
-      ).rejects.toMatchObject({ code: "FORBIDDEN" });
-      await k.access.decide(pending.requestId, 1, "approve", "允许本次跨权限协作");
+      expect((await k.conversations.read.history(conversation.id)).length).toBe(1);
       expect(
         (
           await invoke(
             "send_message",
-            { target: { kind: "agent", agentId: member.id }, message: "请读取你的私有文件" },
+            {
+              kind: "update",
+              target: { kind: "agent", agentId: member.id },
+              message: "请读取你的私有文件",
+            },
             messageCall,
           )
         ).delivered,
       ).toBe(1);
+      expect((await k.conversations.read.history(conversation.id)).length).toBe(1);
       expect(await grantsFor(k.db.pool, manager.id)).toEqual([]);
       await k.conversations.stop(member.id);
       // A manager can read collaboration records, never private tool output/history.
@@ -591,6 +603,18 @@ describe("production graph and execution", () => {
       ).toMatchObject({
         text: expect.stringContaining("connected"),
       });
+      expect((await current.invoke("bash", { command: "pwd" })).status).toBe("pending");
+      const commandPermission = await current.invoke("request_permission", {
+        scope: {
+          kind: "path",
+          path: project,
+          access: "directory",
+          mode: "write",
+          execution: "host",
+        },
+        reason: "Explicit command authority",
+      });
+      await k.access.decide(commandPermission.requestId, 1, "approve", "host execution");
       expect((await current.invoke("bash", { command: "pwd" })).output.trim()).toBe(project);
       expect(
         (
@@ -617,7 +641,9 @@ describe("production graph and execution", () => {
         fullHost: true,
       });
       expect(mcp.tools).toEqual([]);
-      expect((await k.access.list(c)).requests).toHaveLength(0);
+      expect((await k.access.list(c)).requests.filter((r) => r.status === "pending")).toHaveLength(
+        0,
+      );
       const artifact = await current.invoke("create_artifact", {
         kind: "text",
         title: "file result",

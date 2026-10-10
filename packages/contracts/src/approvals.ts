@@ -1,8 +1,12 @@
+import type { ExternalMessage, MessageAddress } from "./collaboration.js";
+
 export type AgentRole = "read" | "write" | "admin";
+export type CommandPermission = "none" | "isolated" | "host";
 export type ApprovalDecision = "approve" | "deny" | "escalate";
 export type ApprovalStatus =
   | "pending"
   | "approved"
+  | "satisfied"
   | "denied"
   | "cancelled"
   | "expired"
@@ -14,15 +18,20 @@ export type AccessIntent =
       kind: "path";
       path: string;
       directory: boolean;
+      mode?: "read" | "write";
+      execution?: CommandPermission;
       requiredRole?: "write";
       /** Server-resolved ownership of an ancestor's scratch path; never a tool argument. */
       workspaceOwnerId?: string;
+      workspaceRoot?: string;
     }
   | {
       kind: "host";
       tool: "read" | "rg" | "write" | "edit" | "bash" | "mcp";
       args: Record<string, any>;
       requiredRole?: "write";
+      workspaceOwnerId?: string;
+      workspaceRoot?: string;
     }
   | {
       kind: "agent";
@@ -34,7 +43,26 @@ export type AccessIntent =
       recipients: string[];
       message: string;
       messageKind: string;
+      targetKind?:
+        | "agent"
+        | "agents"
+        | "canvas"
+        | "resource_readers"
+        | "request"
+        | "followup"
+        | "manager"
+        | "internal";
+      dispatchId?: string;
+      addresses?: MessageAddress[];
+      requestId?: string | undefined;
+      requestVersion?: number | undefined;
+      causeId?: string | undefined;
+      workItemId?: string | undefined;
+      reportToManager?: boolean;
+      fileVersions?: Record<string, string>;
+      handoff?: ExternalMessage["handoff"];
       resourceIds?: string[];
+      fileIds?: string[];
     };
 export type ApprovalRecord = {
   id: string;
@@ -56,6 +84,7 @@ export type ApprovalRecord = {
     operation?: string;
     path?: string;
     mode?: string;
+    capability?: string;
     recipients?: string[];
   };
   names?: Record<string, string>;

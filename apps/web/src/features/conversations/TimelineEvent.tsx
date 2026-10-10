@@ -5,7 +5,14 @@ import { MarkdownLite } from "../../components/MarkdownLite";
 import { ToolCallDetails } from "../../components/ToolCallDetails";
 import i18n, { tr } from "../../i18n";
 import { Button } from "../../ui/button";
+import { FileReferenceView } from "../files/FileReferenceView";
+import { isContentTruncated, recordVersion } from "./full-records";
+import { InferenceItem } from "./InferenceItem";
+import { InputReceipt, type Receipt } from "./InputReceipt";
+import { MessageStatus } from "./MessageRouting";
 import { type Activity, activityKey } from "./model";
+import { ReadMore } from "./ReadMore";
+import { WaitNotice } from "./WaitNotice";
 export function EventTime({ value }: { value: Activity["createdAt"] }) {
   if (!value) return null;
   const date = new Date(value);
@@ -34,6 +41,7 @@ export function TimelineEvent({
   requestEvent,
   onSelectNode,
   onOpenFile,
+  onExpandEvent,
 }: {
   event: Activity;
   nodes: ReadonlyMap<string, Node>;
@@ -41,8 +49,18 @@ export function TimelineEvent({
   requestEvent: ReadonlyMap<string, string>;
   onSelectNode?: ((id: string) => void) | undefined;
   onOpenFile?: ((path: string) => void) | undefined;
+  onExpandEvent?: ((seq: number) => Promise<void>) | undefined;
 }) {
+  const seq = typeof event.data.fullRecordSeq === "number" ? event.data.fullRecordSeq : event.seq;
+  const load = seq > 0 && onExpandEvent ? () => onExpandEvent(seq) : undefined;
+  const version = JSON.stringify([
+    recordVersion(event),
+    event.data.updatedAt,
+    event.data.resultVersion,
+  ]);
   const name = (id: unknown, historicalName?: unknown) => {
+    if (id === "user") return tr("用户");
+    if (typeof id === "string" && id.startsWith("workspace:")) return tr("工作区助手");
     if (id === "workspace") return tr("工作区助手");
     if (typeof id !== "string" || !id || id === "unknown") return tr("未知 Agent");
     const live = nodes.get(id)?.title;
@@ -61,38 +79,65 @@ export function TimelineEvent({
           : [];
   const recipientName = (event: Activity, id: string) =>
     name(id, (event.data.recipientNames as Record<string, string> | undefined)?.[id]);
+  if (event.kind === "inference_item")
+    return <InferenceItem data={event.data} load={load} version={version} />;
+  if (event.kind === "wait_notice")
+    return (
+      <>
+        <WaitNotice data={event.data} />
+        <EventTime value={event.createdAt} />
+      </>
+    );
+  if (["internal_note", "output_error"].includes(event.kind))
+    return (
+      <DeferredDetails
+        summary={event.kind === "internal_note" ? tr("内部笔记 · 未发送") : tr("输出未发布")}
+        load={load}
+        loadKey={version}
+      >
+        {() => (
+          <>
+            {event.kind === "output_error" && (
+              <p role="status">{String(event.data.reason ?? "")}</p>
+            )}
+            <MarkdownLite text={String(event.data.text ?? "")} />
+            <EventTime value={event.createdAt} />
+          </>
+        )}
+      </DeferredDetails>
+    );
   return (
     <>
-      <small>
-        {["team_notice", "run_status", "context_notice"].includes(event.kind)
-          ? tr("运行通知")
-          : event.kind === "permission_notice"
-            ? tr("系统审批通知")
-            : event.kind === "user"
-              ? tr("你")
+      {event.kind !== "user" && (
+        <small>
+          {["team_notice", "run_status", "context_notice"].includes(event.kind)
+            ? tr("运行通知")
+            : event.kind === "permission_notice"
+              ? tr("系统审批通知")
               : event.kind === "trigger"
                 ? tr("协作触发")
                 : name(
                     event.data.from ?? event.data.senderId ?? event.agentId,
                     event.data.senderName,
                   )}
-        {["message", "report"].includes(event.kind) && recipients(event).length
-          ? ` → ${recipients(event)
-              .map((id) => recipientName(event, id))
-              .join("、")}`
-          : ""}
-        {event.kind === "tool" ? " · 工具" : ""}
-        {event.kind === "broadcast"
-          ? tr(" \u00B7 广播给 {{v0}} 位 Agent", {
-              v0: Array.isArray(event.data.recipients) ? event.data.recipients.length : 0,
-            })
-          : ""}
-        {event.kind === "report" ? " · 最终报告" : ""}
-        {event.kind === "team_notice"
-          ? ` · ${name(event.data.subjectId, event.data.subjectName)}`
-          : ""}
-        {<EventTime value={event.createdAt} />}
-      </small>
+          {["message", "assistant", "report"].includes(event.kind) && recipients(event).length
+            ? ` → ${recipients(event)
+                .map((id) => recipientName(event, id))
+                .join("、")}`
+            : ""}
+          {event.kind === "tool" ? " · 工具" : ""}
+          {event.kind === "broadcast"
+            ? tr(" \u00B7 广播给 {{v0}} 位 Agent", {
+                v0: Array.isArray(event.data.recipients) ? event.data.recipients.length : 0,
+              })
+            : ""}
+          {event.kind === "report" ? " · 最终报告" : ""}
+          {event.kind === "team_notice"
+            ? ` · ${name(event.data.subjectId, event.data.subjectName)}`
+            : ""}
+          <EventTime value={event.createdAt} />
+        </small>
+      )}
       {event.kind === "broadcast" && (
         <DeferredDetails className="broadcast-scope" summary={tr("接收者与共享资源")}>
           {() => (
@@ -123,15 +168,25 @@ export function TimelineEvent({
           onSelectNode={onSelectNode}
           onOpenFile={onOpenFile}
           nodeName={(id) => nodes.get(id)?.title || id}
+          load={isContentTruncated(event, "result") ? load : undefined}
+          loadKey={version}
         />
       ) : (
         <>
           {event.data.thinking ? (
-            <DeferredDetails summary={tr("思考")}>
+            <DeferredDetails
+              summary={tr("思考")}
+              load={isContentTruncated(event, "thinking") ? load : undefined}
+              loadKey={version}
+            >
               {() => <p>{String(event.data.thinking)}</p>}
             </DeferredDetails>
           ) : null}
           <MarkdownLite
+            origin={{
+              kind: "agent",
+              id: String(event.data.from ?? event.data.senderId ?? event.agentId),
+            }}
             text={String(
               event.data.text ??
                 event.data.reason ??
@@ -145,6 +200,21 @@ export function TimelineEvent({
                   : ""),
             )}
           />
+          {load && isContentTruncated(event, "text") && <ReadMore load={load} version={version} />}
+          {Array.isArray(event.data.fileIds) &&
+            event.data.fileIds.map((id) =>
+              typeof id === "string" ? (
+                <FileReferenceView
+                  key={id}
+                  origin={{ kind: "node", id }}
+                  label={
+                    nodes.get(id)?.resource?.snapshot?.name ??
+                    nodes.get(id)?.title ??
+                    tr("查看文件")
+                  }
+                />
+              ) : null,
+            )}
           {typeof event.data.memoryNodeId === "string" &&
             nodes.has(event.data.memoryNodeId) &&
             onSelectNode && (
@@ -153,6 +223,14 @@ export function TimelineEvent({
               </Button>
             )}
         </>
+      )}
+      <MessageStatus data={event.data} />
+      {(event.kind === "user" || (event.kind === "message" && event.data.from)) && (
+        <InputReceipt
+          time={<EventTime value={event.createdAt} />}
+          conversationId={event.conversationId}
+          receipt={event.data.inputReceipt as Receipt | undefined}
+        />
       )}
     </>
   );

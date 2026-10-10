@@ -1,5 +1,6 @@
 import { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
+import { applyMessage } from "@intrica/contracts";
 import type { FastifyReply } from "fastify";
 import { Type } from "typebox";
 import type { AppInstance } from "../app.js";
@@ -51,19 +52,29 @@ export function registerStreams(app: AppInstance, k: Kernel) {
       {
         schema: {
           params: Type.Object({ id: Type.String() }),
-          querystring: Type.Object({ after: Type.Optional(Type.String({ pattern: "^[0-9]+$" })) }),
+          querystring: Type.Object({
+            after: Type.Optional(Type.String({ pattern: "^[0-9]+$" })),
+            format: Type.Optional(Type.Literal("delta")),
+          }),
         },
       },
       async (req, reply) => {
         let cursor = req.query.after ?? "0";
         await k.events.validate(topic, req.params.id, cursor);
         return createStream(app, reply, async function* (signal) {
+          let message =
+            topic === "run" ? await k.events.messageAt(req.params.id, cursor) : undefined;
+          if (req.query.format === "delta" && message?.streaming)
+            yield { type: "stream.snapshot", seq: cursor, payload: message };
           let idle = 0;
           while (!signal.aborted) {
             const events = await k.events.read(topic, req.params.id, cursor);
             for (const event of events) {
               cursor = event.seq;
-              yield event;
+              if (event.type === "message" && req.query.format !== "delta") {
+                message = applyMessage(message, event.payload);
+                yield { ...event, payload: message };
+              } else yield event;
             }
             if (!events.length && ++idle % 15 === 0) yield { type: "heartbeat" };
             await delay(events.length ? 10 : 500, undefined, { signal });

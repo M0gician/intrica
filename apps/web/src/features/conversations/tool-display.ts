@@ -37,6 +37,8 @@ export function toolResultText(value: unknown): string {
 }
 
 type ToolEvent = {
+  seq?: number;
+  recordVersion?: string;
   kind: string;
   data: Record<string, unknown>;
   conversationId?: string;
@@ -54,7 +56,11 @@ export function coalesceToolEvents<T extends ToolEvent>(events: T[]): T[] {
       continue;
     }
     const key = `${event.conversationId ?? event.agentId ?? ""}:${event.data.callId ?? event.data.id}`;
-    const normalized = { ...event, kind: "tool", data: { ...event.data, text: undefined } };
+    const normalized = {
+      ...event,
+      kind: "tool",
+      data: { ...event.data, text: undefined, fullRecordSeq: event.seq },
+    };
     if (!event.data.callId && !event.data.id) {
       rows.push(normalized);
       continue;
@@ -69,23 +75,31 @@ export function coalesceToolEvents<T extends ToolEvent>(events: T[]): T[] {
         String(previous.data.status),
       );
       const obsoleteProgress = terminal && event.data.progress === true;
+      const keepResult =
+        event.kind === "tool_update" &&
+        terminal &&
+        previous.data.result &&
+        String(previous.data.status).replace("complete", "succeeded").replace("error", "failed") ===
+          String(event.data.status).replace("complete", "succeeded").replace("error", "failed") &&
+        previous.data.updatedAt === event.data.updatedAt &&
+        previous.data.resultVersion === event.data.resultVersion &&
+        (!previous.data.truncated || event.data.truncated);
       rows[index] = {
         ...previous,
+        recordVersion:
+          obsoleteProgress || keepResult ? previous.recordVersion : normalized.recordVersion,
         data: obsoleteProgress
           ? previous.data
           : {
               ...previous.data,
               ...normalized.data,
-              ...(event.kind === "tool_update" &&
-              terminal &&
-              previous.data.result &&
-              String(previous.data.status)
-                .replace("complete", "succeeded")
-                .replace("error", "failed") ===
-                String(event.data.status)
-                  .replace("complete", "succeeded")
-                  .replace("error", "failed")
-                ? { result: previous.data.result, truncated: previous.data.truncated }
+              ...(keepResult
+                ? {
+                    result: previous.data.result,
+                    truncated: previous.data.truncated,
+                    truncatedFields: previous.data.truncatedFields,
+                    fullRecordSeq: previous.data.fullRecordSeq,
+                  }
                 : {}),
             },
       };
@@ -127,7 +141,15 @@ export function toolOutcomeLabel(data: Record<string, unknown>) {
   if (data.approvalStatus === "cancelled") return tr("审批已取消 · 未执行");
   if (data.approvalStatus === "invalidated") return tr("权限条件已变化 · 未执行");
   if (data.waitingReason === "approval") return tr("等待审批");
+  if (status === "prepared" && ["approved", "satisfied"].includes(String(data.approvalStatus)))
+    return tr("已获授权，等待执行");
   const output = parsedToolOutput(data.result);
+  if (data.name === "bash") {
+    if (output?.termination === "timed_out") return tr("命令超时，结果待核实");
+    if (output?.termination === "cancelled") return tr("命令已取消，结果待核实");
+    if (output?.termination === "start_failed") return tr("命令未启动");
+    if (typeof output?.signal === "string") return tr("命令终止信号 {{v0}}", { v0: output.signal });
+  }
   const failed =
     ["failed", "error"].includes(status) || (isRecord(data.result) && data.result.isError === true);
   if (failed) return tr("失败");
@@ -190,6 +212,7 @@ export function approvalStatusLabel(status: string) {
     {
       pending: tr("仍待审批"),
       approved: tr("已批准"),
+      satisfied: tr("已由现有授权满足"),
       denied: tr("已拒绝"),
       cancelled: tr("已取消"),
       expired: tr("已过期"),
@@ -221,17 +244,17 @@ export function toolInputText(data: Record<string, unknown>) {
 }
 
 /** Bound raw data and omit binary payloads even in the diagnostic disclosure. */
-export function toolDiagnosticText(data: unknown) {
+export function toolDiagnosticText(data: unknown, full = false) {
   return (
     JSON.stringify(
       data,
       (key, value) =>
         key === "data" && typeof value === "string" && value.length > 2000
           ? `[binary ${value.length} chars]`
-          : typeof value === "string" && value.length > 16000
+          : !full && typeof value === "string" && value.length > 16000
             ? `${value.slice(0, 16000)}…`
             : value,
       2,
-    )?.slice(0, 48000) ?? ""
+    )?.slice(0, full ? undefined : 48000) ?? ""
   );
 }

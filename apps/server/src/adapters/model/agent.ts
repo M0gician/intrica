@@ -3,14 +3,18 @@ import type { Api, Message, Model } from "@earendil-works/pi-ai";
 import { type AssistantMessage, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { streamSimple as compatStreamSimple } from "@earendil-works/pi-ai/compat";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
+import type { TurnObserver } from "../../modules/inference/types.js";
 import { modelThinkingLevel } from "./model-catalog.js";
 import { resolveModel } from "./pi.js";
-import { retryTimedOutRequests } from "./request-retry.js";
+import { streamTurn } from "./stream-turn.js";
 import type { ModelConfig } from "./types.js";
 import { meteredStream } from "./usage.js";
 
-/** One provider turn only. Durable orchestration and tool execution belong to execution. */
+/** One transport attempt. Inference owns durable context; execution owns tool effects. */
 export class Agent {
+  explicitMessages = false;
+  prepareMessages: (messages: AgentMessage[]) => Promise<AgentMessage[]> = async (messages) =>
+    messages;
   readonly state: {
     model: Model<Api>;
     tools: AgentTool[];
@@ -44,48 +48,40 @@ export class Agent {
   async turn(
     signal?: AbortSignal,
     progress?: (message: AssistantMessage) => Promise<void>,
+    observer?: TurnObserver,
   ): Promise<AssistantMessage> {
     const combined = signal
       ? AbortSignal.any([signal, this.abortController.signal])
       : this.abortController.signal;
     combined.throwIfAborted();
     const options: any = { signal: combined, apiKey: this.apiKey ?? "intrica-keyless" };
+    if (this.explicitMessages)
+      options.onPayload = (payload: any, model: Model<Api>) => {
+        if (model.api === "openai-completions")
+          return { ...payload, response_format: { type: "json_object" } };
+        if (["openai-responses", "azure-openai-responses"].includes(model.api))
+          return { ...payload, text: { ...payload.text, format: { type: "json_object" } } };
+        return payload;
+      };
     if (this.state.thinkingLevel !== "off") options.reasoning = this.state.thinkingLevel;
-    const source = await this.stream(
+    const message = await streamTurn(
+      this.stream,
       this.state.model,
       {
         systemPrompt: this.state.systemPrompt,
-        messages: this.state.messages as Message[],
+        messages: (await this.prepareMessages(this.state.messages)) as Message[],
         tools: this.state.tools,
       },
       options,
+      progress,
+      observer,
     );
-    const iterator = source[Symbol.asyncIterator]();
-    let rejectAbort: (error: unknown) => void = () => {};
-    const cancelled = new Promise<never>((_, reject) => {
-      rejectAbort = reject;
-    });
-    const onAbort = () => rejectAbort(combined.reason ?? new Error("运行已停止"));
-    combined.addEventListener("abort", onAbort, { once: true });
-    try {
-      for (;;) {
-        const next = await Promise.race([iterator.next(), cancelled]);
-        if (next.done) throw new Error("模型未返回完整结果");
-        const event = next.value;
-        if (event.type === "error") throw new Error(event.error.errorMessage ?? "模型请求失败");
-        if (event.type === "done") {
-          this.state.messages.push(event.message);
-          return event.message;
-        }
-        if ("partial" in event && progress) await progress(event.partial);
-      }
-    } finally {
-      combined.removeEventListener("abort", onAbort);
-    }
+    if (!observer) this.state.messages.push(message);
+    return message;
   }
 }
 
-/** A PI workspace Agent session. Context is replaced each turn; transcript remains in Agent. */
+/** A PI session whose committed context is managed by the conversation runner. */
 export function createCanvasAgent(
   config: ModelConfig,
   _sessionId: string,
@@ -111,7 +107,23 @@ export function createCanvasAgent(
     const turns = context.messages.filter((message) => message.role === "user").length;
     const response: AssistantMessage = {
       role: "assistant",
-      content: [{ type: "text", text: `模拟会话第 ${turns} 轮。\n${context.systemPrompt ?? ""}` }],
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            ...(context.systemPrompt?.match(/Current work item: (request-[\w-]+)/)?.[1]
+              ? {
+                  target: {
+                    kind: "request",
+                    id: context.systemPrompt.match(/Current work item: (request-[\w-]+)/)![1],
+                  },
+                  kind: "result",
+                }
+              : { target: { kind: "internal" } }),
+            message: `模拟会话第 ${turns} 轮。\n${context.systemPrompt ?? ""}`,
+          }),
+        },
+      ],
       api: model.api,
       provider: model.provider,
       model: model.id,
@@ -174,15 +186,13 @@ export function createCanvasAgent(
   return new Agent(
     resolved.model,
     modelThinkingLevel(config.kind === "pi" ? config : {}, resolved.model),
-    retryTimedOutRequests(
-      meteredStream(
-        streamOverride ??
-          (config.kind === "mock"
-            ? mockStream
-            : resolved.useCompat
-              ? compatStreamSimple
-              : models.streamSimple.bind(models)),
-      ),
+    meteredStream(
+      streamOverride ??
+        (config.kind === "mock"
+          ? mockStream
+          : resolved.useCompat
+            ? compatStreamSimple
+            : models.streamSimple.bind(models)),
     ),
     config.kind === "pi" ? config.apiKey : undefined,
   );

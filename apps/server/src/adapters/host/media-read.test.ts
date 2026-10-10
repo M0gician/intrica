@@ -77,25 +77,15 @@ test("returns undefined for ordinary text even with a misleading image extension
   });
 });
 
-test("explicit text mode defers binary rejection to the text reader but forbids frame", async () => {
+test("text mode returns media metadata without decoding binary as text or sending images", async () => {
   const path = await save(png);
-  await expect(readMedia({ path, mode: "text" }, signal(), true)).resolves.toBeUndefined();
-  await expect(readMedia({ path, mode: "text", frame: 0 }, signal(), true)).rejects.toMatchObject({
-    code: "VALIDATION",
-    message: expect.stringContaining("frame"),
+  const output = await readMedia({ path, mode: "text", frame: 0 }, signal(), false);
+  expect(output?.details).toMatchObject({
+    mediaType: "image",
+    capabilities: { text: false, frames: true },
   });
+  expect(output?.content.every((p) => p.type === "text")).toBe(true);
 });
-
-test.each([{ offset: 1 }, { column: 0 }, { limit: 10 }])(
-  "rejects text pagination on recognized images: %j",
-  async (pagination) => {
-    const path = await save(png);
-    await expect(readMedia({ path, ...pagination }, signal(), true)).rejects.toMatchObject({
-      code: "VALIDATION",
-      message: expect.stringContaining("文本分页"),
-    });
-  },
-);
 
 test.each(["auto", "image"] as const)(
   "does not return image content to a text-only model in %s mode",
@@ -142,6 +132,42 @@ test("bounds previews to 1600px without enlarging small images", async () => {
   });
 });
 
+test.each(["gif", "webp"] as const)(
+  "batch %s frames retain timing metadata and bound the selected frames",
+  async (format) => {
+    const raw = Buffer.alloc(6 * 12 * 4, 255);
+    for (let i = 0; i < 6 * 6; i++) {
+      raw[i * 4 + 1] = 0;
+      raw[i * 4 + 2] = 0;
+    }
+    for (let i = 6 * 6; i < 6 * 12; i++) {
+      raw[i * 4] = 0;
+      raw[i * 4 + 2] = 0;
+    }
+    const bytes = await sharp(raw, { raw: { width: 6, height: 12, channels: 4, pageHeight: 6 } })
+      .toFormat(format, { delay: [80, 160], loop: 3 })
+      .toBuffer();
+    const path = await save(bytes);
+    const output = await readMedia({ path, frames: [1, 0], thumbnail: true }, signal(), true);
+    expect(output?.details).toMatchObject({
+      frames: 2,
+      selectedFrames: [1, 0],
+      animation: {
+        animated: true,
+        frameDelayMs: [80, 160],
+        durationMs: 240,
+        loop: 3,
+        playbackVerified: false,
+      },
+    });
+    expect(output?.content.filter((p) => p.type === "image")).toHaveLength(2);
+    expect(output?.content[1]).not.toEqual(output?.content[2]);
+    await expect(
+      readMedia({ path, frames: [0, 1, 2, 3, 4] }, signal(), true),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  },
+);
+
 test("applies JPEG orientation to the returned preview", async () => {
   const path = await save(await generated().jpeg().withMetadata({ orientation: 6 }).toBuffer());
   expect((await readMedia({ path }, signal(), true))?.details).toMatchObject({
@@ -161,17 +187,15 @@ test("rejects recognized but damaged images rather than returning binary as text
   });
 });
 
-test("explicit image mode rejects ordinary text and unsupported image formats", async () => {
+test("explicit image mode rejects ordinary text and renders supported SVG bytes", async () => {
   const text = await save("plain text");
   await expect(readMedia({ path: text, mode: "image" }, signal(), true)).rejects.toMatchObject({
     code: "VALIDATION",
   });
   const svg = await save('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>');
-  await expect(readMedia({ path: svg }, signal(), true)).resolves.toBeUndefined();
-  await expect(readMedia({ path: svg, mode: "image" }, signal(), true)).rejects.toMatchObject({
-    code: "VALIDATION",
-    message: expect.stringContaining("只支持"),
-  });
+  const output = await readMedia({ path: svg, mode: "image" }, signal(), true);
+  expect(output?.details).toMatchObject({ format: "svg", width: 1, height: 1 });
+  expect(output?.content[1]).toMatchObject({ type: "image", mimeType: "image/png" });
 });
 
 test("rejects files beyond 20MiB before attempting to decode them", async () => {

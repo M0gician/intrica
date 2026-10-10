@@ -14,7 +14,11 @@ const position = object({
     Type.Union([Type.Literal("auto"), Type.Literal("text"), Type.Literal("image")]),
   ),
 });
-const cursorSchema = object({ target: Type.String(), position });
+const cursorSchema = object({
+  target: Type.String(),
+  position,
+  contentHash: Type.Optional(Type.String()),
+});
 type Kind = "path" | "node" | "skill";
 
 /** Continuation identifies a position, never an authorization grant. */
@@ -48,6 +52,21 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
       line: Type.Optional(Type.Integer({ minimum: 1 })),
       page: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000 })),
       frame: Type.Optional(Type.Integer({ minimum: 0, maximum: 10000 })),
+      frames: Type.Optional(
+        Type.Array(Type.Integer({ minimum: 0, maximum: 10000 }), {
+          minItems: 1,
+          maxItems: 4,
+          uniqueItems: true,
+        }),
+      ),
+      pages: Type.Optional(
+        Type.Array(Type.Integer({ minimum: 1, maximum: 2000 }), {
+          minItems: 1,
+          maxItems: 4,
+          uniqueItems: true,
+        }),
+      ),
+      thumbnail: Type.Optional(Type.Boolean()),
       mode: Type.Optional(
         Type.Union([Type.Literal("auto"), Type.Literal("text"), Type.Literal("image")]),
       ),
@@ -60,11 +79,19 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
   );
   definition.normalize = async (args) => {
     const kind: Kind = args.target.kind;
-    if (args.cursor && [args.line, args.page, args.frame, args.mode].some((v) => v !== undefined))
+    if (
+      args.cursor &&
+      [args.line, args.page, args.frame, args.frames, args.pages, args.thumbnail].some(
+        (v) => v !== undefined,
+      )
+    )
       throw new DomainError("VALIDATION", "cursor 不能与定位字段同时使用");
     if (
-      (kind !== "path" && (args.line !== undefined || args.frame !== undefined)) ||
-      (kind === "skill" && (args.page !== undefined || args.mode !== undefined))
+      (kind !== "path" && args.line !== undefined) ||
+      (kind === "skill" &&
+        [args.page, args.mode, args.frame, args.frames, args.pages, args.thumbnail].some(
+          (v) => v !== undefined,
+        ))
     )
       throw new DomainError("VALIDATION", "目标不接受此定位或显示选项");
     let input: Record<string, any> = {
@@ -74,6 +101,9 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
       ...(args.line !== undefined ? { line: args.line } : {}),
       ...(args.page !== undefined ? { page: args.page } : {}),
       ...(args.frame !== undefined ? { frame: args.frame } : {}),
+      ...(args.frames ? { frames: args.frames } : {}),
+      ...(args.pages ? { pages: args.pages } : {}),
+      ...(args.thumbnail !== undefined ? { thumbnail: args.thumbnail } : {}),
       ...(args.mode !== undefined ? { mode: args.mode } : {}),
     };
     const origin = source(kind);
@@ -88,12 +118,18 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
       }
       if (!Value.Check(cursorSchema, decoded) || decoded.target !== digest(target))
         throw new DomainError("VALIDATION", "读取游标与目标不匹配");
+      if (args.mode !== undefined && args.mode !== (decoded.position.mode ?? "auto"))
+        throw new DomainError(
+          "VALIDATION",
+          "mode 与游标模式冲突；续读时省略 mode 或使用游标原模式",
+        );
       if (
         (kind === "skill" && Object.keys(decoded.position).some((key) => key !== "offset")) ||
         (kind === "node" && decoded.position.column !== undefined)
       )
         throw new DomainError("VALIDATION", "读取游标位置不适用于此目标");
-      input = { ...input, ...decoded.position };
+      input = { ...input, ...decoded.position, expectedContentHash: decoded.contentHash };
+      if (decoded.position.mode === undefined) delete input.mode;
     }
     return { target, input };
   };
@@ -110,6 +146,11 @@ function continuation(
   const first = output.content[0];
   if (first?.type !== "text" || output.isError) return output;
   const data = JSON.parse(first.text);
+  if (input.expectedContentHash && data.contentHash !== input.expectedContentHash)
+    throw new DomainError(
+      "TARGET_CHANGED",
+      "Read source changed between pages; restart from the first page.",
+    );
   let next: Record<string, number | string> | null = null;
   if (data.nextOffset != null)
     next = {
@@ -128,9 +169,13 @@ function continuation(
         text: JSON.stringify({
           ...body,
           nextCursor: next
-            ? Buffer.from(JSON.stringify({ target: digest(target), position: next })).toString(
-                "base64url",
-              )
+            ? Buffer.from(
+                JSON.stringify({
+                  target: digest(target),
+                  position: next,
+                  contentHash: data.contentHash,
+                }),
+              ).toString("base64url")
             : null,
         }),
       },

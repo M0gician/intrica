@@ -6,81 +6,109 @@ import { test } from "node:test";
 import { releaseManifest } from "../../tests/fixtures/releases.mjs";
 import { createUpdater } from "./updates.mjs";
 
-test("updater verifies downloads and rechecks before opening; failed and cancelled files cannot install", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "intrica-update-"));
-  const content = Buffer.from("installer fixture");
-  const manifest = JSON.stringify(releaseManifest("0.3.0", content));
-  let mode = "good";
-  const opened = [];
-  const options = {
-    userData: dir,
-    version: "0.2.0",
-    packaged: true,
-    platform: "darwin",
-    arch: "arm64",
-    shell: {
-      openPath: async (path) => {
-        opened.push(path);
-        return "";
-      },
-      showItemInFolder: () => {},
+test("explicit installation downloads, verifies, stops services, and restarts once", async (t) => {
+  const phases = [];
+  const f = await fixture(t, {
+    beforeInstall: async () => {
+      phases.push("stop");
+      return { serverId: "original", schemaVersion: 10 };
     },
-    fetchImpl: async (url, options) => {
-      if (url.includes("/latest/"))
-        return new Response(null, {
-          status: 302,
-          headers: {
-            location:
-              "https://github.com/M0gician/intrica/releases/download/v0.3.0/intrica-update.json",
-          },
-        });
-      if (url.endsWith("/intrica-update.json")) return new Response(manifest);
-      if (mode === "slow")
-        return new Promise((_, reject) => {
-          if (options.signal.aborted) reject(options.signal.reason);
-          else
-            options.signal.addEventListener("abort", () => reject(options.signal.reason), {
-              once: true,
-            });
-        });
-      return new Response(mode === "bad" ? Buffer.from("corrupt installer") : content);
+  });
+  const updater = await f.create();
+  await updater.check();
+  await Promise.all([updater.install(), updater.install(), updater.install()]);
+  assert.equal(f.calls.downloads, 1);
+  assert.equal(f.calls.open.length, 1);
+  assert.deepEqual(phases, ["stop"]);
+  assert.equal(updater.state().phase, "restarting");
+  const operation = JSON.parse(await readFile(join(f.dir, "updates/operation.json"), "utf8"));
+  assert.equal(operation.serverId, "original");
+  const restarted = await f.create({ version: "0.3.0" });
+  assert.equal(restarted.state().phase, "validating");
+  await restarted.verifyStartup({ version: "0.3.0", schemaVersion: 10, serverId: "original" });
+  assert.equal(restarted.state().phase, "complete");
+});
+
+test("a changed cache is rejected before stopping the current app; a retry downloads clean bytes", async (t) => {
+  let stops = 0;
+  const f = await fixture(t, {
+    beforeInstall: async () => {
+      stops++;
     },
-  };
-  const updater = await createUpdater(options);
-  const settled = async () => {
-    const deadline = Date.now() + 2000;
-    while (updater.state().phase === "downloading" && Date.now() < deadline)
-      await new Promise((r) => setTimeout(r, 5));
-    assert.notEqual(updater.state().phase, "downloading");
-    return updater.state();
-  };
-  try {
-    await updater.check();
-    assert.equal(updater.state().check.available, true);
-    await updater.download();
-    assert.equal((await settled()).phase, "ready");
-    await updater.open();
-    assert.equal(opened.length, 1);
-    await writeFile(opened[0], "changed after download");
-    await updater.open();
-    assert.equal(updater.state().error, "UPDATE_CHECKSUM_FAILED");
-    assert.equal(opened.length, 1);
-    mode = "bad";
-    await updater.download();
-    assert.equal((await settled()).error, "UPDATE_CHECKSUM_FAILED");
-    await updater.open();
-    assert.equal(opened.length, 1);
-    mode = "slow";
-    await updater.download();
-    updater.cancel();
-    assert.equal((await settled()).phase, "idle");
-    const dev = await createUpdater({ ...options, packaged: false });
-    await dev.check();
-    assert.equal((await dev.download()).phase, "idle");
-  } finally {
-    updater.cancel();
-    await rm(dir, { recursive: true, force: true });
+  });
+  const updater = await f.create();
+  await updater.check();
+  await updater.download();
+  await f.settled(updater);
+  await writeFile(join(f.dir, "updates", updater.state().asset.name), "changed after verification");
+  await updater.install();
+  assert.equal(updater.state().error, "UPDATE_CHECKSUM_FAILED");
+  assert.equal(stops, 0);
+  await updater.install();
+  assert.equal(updater.state().phase, "restarting");
+  assert.equal(stops, 1);
+  assert.equal(f.calls.downloads, 2);
+});
+
+test("startup validation rejects a different workspace, schema, or actual server version", async (t) => {
+  const f = await fixture(t),
+    first = await f.create();
+  await first.check();
+  await first.install();
+  const operation = JSON.parse(await readFile(join(f.dir, "updates/operation.json"), "utf8"));
+  for (const server of [
+    { version: "0.2.0", schemaVersion: 10, serverId: "original" },
+    { version: "0.3.0", schemaVersion: 11, serverId: "original" },
+    { version: "0.3.0", schemaVersion: 10, serverId: "other" },
+  ]) {
+    await writeFile(
+      join(f.dir, "updates/operation.json"),
+      JSON.stringify({ ...operation, phase: "restarting", serverId: "original" }),
+    );
+    const next = await f.create({ version: "0.3.0" });
+    await next.verifyStartup(server);
+    assert.equal(next.state().error, "UPDATE_START_FAILED");
   }
+});
+
+test("failed preparation leaves services running; failure after shutdown uses the recovery callback", async (t) => {
+  let stopped = 0,
+    recovered = 0;
+  const f = await fixture(t, {
+    beforeInstall: async () => {
+      stopped++;
+    },
+    recoverAfterFailure: async () => {
+      recovered++;
+    },
+  });
+  const first = await f.create({
+    installer: {
+      prepare: async () => {
+        throw new Error("cannot stage");
+      },
+      dispose() {},
+    },
+  });
+  await first.check();
+  await first.install();
+  assert.equal(stopped, 0);
+  assert.equal(recovered, 0);
+  const second = await f.create({
+    installer: {
+      prepare: async () => ({
+        apply: async () => {
+          throw new Error("cannot install");
+        },
+      }),
+      dispose() {},
+    },
+  });
+  await second.check();
+  await second.install();
+  assert.equal(stopped, 1);
+  assert.equal(recovered, 1);
+  assert.equal(second.state().phase, "error");
 });
 
 async function eventually(condition) {
@@ -106,12 +134,13 @@ async function fixture(t, overrides = {}) {
     packaged: true,
     platform: "darwin",
     arch: "arm64",
-    shell: {
-      openPath: async (path) => {
-        calls.open.push(path);
-        return "";
-      },
-      showItemInFolder: (path) => calls.reveal.push(path),
+    installer: {
+      prepare: async ({ file }) => ({
+        apply: async () => {
+          calls.open.push(file);
+        },
+      }),
+      dispose() {},
     },
     now: () => clock,
     setTimer: (callback, delay) => {
@@ -227,7 +256,7 @@ test("verified full downloads are reused after restart; notice dismissal persist
   await eventually(() => restored.state().phase === "ready");
   assert.equal(f.calls.downloads, 1, "cache must not redownload an identical verified asset");
   assert.equal(restored.state().notice.seen, true);
-  assert.deepEqual(await readdir(join(f.dir, "updates")), ["Intrica-0.3.0-mac-arm64.dmg"]);
+  assert.deepEqual(await readdir(join(f.dir, "updates")), ["Intrica-0.3.0-mac-arm64.zip"]);
   f.setVersion("0.4.0");
   f.tick();
   await eventually(
@@ -251,8 +280,6 @@ test("failed background downloads use increasing retry delay and never expose pa
   await eventually(() => updater.state().phase === "error" && f.calls.downloads === 2);
   assert.equal(f.delay(), 10 * 60_000);
   assert.deepEqual(await readdir(join(f.dir, "updates")), []);
-  await updater.open();
-  assert.equal(f.calls.open.length, 0);
   f.setMode("good");
   f.tick();
   await eventually(() => updater.state().phase === "ready");
@@ -283,7 +310,7 @@ test("cancelling a download suppresses automatic retries across restart until ex
   assert.equal(f.calls.downloads, 2);
 });
 
-test("one application updater serializes renderer checks, downloads and explicit installer opens", async (t) => {
+test("one application updater serializes renderer checks, downloads and explicit installations", async (t) => {
   const f = await fixture(t),
     updater = await f.create();
   await Promise.all([updater.check(), updater.check(), updater.check()]);
@@ -423,18 +450,43 @@ test("failed metadata checks back off; a stale window cannot dismiss the next re
   assert.equal(updater.state().notice.seen, true);
 });
 
-test("AppImage is verified, executable and only revealed on explicit request; Debian uses the platform installer", async (t) => {
-  const f = await fixture(t);
+test("AppImage and Debian both use the explicit installation action", async (t) => {
   for (const appImage of [true, false]) {
+    const f = await fixture(t);
     const updater = await f.create({ platform: "linux", arch: "x64", appImage });
     await updater.check();
-    await updater.download();
-    await eventually(() => updater.state().phase === "ready");
-    await updater.open();
-    if (appImage) {
-      assert.equal(f.calls.open.length, 0);
-      assert.match(f.calls.reveal[0], /\.AppImage$/);
-      assert.equal((await stat(f.calls.reveal[0])).mode & 0o777, 0o700);
-    } else assert.match(f.calls.open[0], /\.deb$/);
+    await updater.install();
+    assert.equal(f.calls.open.length, 1);
+    assert.match(f.calls.open[0], appImage ? /\.AppImage$/ : /\.deb$/);
+    if (appImage) assert.equal((await stat(f.calls.open[0])).mode & 0o777, 0o700);
+    assert.equal(updater.state().phase, "restarting");
   }
+});
+
+test("cancelling the install download preserves the running app and permits an explicit retry", async (t) => {
+  let stops = 0;
+  const f = await fixture(t, {
+      beforeInstall: async () => {
+        stops++;
+      },
+    }),
+    updater = await f.create();
+  await updater.check();
+  f.setMode("slow");
+  const pending = updater.install();
+  await eventually(() => f.calls.downloads === 1);
+  await updater.cancel();
+  await pending;
+  assert.equal(stops, 0);
+  assert.equal(f.calls.open.length, 0);
+  assert.equal(updater.state().phase, "idle");
+  assert.equal(updater.state().error, null);
+  assert.equal(
+    JSON.parse(await readFile(join(f.dir, "updates/operation.json"), "utf8")).phase,
+    "cancelled",
+  );
+  f.setMode("good");
+  await updater.install();
+  assert.equal(stops, 1);
+  assert.equal(f.calls.open.length, 1);
 });

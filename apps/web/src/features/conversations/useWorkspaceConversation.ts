@@ -1,10 +1,19 @@
 import { newId } from "@intrica/client";
-import type { AgentContextUsage, ModelSelection, Node } from "@intrica/contracts";
+import type {
+  AgentContextUsage,
+  MessageRequestView,
+  ModelSelection,
+  Node,
+} from "@intrica/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import { useConnection } from "../../app/connection-context";
+import { useModelReady } from "../../components/ModelRequired";
 import { tr } from "../../i18n";
 import { useGraphValue, useStore, useViewValue } from "../../state/store";
+import type { MessageWait } from "./ConversationWaits";
+import type { Receipt } from "./InputReceipt";
+import { useMessageAssociation } from "./MessageRouting";
 import type { UnknownCall } from "./UnknownTools";
 import { useRunEvents } from "./useRunEvents";
 import { type ConversationSnapshot, restoreTurns, type Turn } from "./workspace-model";
@@ -17,20 +26,39 @@ export function useWorkspaceConversation(
 ) {
   const { transport, agentRequest, storage, api, activity } = useSessionConnection();
   const store = useStore();
+  const [waits, setWaits] = useState<MessageWait[]>([]);
+  const [messageRequests, setMessageRequests] = useState<MessageRequestView[]>([]);
+  const routing = useMessageAssociation(messageRequests);
   const [usage, setUsage] = useState<AgentContextUsage>();
-  const [question, setQuestion] = useState("");
   const appliedCompose = useRef<string | null>(null);
   const composer = useRef<HTMLFormElement>(null);
-  useEffect(() => {
-    if (!composeRequest || appliedCompose.current === composeRequest.id) return;
-    appliedCompose.current = composeRequest.id;
-    setQuestion((current) =>
-      current ? `${current}\n\n${composeRequest.text}` : composeRequest.text,
-    );
-    composer.current?.querySelector("textarea")?.focus();
-  }, [composeRequest]);
   const [model, setModel] = useState<ModelSelection | null>(null);
+  const modelReady = useModelReady(model);
   const [turns, setTurns] = useState<Turn[]>([]);
+  const receipts = useRef(new Map<string, Receipt>());
+  const readInputs = (messageIds: string[]) => {
+    for (const messageId of messageIds)
+      receipts.current.set(messageId, { messageId, state: "read" });
+    setTurns((current) =>
+      current.map((turn) => ({
+        ...turn,
+        ...(turn.receipt && receipts.current.has(turn.receipt.messageId)
+          ? { receipt: receipts.current.get(turn.receipt.messageId)! }
+          : {}),
+        messages: Object.fromEntries(
+          Object.entries(turn.messages).map(([id, message]) => [
+            id,
+            {
+              ...message,
+              ...(message.receipt && receipts.current.has(message.receipt.messageId)
+                ? { receipt: receipts.current.get(message.receipt.messageId)! }
+                : {}),
+            },
+          ]),
+        ),
+      })),
+    );
+  };
   const [transcriptGeneration, setTranscriptGeneration] = useState(0);
   const [unknown, setUnknown] = useState<UnknownCall[]>([]);
   const [resolutionError, setResolutionError] = useState("");
@@ -38,13 +66,45 @@ export function useWorkspaceConversation(
   const [busy, setBusy] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const pendingStop = useRef<symbol | null>(null);
-  const [mock, setMock] = useState(false);
   const canvasId = useViewValue((view) => view.baseScopeId);
   const selection = useViewValue((view) => (active ? view.selection : emptySelection));
   const nodes = useGraphValue((graph) => (active ? graph.nodes : emptyNodes));
   const graph = { nodes };
   const { server } = useConnection();
   const sessionKey = `intrica:conversation:${server?.id ?? location.origin}:${canvasId}`;
+  const draftKey = `${sessionKey}:draft`;
+  const readDraft = useCallback(() => {
+    try {
+      return storage.getItem(draftKey) ?? "";
+    } catch {
+      return "";
+    }
+  }, [storage, draftKey]);
+  const [draft, setDraft] = useState(() => ({ key: draftKey, text: readDraft() }));
+  const question = draft.key === draftKey ? draft.text : readDraft();
+  const setQuestion = useCallback(
+    (value: string | ((current: string) => string)) => {
+      setDraft((current) => {
+        const previous = current.key === draftKey ? current.text : readDraft();
+        const text = typeof value === "function" ? value(previous) : value;
+        try {
+          storage.setItem(draftKey, text);
+        } catch {
+          /* Keep the draft in memory. */
+        }
+        return { key: draftKey, text };
+      });
+    },
+    [draftKey, readDraft, storage],
+  );
+  useEffect(() => {
+    if (!composeRequest || appliedCompose.current === composeRequest.id) return;
+    appliedCompose.current = composeRequest.id;
+    setQuestion((current) =>
+      current ? `${current}\n\n${composeRequest.text}` : composeRequest.text,
+    );
+    composer.current?.querySelector("textarea")?.focus();
+  }, [composeRequest, setQuestion]);
   const readSession = useCallback(() => {
     try {
       const value = storage.getItem(sessionKey) || newId("conversation");
@@ -61,6 +121,8 @@ export function useWorkspaceConversation(
   useEffect(() => {
     setSessionId(readSession());
     setTurns([]);
+    setMessageRequests([]);
+    receipts.current.clear();
     setRunId(undefined);
     setUnknown([]);
     setWaitingReason(undefined);
@@ -97,6 +159,8 @@ export function useWorkspaceConversation(
     const value = await activity.request(path, () => transport.request<ConversationSnapshot>(path));
     if (!showing.current || sessionRef.current !== sessionId || abort.current) return null;
     setUnknown(value.unknownTools ?? []);
+    setMessageRequests(value.messageRequests ?? []);
+    setWaits(value.waits ?? []);
     setTurns(restoreTurns(value, sessionId));
     const running = Boolean(
       value.run && ["queued", "running", "waiting"].includes(value.run.state),
@@ -107,7 +171,7 @@ export function useWorkspaceConversation(
       setSending(false);
     }
     setBusy(running && !paused);
-    setWaitingReason(paused ? value.run?.reason : undefined);
+    setWaitingReason(value.run?.state === "waiting" ? value.run.reason : undefined);
     setRunId(running || paused ? value.run!.id : undefined);
     runCursor.current = String(value.run?.last_event_seq ?? "0");
     if (value.context) setUsage(value.context);
@@ -135,6 +199,9 @@ export function useWorkspaceConversation(
     cursor: runCursor.current,
     recover: synchronize,
     onEvent(event) {
+      if (event.type === "inference.item")
+        activity.invalidate({ canvasId, conversationId: sessionId });
+      if (event.type === "input.receipt") readInputs(event.payload.messageIds);
       if (event.type === "message")
         setTurns((current) =>
           current.map((turn, index) =>
@@ -182,13 +249,17 @@ export function useWorkspaceConversation(
     if (runId) void cancelRun(runId, request);
   };
   const ask = async () => {
-    if (sending || pendingStop.current || unknown.length) return;
+    if (!modelReady || sending || pendingStop.current || unknown.length) return;
     const prompt = question.trim() || tr("继续之前未完成的任务。");
     if (busy) {
       if (!question.trim()) return;
       setSending(true);
       try {
-        await agentRequest("agent/steer", { sessionId, message: prompt });
+        const submitted = await agentRequest<{ messageId: string }>("agent/steer", {
+          sessionId,
+          message: prompt,
+          association: routing.association,
+        });
         const id = newId();
         setTurns((turns) =>
           turns.map((turn, index) =>
@@ -196,7 +267,17 @@ export function useWorkspaceConversation(
               ? {
                   ...turn,
                   timeline: [...turn.timeline, { kind: "user", id }],
-                  messages: { ...turn.messages, [id]: { text: prompt, thinking: "" } },
+                  messages: {
+                    ...turn.messages,
+                    [id]: {
+                      text: prompt,
+                      thinking: "",
+                      receipt: receipts.current.get(submitted.messageId) ?? {
+                        messageId: submitted.messageId,
+                        state: "unread",
+                      },
+                    },
+                  },
                 }
               : turn,
           ),
@@ -217,12 +298,19 @@ export function useWorkspaceConversation(
     const activeSession = sessionId;
     setRunId(undefined);
     setStreaming(true);
-    setQuestion("");
     setBusy(true);
     setTranscriptGeneration((value) => value + 1);
     setTurns((turns) => [
       ...turns,
-      { id, question: prompt, messages: {}, tools: {}, timeline: [], state: "running" },
+      {
+        id,
+        question: prompt,
+        receipt: { messageId: id, state: "sending" },
+        messages: {},
+        tools: {},
+        timeline: [],
+        state: "running",
+      },
     ]);
     const update = (change: (turn: Turn) => Turn) =>
       setTurns((turns) => turns.map((turn) => (turn.id === id ? change(turn) : turn)));
@@ -237,17 +325,27 @@ export function useWorkspaceConversation(
           ...(waitingReason === "tool_contract_upgrade" && runId ? { resumeRunId: runId } : {}),
           model,
           message: prompt,
+          association: routing.association,
           selection: [...selection],
           scopeId: view.overlaySpace?.containerId ?? canvasId,
         },
         (event) => {
           if (event.type === "context") setUsage(event.usage);
           if (event.type === "start") {
-            setMock(event.mode === "mock");
+            setQuestion((current) => (current.trim() === prompt ? "" : current));
+            if (event.messageId)
+              update((turn) => ({
+                ...turn,
+                receipt: receipts.current.get(event.messageId) ?? {
+                  messageId: event.messageId,
+                  state: "unread",
+                },
+              }));
             setRunId(event.runId);
             if (pendingStop.current && event.runId)
               void cancelRun(event.runId, pendingStop.current);
           }
+          if (event.type === "input.receipt") readInputs(event.messageIds);
           if (event.type === "message")
             update((turn) => ({
               ...turn,
@@ -294,6 +392,9 @@ export function useWorkspaceConversation(
         return;
       update((turn) => ({
         ...turn,
+        ...(turn.receipt?.state === "sending"
+          ? { receipt: { ...turn.receipt, state: "failed" } as Receipt }
+          : {}),
         state: controller.signal.aborted ? "stopped" : "error",
         error: controller.signal.aborted
           ? tr("已停止")
@@ -317,6 +418,9 @@ export function useWorkspaceConversation(
   };
 
   return {
+    messageRequests,
+    waits,
+    routing,
     usage,
     setUsage,
     question,
@@ -331,7 +435,7 @@ export function useWorkspaceConversation(
     sending,
     setSending,
     busy,
-    mock,
+    modelReady,
     selection,
     graph,
     canvasId,

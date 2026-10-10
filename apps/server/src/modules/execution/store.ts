@@ -7,7 +7,8 @@ import {
   lockCanvas,
   type Tx,
 } from "../../adapters/postgres/database.js";
-import { cancelApprovals, cancellationReason } from "./cancellation.js";
+import { retireInference } from "../inference/retirement.js";
+import { cancelApprovals, cancellationReason, stopConversationInputs } from "./cancellation.js";
 import { DEFAULT_LIMITS, type ExecutionLimits } from "./limits.js";
 import { pendingInboxMessage } from "./messages.js";
 import { failureReason, publishRunNotice } from "./run-notices.js";
@@ -33,6 +34,7 @@ export type Run = {
 };
 export type Lease = Run & { attemptId: string };
 export class RunStore {
+  media?: import("../../adapters/storage/media.js").MediaStore;
   readonly settings: ExecutionSettingsStore;
   constructor(
     readonly db: Database,
@@ -77,7 +79,7 @@ export class RunStore {
       await tx.query(
         `select m.content->>'causeId' as cause_id,array_agg(m.seq) as seqs
        from messages m join conversations c on c.id=m.conversation_id
-       where c.id=$1 and m.seq>c.consumed_message_seq and m.run_id is null and ${pendingInboxMessage}
+       where c.id=$1 and m.consumed_run_id is null and (m.seq>c.consumed_message_seq or m.content->>'workItemId' is not null) and m.run_id is null and ${pendingInboxMessage}
        group by m.content->>'causeId' order by min(m.seq)`,
         [run.subject_id],
       )
@@ -141,7 +143,9 @@ export class RunStore {
           await tx.query("update runs set activation_count=0 where id=$1", [prior.cause_id]);
         if (
           prior.state === "waiting" &&
-          (prior.reason === "message" ||
+          (["message", "reply_required", "message_protocol", "tool_input"].includes(
+            prior.reason ?? "",
+          ) ||
             prior.reason === "approval" ||
             (["turn_limit", "unknown"].includes(prior.reason) && input.userInitiated))
         ) {
@@ -348,6 +352,7 @@ export class RunStore {
           `update runs set cancel_requested_at=now(),state=case when state='running' then state else 'cancelled' end,reason=${cancellationReason},updated_at=now() where id=$1`,
           [runId],
         );
+        if (current.kind === "conversation") await stopConversationInputs(tx, [current.subject_id]);
         await cancelApprovals(tx, [runId]);
         await canvasEvent(tx, run.canvas_id, "run.changed", {
           id: runId,
@@ -431,6 +436,8 @@ export class RunStore {
             )
           ).rows[0];
           if (!run) return;
+          if (run.kind === "conversation")
+            await retireInference(tx, [run.subject_id], "lease_expired");
           const unknown = (
             await tx.query(
               "update tool_calls set state='unknown',updated_at=now() where run_id=$1 and state='dispatching' and effect_class='external' returning id",

@@ -5,7 +5,7 @@ import {
   type ModelCatalogEntry,
   type ModelThinkingLevel,
 } from "@intrica/contracts";
-import { resolveModel } from "./pi.js";
+import { resolveModel } from "./resolve-model.js";
 import type { ModelConfig } from "./types.js";
 
 export function modelThinkingLevel(

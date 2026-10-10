@@ -1,10 +1,18 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { schemas } from "@intrica/contracts";
+import {
+  applyMessage,
+  inputAssociationSchema,
+  type StreamMessage,
+  schemas,
+} from "@intrica/contracts";
 import { Type } from "typebox";
-import { hostCapabilities } from "../adapters/host/executor.js";
 import { id } from "../adapters/postgres/database.js";
 import type { AppInstance } from "../app.js";
 import type { Kernel } from "../composition.js";
+import { listWaits } from "../modules/collaboration/wait-notices.js";
+import { expediteInput } from "../modules/work/input-receipts.js";
+import { retryResourceResponse } from "../modules/work/resource-response.js";
+import { conversationTrace } from "../modules/work/trace.js";
 import { promptLanguage, promptText } from "../prompt-language.js";
 import { createStream } from "./streams.js";
 
@@ -20,6 +28,45 @@ const activityFilter = (query: { selection?: string; groupId?: string }) => ({
   groupId: query.groupId,
 });
 export function registerConversations(app: AppInstance, k: Kernel) {
+  app.get("/api/v2/conversations/:id/waits", { schema: { params } }, (req) =>
+    listWaits(k.db.pool, req.params.id),
+  );
+  app.post(
+    "/api/v2/conversations/:id/waits/:waitId",
+    {
+      schema: {
+        params: Type.Object({ id: Type.String(), waitId: Type.String() }),
+        body: Type.Object(
+          { action: Type.Union([Type.Literal("wake"), Type.Literal("cancel")]) },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    (req) => k.conversations.waits.control(req.params.id, req.params.waitId, req.body.action),
+  );
+  app.get("/api/v2/conversations/:id/trace", { schema: { params } }, (req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    return conversationTrace(k.db, req.params.id);
+  });
+  app.get("/api/v2/conversations/:id/trace/export", { schema: { params } }, async (req, reply) => {
+    reply
+      .header("Cache-Control", "no-store")
+      .header("Content-Disposition", 'attachment; filename="intrica-diagnostics.json"');
+    return conversationTrace(k.db, req.params.id, true);
+  });
+  app.post(
+    "/api/v2/conversations/:id/expedite",
+    {
+      schema: {
+        params,
+        body: Type.Object(
+          { messageId: Type.String({ minLength: 1, maxLength: 200 }) },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    (req) => expediteInput(k.db, req.params.id, req.body.messageId),
+  );
   app.get("/api/v2/canvas-agents/:id/permissions", { schema: { params } }, (req) =>
     k.access.describe(req.params.id),
   );
@@ -60,6 +107,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
       const r = await k.conversations.read.event(c.id, req.params.seq);
       return {
         conversationId: c.id,
+        recordVersion: r.record_version,
         seq: Number(r.seq),
         agentId: req.params.id,
         kind: r.role,
@@ -68,9 +116,10 @@ export function registerConversations(app: AppInstance, k: Kernel) {
       };
     },
   );
-  app.get("/api/v2/canvas-agents/:id/capabilities", { schema: { params } }, async () =>
-    hostCapabilities(),
-  );
+  app.get("/api/v2/canvas-agents/:id/capabilities", { schema: { params } }, async (req) => {
+    const conversation = await k.conversations.read.forAgent(req.params.id);
+    return k.tools.describeCapabilities(conversation.canvas_id, req.params.id);
+  });
   app.post(
     "/api/v2/canvas-agents/:id/run",
     {
@@ -78,6 +127,7 @@ export function registerConversations(app: AppInstance, k: Kernel) {
         params,
         body: Type.Object({
           message: Type.String({ minLength: 1, maxLength: 8000 }),
+          association: Type.Optional(inputAssociationSchema),
           resumeRunId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
           idempotencyKey: Type.Optional(Type.String({ maxLength: 200 })),
         }),
@@ -86,18 +136,44 @@ export function registerConversations(app: AppInstance, k: Kernel) {
     async (req, reply) => {
       const c = await k.conversations.read.forAgent(req.params.id);
       const response = await k.conversations.submit({
+        requestId: req.id,
         canvasId: c.canvas_id,
         agentId: req.params.id,
         message: req.body.message,
+        association: req.body.association,
         ...(req.body.resumeRunId ? { resumeRunId: req.body.resumeRunId } : {}),
         language: promptLanguage(req.headers["accept-language"]),
         key: req.body.idempotencyKey ?? id("input"),
       });
-      return reply.code(202).send({ started: true, runId: response.run.id });
+      return reply
+        .code(202)
+        .send({ started: true, runId: response.run.id, messageId: response.messageId });
     },
   );
   app.post("/api/v2/canvas-agents/:id/stop", { schema: { params } }, async (req) =>
     k.conversations.stop(req.params.id),
+  );
+  app.post(
+    "/api/v2/canvas-agents/:id/resource-response/retry",
+    {
+      schema: {
+        params,
+        body: Type.Object(
+          {
+            expectedRevision: Type.String({ pattern: "^[1-9][0-9]{0,18}$" }),
+            idempotencyKey: Type.String({ minLength: 1, maxLength: 200 }),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    (req) =>
+      retryResourceResponse(
+        k.db,
+        req.params.id,
+        req.body.expectedRevision,
+        req.body.idempotencyKey,
+      ),
   );
   app.post("/api/v2/canvas-agents/:id/reset", { schema: { params } }, async (req) =>
     k.conversations.reset(req.params.id),
@@ -261,18 +337,21 @@ export function registerConversations(app: AppInstance, k: Kernel) {
         body: Type.Object({
           sessionId: Type.String({ maxLength: 200 }),
           message: Type.String({ minLength: 1, maxLength: 8000 }),
+          association: Type.Optional(inputAssociationSchema),
           idempotencyKey: Type.Optional(Type.String()),
         }),
       },
     },
     async (req) => {
       const submitted = await k.conversations.steer({
+        requestId: req.id,
         conversationId: req.body.sessionId,
         message: req.body.message,
+        association: req.body.association,
         language: promptLanguage(req.headers["accept-language"]),
         key: req.body.idempotencyKey ?? id("input"),
       });
-      return { queued: true, runId: submitted.run.id };
+      return { queued: true, runId: submitted.run.id, messageId: submitted.messageId };
     },
   );
   app.post("/api/v2/runs/:id/cancel", { schema: { params } }, async (req) => {
@@ -285,8 +364,10 @@ export function registerConversations(app: AppInstance, k: Kernel) {
       schema: {
         body: Type.Object({
           sessionId: Type.String({ minLength: 1, maxLength: 200 }),
+          streamFormat: Type.Optional(Type.Literal("delta")),
           resumeRunId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
           message: Type.String({ minLength: 1, maxLength: 8000 }),
+          association: Type.Optional(inputAssociationSchema),
           scopeId: Type.String(),
           selection: Type.Array(Type.String(), { maxItems: 100 }),
           model: Type.Optional(Type.Union([schemas.ModelSelectionSchema, Type.Null()])),
@@ -308,9 +389,11 @@ export function registerConversations(app: AppInstance, k: Kernel) {
             })
           ).node.id;
       const submitted = await k.conversations.submit({
+        requestId: req.id,
         canvasId,
         conversationId: req.body.sessionId,
         message: req.body.message,
+        association: req.body.association,
         ...(req.body.resumeRunId ? { resumeRunId: req.body.resumeRunId } : {}),
         language: promptLanguage(req.headers["accept-language"]),
         key: req.body.idempotencyKey ?? id("input"),
@@ -319,9 +402,11 @@ export function registerConversations(app: AppInstance, k: Kernel) {
       });
       return createStream(app, reply, async function* (signal) {
         let cursor = "0";
+        let message: StreamMessage | undefined;
         yield {
           type: "start",
           runId: submitted.run.id,
+          messageId: submitted.messageId,
           mode: submitted.run.frozen_input.model.config.kind,
         };
         while (!signal.aborted) {
@@ -334,8 +419,11 @@ export function registerConversations(app: AppInstance, k: Kernel) {
                 : { type: "error", message: event.payload.reason ?? "运行已停止" };
               return;
             }
-            if (["message", "tool", "context", "compaction"].includes(event.type))
-              yield { type: event.type, ...event.payload };
+            if (["message", "tool", "context", "compaction", "input.receipt"].includes(event.type))
+              if (event.type === "message" && req.body.streamFormat !== "delta") {
+                message = applyMessage(message, event.payload);
+                yield { ...message, type: "message" };
+              } else yield { type: event.type, ...event.payload };
           }
           const run = await k.runs.get(submitted.run.id);
           if (

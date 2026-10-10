@@ -2,14 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSessionConnection } from "../api/connection";
 import type { DirectoryListing, FileContent, WorkspaceEntry } from "../api/workspace";
 import { DownloadStatus, useFileDownload } from "../features/files/download";
+import { FilePreview } from "../features/files/FilePreview";
 import { TreeEntry } from "../features/files/FileTree";
 import { tr, useTranslation } from "../i18n";
 import { Button } from "../ui/button";
 import { LOCAL_RESOURCE_MIME } from "../utils/imports";
-import { DocumentEditor } from "./DocumentEditor";
 import { FileSource } from "./FileSource";
 import { IconArrowUp, IconButton, IconClose, IconPlus, IconRefresh } from "./icons";
-import { isPdfPath, PdfPreview } from "./PdfPreview";
 import "./files-panel.css";
 
 export function FilesPanel({
@@ -44,7 +43,9 @@ export function FilesPanel({
   const pathTrigger = useRef<HTMLButtonElement | null>(null);
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
-  const [file, setFile] = useState<FileContent | null>(null);
+  const [receivedFile, setFile] = useState<FileContent | null>(null);
+  const file =
+    receivedFile?.serverId && receivedFile.serverId !== connection.serverId ? null : receivedFile;
   const fileRequest = useRef<AbortController | null>(null);
   const image = useRef<HTMLImageElement | null>(null);
   const [fileAction, setFileAction] = useState("");
@@ -134,11 +135,6 @@ export function FilesPanel({
     async (item: WorkspaceEntry) => {
       setFileAction("");
       fileRequest.current?.abort();
-      if (isPdfPath(item.path)) {
-        setFile({ name: item.name, path: item.path, mime: "application/pdf" });
-        setError("");
-        return;
-      }
       const abort = new AbortController();
       fileRequest.current = abort;
       try {
@@ -345,24 +341,14 @@ export function FilesPanel({
           </div>
           <div className="panel-scroll">
             {fileAction && <p role="status">{fileAction}</p>}
-            {file.mime === "application/pdf" ? (
-              <PdfPreview
-                path={file.path}
-                title={file.name}
-                onDownload={() => void download.start(file)}
-                downloadBusy={download.busy}
-              />
-            ) : file.data && file.mime.startsWith("image/") ? (
-              <img ref={image} alt={file.name} src={`data:${file.mime};base64,${file.data}`} />
-            ) : (
-              <DocumentEditor
-                key={file.path}
-                id={file.path}
-                fileName={file.name}
-                value={file.text ?? ""}
-                readOnly
-              />
-            )}
+            <FilePreview
+              key={file.path}
+              file={file}
+              imageRef={image}
+              origin={{ kind: "workspace", id: "files", filePath: file.path }}
+              onDownload={() => void download.start(file)}
+              busy={download.busy}
+            />
           </div>
         </div>
       )}

@@ -115,8 +115,8 @@ The macOS first-launch approval still applies.
    only when that endpoint does not require one. Add a model, choose the
    protocol supported by the endpoint, test it, and select it for use.
    Model discovery runs when the model editor opens; you can refresh it or
-   enter a model ID manually. The built-in mock model makes no real model
-   requests. Provider requests may incur charges.
+   enter a model ID manually. Sending requires a configured endpoint and model;
+   missing configuration leaves drafts editable. Provider requests may incur charges.
 3. Create a canvas from the canvas menu.
 4. Add and connect resources. Select a node to work with it; double-click
    to open its contents.
@@ -139,10 +139,10 @@ it is separate from a model API key and from GitHub credentials.
 The native Linux x64 package includes Node.js, PostgreSQL and the Web client.
 The host needs Bash, curl, `tar`, `sha256sum`, `flock`, systemd user services,
 and enabled linger. The default tool sandbox also needs working
-`/usr/bin/bwrap` with unprivileged namespaces. An administrator must arrange
-these prerequisites. For example, on Ubuntu
-22.04 the administrator can install `bubblewrap` and `curl`, and run
-`sudo loginctl enable-linger SERVER_USER` for the intended service account.
+`/usr/bin/bwrap` with unprivileged namespaces. The installer attempts to enable
+linger for the same service account without sudo. If host policy denies this,
+an administrator can run `loginctl enable-linger SERVER_USER`. On Ubuntu 22.04,
+an administrator can install the required `bubblewrap` and `curl` packages.
 The installer does not change firewall or namespace policy and refuses root.
 
 Log in directly as the service account. Check its session and isolation:
@@ -204,13 +204,13 @@ Desktop can perform the native installation above:
 2. Open **Settings → Server connections → Add server**. Choose an alias
    from SSH config, or choose **Add a server manually…** and enter the
    host, non-root username and SSH port.
-3. For a new installation, choose **Deploy Intrica… → Check SSH host**,
-   enter `v0.3.1`, and choose **Prepare deployment plan**. If needed, select
-   **No-sandbox mode** and read its permissions warning before planning.
-4. Check the target account, host, version, execution mode and data location. Confirm the
-   plan and choose **Deploy and save connection**.
-5. Return to the server list and turn on that connection. For a service
-   already installed under the same account, use **Add** instead of deploying.
+3. For a new installation, choose **Install and connect**. Desktop selects
+   its matching server version and shows inspection, download, transfer,
+   installation and verification progress. Select **No-sandbox mode** first
+   if needed and read its permissions notice.
+4. After the health check, Desktop saves and activates the connection.
+   Leaving Settings does not stop installation; reopen it to view progress.
+5. For a service already installed under the same account, use **Add**.
 
 Desktop manages the SSH tunnel and retrieves the service token over SSH.
 It does not need a GitHub token. Browser users can create their own tunnel
@@ -293,10 +293,12 @@ See the [development guide](docs/development.md) for builds and tests.
 
 ## Updates and backups
 
-In Desktop, use **Settings → Version & updates** to download and verify an
-update. Stop active work, back up, quit the app, and replace it with the
-verified installer. Desktop updates include its bundled server; they do
-not update remote servers.
+In builds with the automatic installer, use **Settings → Version & updates →
+Update and restart**. Desktop saves drafts, stops local services, replaces
+the app and restarts. It then checks the actual version and original workspace.
+For an older macOS client, open Intrica inside the new signed DMG and choose
+**Install and restart** for the transition. No manual exit or drag is needed.
+Desktop updates include its bundled server. Remote servers update separately.
 
 Before upgrading, stop all application writers and back up PostgreSQL and
 the complete data directory. For Desktop, quit the app and copy:
@@ -314,7 +316,7 @@ docker compose -f compose.release.yaml pull intrica
 docker compose -f compose.release.yaml up -d --no-deps --wait intrica
 ```
 
-Schema 8 and 9 databases migrate to schema 10. Affected conversations pause
+Existing databases migrate to schema 12. Affected conversations pause
 for result verification and explicit continuation. Unknown side effects
 are not automatically retried. A binary downgrade does not undo database
 migration. See [updates and recovery](docs/updating.md) before upgrading.

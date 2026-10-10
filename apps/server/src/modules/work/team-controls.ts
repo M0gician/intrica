@@ -1,6 +1,7 @@
 import { canvasEvent, DomainError, digest, id } from "../../adapters/postgres/database.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
 import { agentIdentity } from "../access/policy.js";
+import { associateUserInput } from "../collaboration/requests.js";
 import { cancelAgents } from "../execution/cancellation.js";
 import type { Conversations } from "./conversations.js";
 
@@ -66,7 +67,9 @@ export async function controlTeams(
       if (
         active &&
         (active.state !== "waiting" ||
-          !["message", "turn_limit"].includes(active.reason) ||
+          !["message", "turn_limit", "reply_required", "message_protocol"].includes(
+            active.reason,
+          ) ||
           active.cancel_requested_at)
       )
         continue;
@@ -79,6 +82,13 @@ export async function controlTeams(
         ),
         language,
       });
+      const associated = await associateUserInput(tx, {
+        canvasId,
+        conversationId: member.conversation_id,
+        agentId: member.id,
+        messageId: `batch-${key}`,
+        seq,
+      });
       const run = await conversations.runs.enqueue(tx, {
         canvasId,
         subjectId: member.conversation_id,
@@ -86,12 +96,17 @@ export async function controlTeams(
         kind: "conversation",
         frozen: {
           conversationId: member.conversation_id,
+          workItemId: associated.workItemId,
           agentId: member.id,
           selection: [],
           model,
           language,
         },
       });
+      await tx.query("update message_requests set cause_id=coalesce(cause_id,$2) where id=$1", [
+        associated.workItemId,
+        run.cause_id,
+      ]);
       await tx.query("update messages set run_id=$3 where conversation_id=$1 and seq=$2", [
         member.conversation_id,
         seq,

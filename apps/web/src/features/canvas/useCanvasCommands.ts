@@ -1,6 +1,7 @@
 import type { Operation, Rect } from "@intrica/contracts";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ActionId } from "../../components/BottomBar";
+import { useModelReady } from "../../components/ModelRequired";
 import type { TaskChipData } from "../../components/TaskBar";
 import { tr } from "../../i18n";
 import type { WorkspaceController } from "../../state/controller";
@@ -34,6 +35,7 @@ export function useCanvasCommands({
   changeLink,
 }: Input) {
   const store = useStore();
+  const modelReady = useModelReady();
   const prevOpStatusesRef = useRef<Map<string, Operation["status"]>>(new Map());
   const requestDeleteNodes = useCallback(
     (nodeIds: string[]) => {
@@ -107,6 +109,10 @@ export function useCanvasCommands({
   );
   const startGeneration = useCallback(
     (intent: OperationIntent) => {
+      if (!modelReady) {
+        announce(tr("添加端点和模型"));
+        return;
+      }
       closeSurface();
       void controller.createOperation({
         type: intent.type,
@@ -117,7 +123,7 @@ export function useCanvasCommands({
         instruction: "",
       });
     },
-    [closeSurface, controller],
+    [closeSurface, controller, modelReady, announce],
   );
   const handleAcceptOperation = useCallback(
     (operationId: string) => {

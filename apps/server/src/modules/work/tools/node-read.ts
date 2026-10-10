@@ -1,11 +1,10 @@
 import { nodeContent } from "../../../adapters/host/agent-context.js";
-import { readMedia } from "../../../adapters/host/media-read.js";
-import { pdfToolResult, readPdf } from "../../../adapters/host/pdf-reader.js";
-import { canonicalPath } from "../../../adapters/host/sandbox.js";
-import { DomainError } from "../../../adapters/postgres/database.js";
-import { type ExecutionTool, result } from "../../execution/tool-calls.js";
+import { readMediaContent } from "../../../adapters/host/media-content.js";
+import { DomainError, digest } from "../../../adapters/postgres/database.js";
+import { type ExecutionTool, result, type ToolResult } from "../../execution/tool-calls.js";
 import type { ToolContext } from "./context.js";
 import { resourcePermission } from "./resource-access.js";
+
 export function nodeReader(context: ToolContext): Pick<ExecutionTool, "prepare" | "execute"> {
   const { registry, supportsVision, requireResource } = context;
   return {
@@ -14,85 +13,115 @@ export function nodeReader(context: ToolContext): Pick<ExecutionTool, "prepare" 
     execute: async (_call, args, signal) => {
       await requireResource(args.nodeId, "read");
       const node = await registry.graph.queries.node(args.nodeId);
-      if (node.kind === "pdf") {
-        if (args.mode === "image" && !supportsVision)
-          throw new DomainError("VALIDATION", "当前模型不支持图像输入");
-        let pdf: Awaited<ReturnType<typeof readMedia>>;
-        if (node.resource?.type === "file") {
-          const path = await canonicalPath(node.resource.path);
-          if (path !== node.resource.path)
-            throw new DomainError("TARGET_CHANGED", "PDF 资源路径目标已变化，请重新连接");
-          if (await registry.host.protectedPath(path))
-            throw new DomainError("FORBIDDEN", "不能读取 Server 管理目录");
-          pdf = await readMedia(
+      const metadata = nodeContent(node, args.offset, args.limit);
+      const assetId = node.resource?.snapshot?.assetId ?? node.assetId;
+      if (node.resource?.type === "file" && !node.resource.snapshot)
+        throw new DomainError(
+          "SNAPSHOT_REQUIRED",
+          "此节点没有已发布快照；请使用单独授权的 path 读取当前文件，或重新发布快照",
+        );
+      if (!assetId) {
+        if (
+          args.page !== undefined ||
+          args.pages ||
+          args.frame !== undefined ||
+          args.frames ||
+          args.mode === "image" ||
+          args.thumbnail
+        )
+          throw new DomainError("VALIDATION", "此节点没有媒体附件");
+        return result({
+          ...metadata,
+          contentHash: digest(node),
+          capabilities: {
+            text: true,
+            pages: false,
+            frames: false,
+            thumbnail: false,
+            download: false,
+          },
+        });
+      }
+      const asset = await registry.assets.get(assetId);
+      const identity = {
+        nodeId: node.id,
+        revision: node.revision,
+        assetId,
+        snapshotVersion: assetId,
+        contentHash: asset.content_hash,
+        attachment: node.resource?.snapshot,
+      };
+      const bytes =
+        Number(asset.bytes) <= 20 * 1024 * 1024
+          ? await registry.assets.originalBytes(assetId, 20 * 1024 * 1024)
+          : null;
+      if (!bytes && (asset.mime.startsWith("image/") || asset.mime === "application/pdf"))
+        throw new DomainError("FILE_LIMIT", "媒体附件超过 20 MiB 预览限制，可下载原始文件");
+      const media = bytes
+        ? await readMediaContent(
+            bytes,
             {
-              path,
-              page: args.page ?? 1,
-              mode: args.mode ?? "auto",
+              ...args,
+              offset: undefined,
+              column: undefined,
+              limit: undefined,
               pdfTextOffset: args.offset ?? 0,
               pdfTextLimit: args.limit ?? 6000,
             },
             signal,
             supportsVision,
-          );
-          if (pdf?.details.mediaType !== "pdf")
-            throw new DomainError("VALIDATION", "节点来源不是 PDF");
-        } else {
-          const asset = node.assetId ? await registry.assets.resolve(node.assetId) : null;
-          if (asset?.mime !== "application/pdf")
-            throw new DomainError("NOT_FOUND", "PDF 附件不存在");
-          pdf = pdfToolResult(
-            await readPdf(
-              asset.data,
-              {
-                page: args.page ?? 1,
-                render: supportsVision && args.mode !== "text",
-                characterOffset: args.offset ?? 0,
-                characterLimit: args.limit ?? 6000,
-              },
-              signal,
-            ),
-            { nodeId: node.id },
-          );
-        }
-        const metadata = JSON.parse((pdf.content[0] as { text: string }).text);
-        pdf.content[0] = {
+            identity,
+          )
+        : undefined;
+      let output: ToolResult;
+      if (media) {
+        const data = JSON.parse((media.content[0] as { text: string }).text);
+        media.content[0] = {
           type: "text",
           text: JSON.stringify({
-            ...nodeContent(node, args.offset, args.limit),
             ...metadata,
-            nodeId: node.id,
-            field: "pdf",
-            content: metadata.text,
-            text: undefined,
-            offset: args.offset ?? 0,
-            nextOffset: metadata.nextCharOffset,
-            nextColumn: undefined,
+            ...data,
+            field: data.mediaType === "pdf" ? "pdf" : metadata.field,
+            content: data.text ?? metadata.content,
+            nextOffset: data.nextCharOffset ?? null,
             nextCharOffset: undefined,
+            nextColumn: undefined,
           }),
         };
-        await requireResource(args.nodeId, "read");
-        return pdf;
-      }
-      if (args.page !== undefined) throw new DomainError("VALIDATION", "page 仅适用于 PDF");
-      if (args.mode === "image" && !node.assetId)
-        throw new DomainError("VALIDATION", "此节点没有图像内容");
-      const data = result(nodeContent(node, args.offset, args.limit));
-      if (node.assetId && args.mode !== "text") {
-        const asset = await registry.assets.resolve(node.assetId);
-        if (asset) {
-          if (!asset.mime.startsWith("image/"))
-            throw new DomainError("VALIDATION", "非图片附件不能作为图片读取，请使用 PDF 节点");
-          if (!supportsVision) throw new DomainError("VALIDATION", "当前模型不支持图像输入");
-          data.content.push({
-            type: "image",
-            mimeType: asset.mime,
-            data: asset.data.toString("base64"),
-          });
-        }
+        output = media;
+      } else {
+        const preview = await registry.assets.preview(
+          assetId,
+          node.resource?.snapshot?.name ?? node.title ?? "file",
+        );
+        const offset = args.offset ?? 0,
+          limit = Math.min(args.limit ?? 6000, 48000);
+        const content = preview.text?.slice(offset, offset + limit) ?? "";
+        output = result({
+          ...metadata,
+          ...identity,
+          content,
+          field: "attachment",
+          offset,
+          nextOffset:
+            preview.text && offset + content.length < preview.text.length
+              ? offset + content.length
+              : null,
+          capabilities: {
+            text: preview.text !== undefined,
+            pages: false,
+            frames: false,
+            thumbnail: false,
+            download: true,
+          },
+          ...(preview.previewError ? { previewError: preview.previewError } : {}),
+        });
       }
       await requireResource(args.nodeId, "read");
-      return data;
+      const current = await registry.graph.queries.node(args.nodeId);
+      if (current.revision !== node.revision || current.assetId !== node.assetId)
+        throw new DomainError("TARGET_CHANGED", "节点的发布版本在读取期间发生变化");
+      return output;
     },
   };
 }

@@ -91,7 +91,7 @@ test("Agent 肖像和模型控件完整，团队成员只出现在内部空间",
   await expect(page.getByLabel("重新生成肖像").locator("svg")).toBeVisible();
   await expect(page.locator(".agent-manager-field")).toHaveCSS("font-size", "11px");
   await expect(page.getByRole("button", { name: "Agent 模型", exact: true })).toContainText(
-    "模拟模型",
+    "acceptance",
   );
   await expect(page.locator(".context-usage-percent")).toBeVisible();
   await expect(page.locator(`.canvas-world > [data-node-id="${member.id}"]`)).toHaveCount(0);

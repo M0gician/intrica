@@ -1,6 +1,7 @@
 import type { DesktopUpdateState } from "@intrica/contracts";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { DesktopUpdateStatus } from "../DesktopUpdateStatus";
 import { Updates } from "../Updates";
 
 const fixture = vi.hoisted(() => ({ state: null as DesktopUpdateState | null }));
@@ -44,4 +45,28 @@ it("separates failed-request retry from normal checks and download cancellation"
   renderState({ backgroundPaused: "download_cancelled" });
   expect(screen.getByText(/此版本的自动下载已取消/)).toBeTruthy();
   expect(screen.getByText(/下次检查：/)).toBeTruthy();
+});
+
+it("starts installation from one action and presents durable update stages", () => {
+  const first = renderState({
+    asset: { name: "Intrica-1.0.0-mac-arm64.zip", sha256: "a".repeat(64), size: 1024 },
+  });
+  first.unmount();
+  const action = vi.fn(async () => {});
+  const view = render(
+    <DesktopUpdateStatus state={fixture.state!} disabled={false} action={action} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "更新并重启" }));
+  expect(action).toHaveBeenCalledWith("install");
+  view.rerender(
+    <DesktopUpdateStatus
+      state={{ ...fixture.state!, phase: "validating" }}
+      disabled
+      action={action}
+    />,
+  );
+  expect(screen.getByRole("status").textContent).toContain("工作区");
+  expect((screen.getByRole("button", { name: "更新并重启" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
 });

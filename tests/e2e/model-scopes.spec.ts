@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { expect, test } from "@playwright/test";
+import { wireOutput } from "../fixtures/addressed-output.mjs";
 import { API_URL } from "./environment.mjs";
 
 test.use({ actionTimeout: 10000 });
@@ -29,7 +30,7 @@ test.beforeAll(async () => {
     requests.push(body);
     response.writeHead(200, { "content-type": "text/event-stream" });
     response.end(
-      `data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", model: body.model, choices: [{ index: 0, delta: { role: "assistant", content: `当前回答模型 ${body.model}` }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", model: body.model, choices: [{ index: 0, delta: { role: "assistant", content: wireOutput(body.messages, `当前回答模型 ${body.model}`) }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -45,7 +46,7 @@ test.afterEach(async ({ request }) => {
       );
   const current = await (await request.get(`${api}/api/v2/workspace/models`)).json();
   await request.post(`${api}/api/v2/workspace/models/select`, {
-    data: { id: "mock", expectedSelectedId: current.selectedId },
+    data: { id: "startup", expectedSelectedId: current.selectedId },
   });
 });
 test.afterAll(async () => {
@@ -192,7 +193,9 @@ test("Agent 与模型会话独立选择模型及推理强度，并保留服务�
   await page.locator(`[data-node-id="${agent.id}"]`).dblclick();
   await expect(page.getByLabel("Agent 模型", { exact: true })).toContainText("配置已删除");
   const before = requests.length;
-  await page.getByRole("button", { name: "运行", exact: true }).click();
-  await expect(page.getByText(/Select a configured model|模型/).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "运行", exact: true })).toBeDisabled();
+  await expect(page.locator(".workspace-panel .model-required")).toContainText(
+    "所选模型已不可用。草稿已保留。",
+  );
   expect(requests.length).toBe(before);
 });

@@ -1,9 +1,11 @@
-import { capabilityTools } from "../../adapters/host/capabilities.js";
+import { capabilityTools, hostCapabilities } from "../../adapters/host/capabilities.js";
+import { EnvironmentRegistry } from "../../adapters/host/environments.js";
 import { cleanEnvironment, type HostExecutor } from "../../adapters/host/executor.js";
 import { canonicalPath } from "../../adapters/host/sandbox.js";
 import { createWebSearchTool } from "../../adapters/host/web-search.js";
 import { createWorkspaceTools } from "../../adapters/model/tools.js";
 import type { AssetStore } from "../../adapters/storage/assets.js";
+import { type AgentCapabilities, agentCapabilities } from "../access/capabilities.js";
 import type { AccessService } from "../access/service.js";
 import type { ExecutionTool } from "../execution/tool-calls.js";
 import type { ExecutionContext } from "../execution/worker.js";
@@ -14,10 +16,14 @@ import { canvasTools } from "./tools/canvas.js";
 import { collaborationTools } from "./tools/collaboration.js";
 import { toolContext } from "./tools/context.js";
 import { conversationTools } from "./tools/conversations.js";
+import { adaptToolDiscovery } from "./tools/discovery.js";
+import { environmentTools } from "./tools/environments.js";
 import { permissionTools } from "./tools/permissions.js";
 import { readTool } from "./tools/read.js";
 import { reviewTools } from "./tools/reviews.js";
 import { teamTools } from "./tools/team.js";
+
+export type ToolSet = ExecutionTool[] & { capabilities?: AgentCapabilities };
 
 export class ToolRegistry {
   constructor(
@@ -28,8 +34,34 @@ export class ToolRegistry {
     readonly assets: AssetStore,
   ) {}
 
-  async create(ctx: ExecutionContext, input: ConversationInput): Promise<ExecutionTool[]> {
-    const context = toolContext(this, ctx, input);
+  async describeCapabilities(canvasId: string, agentId: string | null) {
+    const [effective, available] = await Promise.all([
+      agentCapabilities(this.graph.db, canvasId, agentId),
+      hostCapabilities(),
+    ]);
+    const defaultWorkingDirectory = agentId
+      ? (await this.host.scope({ agentId })).cwd
+      : (process.env.INTRICA_WORKSPACE_DIR ?? process.cwd());
+    return {
+      ...available,
+      effective: {
+        ...effective,
+        defaultWorkingDirectory,
+        executionMode: effective.hostExecution
+          ? "host"
+          : available.isolation
+            ? "isolated"
+            : "unavailable",
+      },
+      environments: await new EnvironmentRegistry(this.host).list({ canvasId, agentId }),
+      environmentMeaning:
+        "References share knowledge only. inspect_environment rechecks current access and runtime identity. Unknown runtime versions are null.",
+    };
+  }
+
+  async create(ctx: ExecutionContext, input: ConversationInput): Promise<ToolSet> {
+    const capabilities = await agentCapabilities(this.graph.db, ctx.run.canvas_id, input.agentId);
+    const context = toolContext(this, ctx, input, capabilities);
     const { actor, supportsVision } = context;
     const cwd = process.env.INTRICA_WORKSPACE_DIR ?? process.cwd();
     const wrap = (source: any): ExecutionTool => ({
@@ -61,17 +93,21 @@ export class ToolRegistry {
             ...args,
             cwd: await canonicalPath(args.cwd ?? cwd, cwd),
           });
-    const tools = [
-      ...files,
-      ...(actor.kind === "owner" ? capabilityTools(input.language) : []),
-      wrap(createWebSearchTool(undefined, input.language)),
-      ...canvasTools(context),
+    const coordination = [
       ...collaborationTools(context),
       ...conversationTools(context),
       ...permissionTools(context),
       ...reviewTools(context),
       ...teamTools(context),
+    ].map((definition) => ({ ...definition, coordination: true }));
+    const tools = [
+      ...files,
+      ...(actor.kind === "owner" ? capabilityTools(input.language) : []),
+      wrap(createWebSearchTool(undefined, input.language)),
+      ...canvasTools(context),
+      ...coordination,
     ];
+    tools.push(...environmentTools(context, tools));
     const combined = [
       readTool(context, files.find((t) => t.name === "read")!),
       ...tools.filter((t) => t.name !== "read"),
@@ -79,7 +115,8 @@ export class ToolRegistry {
     for (const definition of combined)
       if (definition.parameters.type === "object")
         definition.parameters = { ...definition.parameters, additionalProperties: false };
-    return combined;
+    adaptToolDiscovery(combined, context);
+    return Object.assign(combined, { capabilities });
   }
 
   async tickSchedules() {

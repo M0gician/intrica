@@ -50,6 +50,9 @@ beforeAll(async () => {
 });
 afterEach(async () => {
   await k.db.pool.query("update conversations set consumed_message_seq=message_seq");
+  await k.db.pool.query(
+    "update messages set content=content||'{\"closed\":true}'::jsonb where consumed_run_id is null",
+  );
   await k.db.pool.query("update schedules set enabled=false");
   await k.db.pool.query("update approvals set status='cancelled' where status='pending'");
   await k.db.pool.query(
@@ -129,6 +132,78 @@ async function decide(
   return k.access.decide(id, (await request(id)).version, decision, "reviewed", actor);
 }
 describe("origin-bound approval lifecycle", () => {
+  it("new directory grants separate file modes from execution and satisfy the original pending read", async () => {
+    const c = await canvas(),
+      a = await agent(c, "read"),
+      child = await start(a.id);
+    const path = join(area, `${key()}.txt`);
+    await writeFile(path, "authorized bytes");
+    const args = { target: { kind: "path", path } };
+    const pending = await child.call("read", args);
+    expect(pending.waiting).toBe("approval");
+    const directory = await resource(c, area);
+    const link = await connect(a.id, directory.id);
+    const satisfied = await request(pending.value.requestId);
+    expect(satisfied).toMatchObject({ status: "satisfied", decided_by: null });
+    const resumed = await child.call("read", args, pending.logical);
+    expect(resumed.value.text).toBe("authorized bytes");
+    expect(
+      (
+        await k.db.pool.query(
+          "select count(*)::int as n from tool_calls where run_id=$1 and logical_call_id=$2",
+          [child.run.id, pending.logical],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+    expect((await child.call("write", { path, content: "blocked" })).waiting).toBe("approval");
+    expect((await child.call("bash", { command: "pwd", fullHost: true, cwd: area })).waiting).toBe(
+      "approval",
+    );
+    expect(
+      (await k.access.describe(a.id)).resources.find((r) => r.nodeId === directory.id),
+    ).toMatchObject({ mode: "read", execution: "none" });
+    await k.graph.deleteLink(link.edge.id, { idempotencyKey: key() });
+    expect((await k.runs.get(child.run.id)).cancel_requested_at).not.toBeNull();
+  });
+  it("one-off reads and persistent paths use the same manager scratch ownership", async () => {
+    const c = await canvas(),
+      m = await agent(c, "admin"),
+      b = await agent(m.id, "write");
+    const manager = await start(m.id),
+      child = await start(b.id);
+    const path = join((await k.host.scope(manager.actor)).scratch, `${key()}.txt`);
+    await writeFile(path, "manager bytes");
+    const args = { target: { kind: "path", path } };
+    const once = await child.call("read", args);
+    expect((await request(once.value.requestId)).action.workspaceOwnerId).toBe(m.id);
+    await decide(once.value.requestId, manager.actor);
+    expect((await child.call("read", args, once.logical)).value.text).toBe("manager bytes");
+    const ongoing = await child.call("request_permission", {
+      scope: { kind: "path", path, access: "file", mode: "read" },
+      reason: "Read the same owned file",
+    });
+    await decide(ongoing.value.requestId, manager.actor);
+    expect((await child.call("read", args)).value.text).toBe("manager bytes");
+  });
+  it("existing authority never bypasses denial or a request escalated to the user", async () => {
+    const c = await canvas(),
+      m = await agent(c, "admin"),
+      a = await agent(m.id, "write");
+    const manager = await start(m.id),
+      child = await start(a.id);
+    const paths = [join(area, `${key()}.txt`), join(area, `${key()}.txt`)];
+    for (const path of paths) await writeFile(path, "private");
+    const denied = await child.call("read", { target: { kind: "path", path: paths[0] } });
+    await decide(denied.value.requestId, undefined, "deny");
+    const escalated = await child.call("read", { target: { kind: "path", path: paths[1] } });
+    await decide(escalated.value.requestId, manager.actor, "escalate");
+    await connect(a.id, (await resource(c, area)).id);
+    expect((await request(denied.value.requestId)).status).toBe("denied");
+    expect(await request(escalated.value.requestId)).toMatchObject({
+      status: "pending",
+      assigned_reviewer_id: null,
+    });
+  });
   it("T47 multimodal read uses the same frozen path approval and respects model capabilities", async () => {
     const c = await canvas(),
       a = await agent(c),
@@ -252,9 +327,8 @@ describe("origin-bound approval lifecycle", () => {
       scope: { kind: "path", path, access: "directory_and_commands" },
       reason: "review parent files",
     });
-    expect(
-      (await k.access.list(c, { actor: manager.actor })).requests[0]?.allowedActions,
-    ).not.toContain("approve");
+    expect((await k.access.list(c, { actor: manager.actor })).requests).toHaveLength(0);
+    expect((await request(pending.value.requestId)).assigned_reviewer_id).toBeNull();
     await decide(pending.value.requestId);
     expect(
       (await child.call("read", { target: { kind: "path", path: join(path, "evidence.txt") } }))
@@ -273,6 +347,7 @@ describe("origin-bound approval lifecycle", () => {
     const child = await start(a.id);
     await k.conversations.stop(m.id);
     const delivery = await child.call("send_message", {
+      kind: "update",
       target: { kind: "agent", agentId: m.id },
       message: "new work after stop",
     });
@@ -330,11 +405,18 @@ describe("origin-bound approval lifecycle", () => {
         .content,
     ).toBe("verified");
     expect(
-      (await child.call("report_result", { message: "review delivered" })).value.delivered,
+      (
+        await child.call("send_message", {
+          kind: "result",
+          target: { kind: "manager" },
+          message: "review delivered",
+        })
+      ).value.delivered,
     ).toBe(1);
     expect(
       (
         await child.call("send_message", {
+          kind: "update",
           target: { kind: "agent", agentId: m.id },
           message: "follow up",
         })
@@ -377,7 +459,15 @@ describe("origin-bound approval lifecycle", () => {
     expect(report.value.sharedWith).toEqual([]);
     expect(report.value.sharing.skippedManagers).toEqual([m.id]);
     expect(report.value.sharing.status).toBe("blocked");
-    expect((await child.call("report_result", { message: "PRIVATE" })).waiting).toBe("approval");
+    expect(
+      (
+        await child.call("send_message", {
+          kind: "result",
+          target: { kind: "manager" },
+          message: "PRIVATE",
+        })
+      ).waiting,
+    ).toBe("approval");
   });
   it("T42 applicants can inspect an escalated expired request without retrying its action", async () => {
     const c = await canvas(),
@@ -393,7 +483,7 @@ describe("origin-bound approval lifecycle", () => {
     await k.db.pool.query("update approvals set expires_at=now()-interval '1 second' where id=$1", [
       pending.value.requestId,
     ]);
-    await k.access.maintain();
+    await k.maintain();
     const history = await child.call("list_access_requests", {
       requestId: pending.value.requestId,
     });
@@ -446,7 +536,7 @@ describe("origin-bound approval lifecycle", () => {
     });
     expect(forged.result.isError).toBe(true);
   });
-  it("T44 image reads deliver image content and reject binary text, invalid frames and unapproved paths", async () => {
+  it("T44 image reads deliver images or metadata and reject invalid frames and unapproved paths", async () => {
     const c = await canvas(),
       a = await agent(c, "read"),
       child = await start(a.id);
@@ -456,9 +546,10 @@ describe("origin-bound approval lifecycle", () => {
     );
     const path = join((await k.host.scope(child.actor)).scratch, "pixel.png");
     await writeFile(path, png);
-    expect(
-      (await child.call("read", { target: { kind: "path", path }, mode: "text" })).result.isError,
-    ).toBe(true);
+    const metadata = await child.call("read", { target: { kind: "path", path }, mode: "text" });
+    expect(metadata.result.isError).not.toBe(true);
+    expect(metadata.value.capabilities).toMatchObject({ text: false, frames: true });
+    expect(metadata.result.content.some((p) => p.type === "image")).toBe(false);
     const automaticImage = await child.call("read", { target: { kind: "path", path } });
     expect(automaticImage.result.isError).not.toBe(true);
     expect(automaticImage.result.content.some((p) => p.type === "image")).toBe(true);
@@ -536,12 +627,21 @@ describe("origin-bound approval lifecycle", () => {
       expect(
         (
           await from!.call("send_message", {
+            kind: "update",
             target: { kind: "agent", agentId: to!.actor.agentId },
             message: "follow up",
           })
         ).waiting,
       ).toBeUndefined();
-    expect((await author.call("report_result", { message: "delivered" })).waiting).toBeUndefined();
+    expect(
+      (
+        await author.call("send_message", {
+          kind: "result",
+          target: { kind: "manager" },
+          message: "delivered",
+        })
+      ).waiting,
+    ).toBeUndefined();
     const command = await author.call("bash", { command: "printf reviewed", fullHost: true });
     expect(command.waiting).toBe("approval");
     await decide(command.value.requestId, manager.actor);
@@ -578,7 +678,9 @@ describe("origin-bound approval lifecycle", () => {
       content: "must not be ignored",
     });
     expect(unknown.result.isError).toBe(true);
-    expect(String(unknown.value)).toContain("content");
+    expect(unknown.value.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "/content" })]),
+    );
     expect(await count()).toBe(before);
   });
   it("T36 an unauthorized reviewer sees safe routing and can send an explicit denial message", async () => {
@@ -590,6 +692,7 @@ describe("origin-bound approval lifecycle", () => {
     const manager = await start(m.id),
       child = await start(a.id);
     const pending = await child.call("send_message", {
+      kind: "update",
       target: { kind: "agent", agentId: m.id },
       message: "PRIVATE-BODY",
     });
@@ -612,7 +715,7 @@ describe("origin-bound approval lifecycle", () => {
     });
     const denied = await child.call(
       "send_message",
-      { target: { kind: "agent", agentId: m.id }, message: "PRIVATE-BODY" },
+      { kind: "update", target: { kind: "agent", agentId: m.id }, message: "PRIVATE-BODY" },
       pending.logical,
     );
     expect(denied.value.message).toBe("Wait for a revised assignment");
@@ -702,6 +805,7 @@ describe("origin-bound approval lifecycle", () => {
       for (const to of members)
         if (from !== to) {
           const sent = await from.call("send_message", {
+            kind: "update",
             target: { kind: "agent", agentId: to.actor.agentId },
             message: "team coordination",
           });
@@ -709,6 +813,7 @@ describe("origin-bound approval lifecycle", () => {
           expect(sent.value.delivered).toBe(1);
         }
     const broadcast = await members[1]!.call("send_message", {
+      kind: "update",
       target: { kind: "resource_readers", resourceIds: [left.id] },
       message: "shared evidence",
     });
@@ -738,7 +843,13 @@ describe("origin-bound approval lifecycle", () => {
       expect(read.value.content).toBe("verified evidence");
     }
     expect(
-      (await child.call("report_result", { message: "findings saved" })).waiting,
+      (
+        await child.call("send_message", {
+          kind: "result",
+          target: { kind: "manager" },
+          message: "findings saved",
+        })
+      ).waiting,
     ).toBeUndefined();
     const links = (
       await k.db.pool.query("select * from edges where kind='user_link' and to_id=$1", [
@@ -772,6 +883,7 @@ describe("origin-bound approval lifecycle", () => {
     expect(
       (
         await child.call("send_message", {
+          kind: "update",
           target: { kind: "agent", agentId: m.id },
           message: "private evidence",
         })
@@ -827,7 +939,7 @@ describe("origin-bound approval lifecycle", () => {
     });
     expect(invalid.waiting).toBeUndefined();
     expect(invalid.result.isError).toBe(true);
-    expect(invalid.value).toMatch(/index|序号/i);
+    expect(invalid.value.message).toMatch(/index|序号/i);
     expect((await k.graph.queries.node(n.id)).revision).toBe(n.revision);
     const second = await caller.call("update_node", {
       nodeId: n.id,
@@ -845,15 +957,18 @@ describe("origin-bound approval lifecycle", () => {
       root = await resource(c, area),
       nested = await resource(root.id, nestedPath);
     await connect(m.id, root.id);
-    const manager = await start(m.id),
-      hired = await manager.call("hire_agent", {
-        title: "worker",
-        persona: "",
-        task: "inspect",
-        role: "write",
-        respondToResources: false,
-        resourceIds: [root.id],
-      });
+    const manager = await start(m.id);
+    await manager.call("request_permission", {
+      scope: { kind: "path", path: area, access: "directory", mode: "write", execution: "host" },
+      reason: "Explicit host execution for this team",
+    });
+    const hired = await manager.call("hire_agent", {
+      persona: "",
+      task: "inspect",
+      role: "write",
+      respondToResources: false,
+      resourceIds: [root.id],
+    });
     const child = await start(hired.value.id);
     const first = await child.call("bash", { command: "pwd", fullHost: true });
     expect(first.waiting).toBeUndefined();
@@ -1027,7 +1142,6 @@ describe("origin-bound approval lifecycle", () => {
     await connect(m.id, other.id);
     const manager = await start(m.id);
     const hired = await manager.call("hire_agent", {
-      title: "scoped member",
       persona: "",
       task: "read assigned resource",
       role: "write",
@@ -1062,7 +1176,7 @@ describe("origin-bound approval lifecycle", () => {
       manager = await start(middle.id),
       director = await start(top.id);
     const pending = await child.call("request_permission", {
-      scope: { kind: "path", path: area, access: "directory_and_commands" },
+      scope: { kind: "path", path: area, access: "directory", mode: "read" },
       reason: "read source",
     });
     expect((await request(pending.value.requestId)).assigned_reviewer_id).toBe(middle.id);
@@ -1105,7 +1219,13 @@ describe("origin-bound approval lifecycle", () => {
     await connect(m.id, extra.id);
     const child = await start(b.id);
     expect(
-      (await child.call("report_result", { message: "blocked on another resource" })).waiting,
+      (
+        await child.call("send_message", {
+          kind: "result",
+          target: { kind: "manager" },
+          message: "blocked on another resource",
+        })
+      ).waiting,
     ).toBeUndefined();
     expect(
       (await k.conversations.read.history((await k.conversations.read.forAgent(m.id)).id)).some(
@@ -1121,7 +1241,6 @@ describe("origin-bound approval lifecycle", () => {
     await connect(m.id, root.id);
     const manager = await start(m.id);
     const args = {
-      title: "reader",
       persona: "",
       task: "inspect files",
       role: "read",
@@ -1154,7 +1273,6 @@ describe("origin-bound approval lifecycle", () => {
     await connect(m.id, r.id);
     const manager = await start(m.id);
     const args = {
-      title: "member",
       persona: "",
       task: "one task",
       role: "write",
@@ -1212,7 +1330,6 @@ describe("origin-bound approval lifecycle", () => {
     const edge = await connect(m.id, root.id),
       manager = await start(m.id);
     const hired = await manager.call("hire_agent", {
-      title: "member",
       persona: "",
       task: "inspect",
       role: "write",
@@ -1233,15 +1350,16 @@ describe("origin-bound approval lifecycle", () => {
   });
   it("T10 on-demand review is scheduled and the owner can decide before the manager", async () => {
     const c = await canvas(),
-      m = await agent(c, "read", false),
+      m = await agent(c, "admin", false),
       b = await agent(m.id, "write"),
       child = await start(b.id);
+    const unshared = await resource(c);
     const pending = await child.call("request_permission", {
-      scope: { kind: "path", path: area, access: "directory_and_commands" },
+      scope: { kind: "resource", nodeId: unshared.id, mode: "read" },
       reason: "outside manager scope",
     });
     await k.runs.finish(child.run, "waiting", undefined, "approval");
-    await k.access.maintain();
+    await k.maintain();
     const review = await k.conversations.activeRun((await k.conversations.read.forAgent(m.id)).id);
     expect(review).toBeTruthy();
     expect((await k.runs.get(review!)).state).toBe("queued");
@@ -1263,7 +1381,6 @@ describe("origin-bound approval lifecycle", () => {
     await connect(m.id, r.id);
     const manager = await start(m.id),
       hired = await manager.call("hire_agent", {
-        title: "member",
         persona: "",
         task: "inspect",
         role: "write",
@@ -1329,7 +1446,7 @@ describe("origin-bound approval lifecycle", () => {
   it("T14 review timeout advances one level and user takeover prevents routing back", async () => {
     const c = await canvas(),
       top = await agent(c, "admin", false),
-      mid = await agent(top.id, "read", false),
+      mid = await agent(top.id, "admin", false),
       b = await agent(mid.id),
       child = await start(b.id);
     const pending = await child.call("request_permission", {
@@ -1340,10 +1457,10 @@ describe("origin-bound approval lifecycle", () => {
       "update approvals set review_due_at=now()-interval '1 second' where id=$1",
       [pending.value.requestId],
     );
-    await k.access.maintain();
+    await k.maintain();
     expect((await request(pending.value.requestId)).assigned_reviewer_id).toBe(top.id);
     await decide(pending.value.requestId, undefined, "escalate");
-    await k.access.maintain();
+    await k.maintain();
     expect((await request(pending.value.requestId)).assigned_reviewer_id).toBeNull();
     await decide(pending.value.requestId);
     expect((await k.graph.queries.node(b.id)).agent!.role).toBe("admin");
@@ -1400,7 +1517,6 @@ describe("origin-bound approval lifecycle", () => {
     const manager = await start(m.id),
       child = await start(b.id);
     const args = {
-      title: "grandchild",
       persona: "",
       task: "inspect private resource",
       role: "read",
@@ -1469,7 +1585,7 @@ describe("origin-bound approval lifecycle", () => {
     const manager = await start(m.id),
       child = await start(b.id);
     const pending = await child.call("request_permission", {
-      scope: { kind: "path", path: subdirectory, access: "directory_and_commands" },
+      scope: { kind: "path", path: subdirectory, access: "directory", mode: "read" },
       reason: "read the physical subdirectory",
     });
     await decide(pending.value.requestId, manager.actor);
@@ -1567,7 +1683,6 @@ describe("origin-bound approval lifecycle", () => {
       patch: { role: "admin" },
     });
     const hire = await manager.call("hire_agent", {
-      title: "privileged",
       task: "Review assigned work",
       persona: "",
       role: "admin",
@@ -1590,7 +1705,6 @@ describe("origin-bound approval lifecycle", () => {
     const repeated = await manager.call(
       "hire_agent",
       {
-        title: "privileged",
         task: "Review assigned work",
         persona: "",
         role: "admin",
@@ -1609,10 +1723,10 @@ describe("origin-bound approval lifecycle", () => {
     ).toHaveLength(0);
     expect(
       (
-        await k.db.pool.query(
-          "select count(*)::int as n from nodes where canvas_id=$1 and body->>'title'='privileged'",
-          [c],
-        )
+        await k.db.pool.query("select count(*)::int as n from nodes where canvas_id=$1 and id=$2", [
+          c,
+          repeated.value.id,
+        ])
       ).rows[0].n,
     ).toBe(1);
   });
@@ -1673,6 +1787,7 @@ describe("origin-bound approval lifecycle", () => {
     expect(replay.value.id).toBe(b.id);
     expect((await k.graph.queries.node(b.id)).revision).toBe(b.revision + 1);
     const message = await caller.call("send_message", {
+      kind: "update",
       target: { kind: "agent", agentId: b.id },
       message: "do work",
     });
@@ -1680,7 +1795,7 @@ describe("origin-bound approval lifecycle", () => {
     await decide(message.value.requestId);
     await caller.call(
       "send_message",
-      { target: { kind: "agent", agentId: b.id }, message: "do work" },
+      { kind: "update", target: { kind: "agent", agentId: b.id }, message: "do work" },
       message.logical,
     );
     expect(
@@ -1719,7 +1834,7 @@ describe("origin-bound approval lifecycle", () => {
     await k.graph.undoGraphOp(move.graphOpId);
     expect((await request(original.id)).assigned_reviewer_id).toBe(m.id);
     await decide(original.id, undefined, "escalate");
-    await k.access.maintain();
+    await k.maintain();
     expect((await request(original.id)).assigned_reviewer_id).toBeNull();
     const sanitized = await k.access.list(c, { actor: { ...child.actor, agentId: m.id } });
     expect(JSON.stringify(sanitized)).not.toContain("private reason");
@@ -1738,7 +1853,7 @@ describe("origin-bound approval lifecycle", () => {
     await k.db.pool.query("update approvals set expires_at=now()-interval '1 second' where id=$1", [
       pending.value.requestId,
     ]);
-    await k.access.maintain();
+    await k.maintain();
     expect((await request(pending.value.requestId)).status).toBe("expired");
     expect((await k.runs.get(x.run.id)).state).toBe("queued");
     const req = await y.call("request_permission", {
@@ -1761,19 +1876,19 @@ describe("origin-bound approval lifecycle", () => {
     });
     const settings = await k.runs.settings.read();
     await k.runs.settings.save(settings.revision, { ...settings.policy, pendingPerCanvas: 1 });
-    await k.access.maintain();
+    await k.maintain();
     expect(
       await k.conversations.activeRun((await k.conversations.read.forAgent(m.id)).id),
     ).toBeUndefined();
     const current = await k.runs.settings.read();
     await k.runs.settings.save(current.revision, settings.policy);
-    await k.access.maintain();
+    await k.maintain();
     expect(
       await k.conversations.activeRun((await k.conversations.read.forAgent(m.id)).id),
     ).toBeTruthy();
     const reviewRun = (await k.runs.claim("notice-consumer"))!;
     await k.runs.fail(reviewRun, new Error("fixture model failure"));
-    await k.access.maintain();
+    await k.maintain();
     expect(
       await k.conversations.activeRun((await k.conversations.read.forAgent(m.id)).id),
     ).toBeUndefined();
@@ -1781,7 +1896,7 @@ describe("origin-bound approval lifecycle", () => {
       "update approvals set review_due_at=now()-interval '1 second' where id=$1",
       [pending.value.requestId],
     );
-    await k.access.maintain();
+    await k.maintain();
     expect(await request(pending.value.requestId)).toMatchObject({
       assigned_reviewer_id: null,
       route_reason: "manager_timeout",

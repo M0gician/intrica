@@ -29,7 +29,6 @@ assert.ok(
   modes.every((mode) => ["web", "desktop"].includes(mode)),
   "Unknown matrix mode",
 );
-process.env.MODEL_KIND = "mock";
 
 async function ready(page, server) {
   await expect(
@@ -113,7 +112,7 @@ for (const mode of modes) {
         await page.getByLabel("访问令牌", { exact: true }).waitFor();
         await ready(page, a);
       } else {
-        const env = { ...process.env, MODEL_KIND: "mock", INTRICA_DESKTOP_PORT: "0" };
+        const env = { ...process.env, INTRICA_DESKTOP_PORT: "0" };
         for (const key of [
           "ELECTRON_RUN_AS_NODE",
           "INTRICA_SERVER_URL",

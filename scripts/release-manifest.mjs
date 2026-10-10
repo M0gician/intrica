@@ -40,7 +40,11 @@ const manifest = parseManifest({
   version: desktop.version,
   publishedAt: new Date().toISOString(),
   apiVersion: "v2",
-  schemaVersion: 10,
+  schemaVersion: Number(
+    (await readFile(new URL("../db/schema.sql", import.meta.url), "utf8")).match(
+      /INSERT INTO schema_info\(version\) VALUES \((\d+)\)/,
+    )[1],
+  ),
   serverImage: image,
   serverSandboxModes: native.sandboxModes,
   assets,

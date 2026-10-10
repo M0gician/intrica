@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describeBuild } from "@intrica/contracts";
 import { checkRelease, downloadAsset, UpdateError, verifyFile } from "@intrica/releases";
+import { readUpdateOperation, writeUpdateOperation } from "./update-journal.mjs";
 
 const DEFAULT_CHECK_INTERVAL = 6 * 60 * 60_000;
 const RETRY_DELAY = 5 * 60_000;
@@ -12,7 +14,9 @@ export async function createUpdater({
   version,
   build,
   packaged,
-  shell,
+  installer,
+  beforeInstall = async () => ({}),
+  recoverAfterFailure = async () => {},
   platform = process.platform,
   arch = process.arch,
   appImage = Boolean(process.env.APPIMAGE),
@@ -33,7 +37,9 @@ export async function createUpdater({
     automaticDownload = false,
     failures = 0,
     downloading,
-    opening;
+    installing,
+    cancelRequested = false;
+  let operation = await readUpdateOperation(userData);
   let persisted = {
     autoCheck: true,
     autoDownload: false,
@@ -67,6 +73,24 @@ export async function createUpdater({
     nextCheckAt: null,
     notice: null,
     backgroundPaused: null,
+    operation,
+  };
+  if (
+    operation &&
+    ["downloading", "verifying", "installing", "restarting", "validating"].includes(operation.phase)
+  ) {
+    state.phase = operation.targetVersion === version ? "validating" : "error";
+    state.error = state.phase === "error" ? "UPDATE_INTERRUPTED" : null;
+  } else if (operation?.phase === "complete" && operation.targetVersion === version)
+    state.phase = "complete";
+  else if (operation?.phase === "failed") {
+    state.phase = "error";
+    state.error = operation.error;
+  }
+  const phase = async (next, error = null) => {
+    operation = { ...operation, phase: next, ...(error ? { error } : {}) };
+    state = { ...state, phase: next === "failed" ? "error" : next, operation, error };
+    await writeUpdateOperation(userData, operation);
   };
   let persistence = Promise.resolve();
   const persist = () => {
@@ -82,7 +106,10 @@ export async function createUpdater({
     return write;
   };
   const busy = () =>
-    Boolean(opening) || state.phase === "checking" || state.phase === "downloading";
+    Boolean(installing) ||
+    ["checking", "downloading", "verifying", "installing", "restarting", "validating"].includes(
+      state.phase,
+    );
   const result = () => structuredClone(state);
   const notice = () => {
     state.notice = state.check?.available
@@ -146,7 +173,7 @@ export async function createUpdater({
       if (disposed) return result();
       const suffix =
         platform === "darwin" && arch === "arm64"
-          ? "mac-arm64.dmg"
+          ? "mac-arm64.zip"
           : platform === "linux" && arch === "x64"
             ? appImage
               ? "linux-x86_64.AppImage"
@@ -193,8 +220,13 @@ export async function createUpdater({
     if (!automatic) scheduleNext();
     return result();
   };
-  const download = async (automatic = false) => {
-    if (busy() || disposed || !packaged || !state.check?.available || !state.asset) return result();
+  const download = async (automatic = false, forInstall = false) => {
+    if ((busy() && !forInstall) || disposed || !packaged || !state.check?.available || !state.asset)
+      return result();
+    if (state.phase === "downloading") {
+      await downloading;
+      return result();
+    }
     if (state.phase === "ready" && localFile) return result();
     const asset = state.asset;
     // Acquire the operation synchronously before any persistent I/O, so multiple
@@ -244,6 +276,75 @@ export async function createUpdater({
     })();
     return result();
   };
+  const install = () => {
+    if (installing) return installing;
+    if (
+      disposed ||
+      !packaged ||
+      !state.check?.available ||
+      !state.asset ||
+      ["checking", "restarting", "validating", "complete"].includes(state.phase)
+    )
+      return Promise.resolve(result());
+    const release = state.check.release,
+      asset = state.asset;
+    cancelRequested = false;
+    operation = {
+      id: `update-${randomUUID()}`,
+      format: 1,
+      previousVersion: version,
+      targetVersion: release.version,
+      targetSchemaVersion: release.schemaVersion,
+      phase: "downloading",
+      startedAt: new Date(now()).toISOString(),
+    };
+    state.operation = operation;
+    installing = (async () => {
+      let stopped = false;
+      try {
+        if (!installer) throw new UpdateError("UPDATE_UNSUPPORTED_PLATFORM");
+        await writeUpdateOperation(userData, operation);
+        if (!localFile) {
+          await download(false, true);
+          await downloading;
+        }
+        if (!localFile || disposed) throw new UpdateError(state.error ?? "UPDATE_DOWNLOAD_FAILED");
+        await phase("verifying");
+        await verifyFile(localFile, asset);
+        const prepared = await installer.prepare({ file: localFile, asset, release, operation });
+        if (disposed) throw new UpdateError("UPDATE_INTERRUPTED");
+        await phase("installing");
+        stopped = true;
+        const previous = await beforeInstall();
+        operation = { ...operation, ...previous };
+        await phase("restarting");
+        await prepared.apply();
+      } catch (error) {
+        try {
+          await installer?.dispose();
+          if (error?.code === "UPDATE_CHECKSUM_FAILED") localFile = undefined;
+          if (cancelRequested && !stopped) {
+            operation = { ...operation, phase: "cancelled" };
+            state = { ...state, phase: "idle", operation, error: null };
+            await writeUpdateOperation(userData, operation);
+          } else {
+            await phase(
+              "failed",
+              error instanceof UpdateError ? error.code : "UPDATE_INSTALL_FAILED",
+            );
+          }
+          notice();
+        } finally {
+          // A journal write can fail on a full disk. Do not strand stopped services.
+          if (stopped) await recoverAfterFailure();
+        }
+      } finally {
+        installing = undefined;
+      }
+      return result();
+    })();
+    return installing;
+  };
   return {
     state: result,
     start() {
@@ -258,7 +359,9 @@ export async function createUpdater({
       clearTimer(timer);
       state.nextCheckAt = null;
       abort?.abort();
+      await installer?.dispose();
       await downloading;
+      await installing;
       await persistence;
     },
     async configure(preferences) {
@@ -291,8 +394,21 @@ export async function createUpdater({
     },
     check: () => check(),
     download: () => download(),
+    install,
+    async verifyStartup(server) {
+      if (state.phase !== "validating" || operation?.targetVersion !== version) return result();
+      if (
+        server?.version !== version ||
+        server.schemaVersion !== operation.targetSchemaVersion ||
+        (operation.serverId && operation.serverId !== server.serverId)
+      )
+        await phase("failed", "UPDATE_START_FAILED");
+      else await phase("complete");
+      return result();
+    },
     async cancel() {
       if (state.phase === "downloading") {
+        cancelRequested = Boolean(installing);
         persisted.suppressedVersion = state.check.release.version;
         state.backgroundPaused = "download_cancelled";
         abort?.abort();
@@ -300,34 +416,7 @@ export async function createUpdater({
       }
       return result();
     },
-    async open() {
-      if (disposed || state.phase !== "ready" || !localFile || !state.asset) return result();
-      if (opening) return opening;
-      const file = localFile,
-        asset = state.asset;
-      opening = (async () => {
-        try {
-          await verifyFile(file, asset);
-          if (disposed) return result();
-          if (asset.name.endsWith(".AppImage")) shell.showItemInFolder(file);
-          else {
-            const error = await shell.openPath(file);
-            if (error) {
-              shell.showItemInFolder(file);
-              throw new UpdateError("UPDATE_OPEN_FAILED");
-            }
-          }
-        } catch (error) {
-          localFile = undefined;
-          fail(error);
-        }
-        return result();
-      })();
-      try {
-        return await opening;
-      } finally {
-        opening = undefined;
-      }
-    },
+    // Compatibility for the previous bridge name; installation is still explicit.
+    open: install,
   };
 }

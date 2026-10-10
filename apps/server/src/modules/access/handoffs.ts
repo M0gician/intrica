@@ -1,5 +1,6 @@
 import { canvasEvent, DomainError, type Tx } from "../../adapters/postgres/database.js";
 import { promptText } from "../../prompt-language.js";
+import { transferRequests } from "../collaboration/takeover.js";
 import { appendMessage } from "../execution/messages.js";
 import type { Run } from "../execution/store.js";
 import type { ExecutionContext } from "../execution/worker.js";
@@ -37,7 +38,10 @@ export async function takeOverRun(tx: Tx, ctx: ExecutionContext, agentId: string
     !(
       source.state === "failed" ||
       source.state === "cancelled" ||
-      (source.state === "waiting" && ["message", "turn_limit"].includes(source.reason ?? ""))
+      (source.state === "waiting" &&
+        ["message", "turn_limit", "reply_required", "message_protocol"].includes(
+          source.reason ?? "",
+        ))
     )
   )
     throw new DomainError("INVALID_STATE", "只能接管已停止且工具结果明确的运行");
@@ -54,6 +58,7 @@ export async function takeOverRun(tx: Tx, ctx: ExecutionContext, agentId: string
     "update runs set superseded_by_run_id=$2,state='cancelled',cancel_requested_at=now(),reason='handed_off',updated_at=now() where id=$1",
     [source.id, receiver.id],
   );
+  const requestIds = await transferRequests(tx, source, receiver);
   const language = receiver.frozen_input.language ?? "en";
   const content = {
     text: promptText(
@@ -80,7 +85,7 @@ export async function takeOverRun(tx: Tx, ctx: ExecutionContext, agentId: string
     state: "cancelled",
     reason: "handed_off",
   });
-  return { sourceRunId: source.id, ownerRunId: receiver.id, ownerAgentId: managerId };
+  return { sourceRunId: source.id, ownerRunId: receiver.id, ownerAgentId: managerId, requestIds };
 }
 
 /** Final reports and resource grants reach previous executors without restarting their runs. */
@@ -90,6 +95,7 @@ export async function publishHandoffReport(
   callId: string,
   message: string,
   resourceIds: string[],
+  sourceRunIds: string[],
 ) {
   const { tx } = mutation;
   const members = (
@@ -97,10 +103,12 @@ export async function publishHandoffReport(
       `select c.id as conversation_id,c.agent_id,array_agg(r.id order by r.created_at,r.id) as source_run_ids
      from runs r join conversations c on c.id=r.subject_id
      join nodes n on n.id=c.agent_id
-     where r.superseded_by_run_id=$1 and n.parent_id=$2 group by c.id,c.agent_id order by c.id`,
-      [run.id, run.frozen_input.agentId],
+     where r.superseded_by_run_id=$1 and n.parent_id=$2 and r.id=any($3::text[]) group by c.id,c.agent_id order by c.id`,
+      [run.id, run.frozen_input.agentId, sourceRunIds],
     )
   ).rows;
+  if (members.flatMap((member) => member.source_run_ids).length !== sourceRunIds.length)
+    throw new DomainError("FORBIDDEN", "接管交付只能引用本运行已接管的成员运行");
   const available = await grantsFor(tx, run.frozen_input.agentId);
   for (const resourceId of resourceIds) {
     const resource = await mutation.row(resourceId);

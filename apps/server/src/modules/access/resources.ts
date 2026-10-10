@@ -1,3 +1,4 @@
+import type { CommandPermission } from "@intrica/contracts";
 import { canonicalPath, withinPath } from "../../adapters/host/sandbox.js";
 import type { Sql } from "../../adapters/postgres/database.js";
 
@@ -8,6 +9,7 @@ export type ResourceGrant = {
   resource_id: string;
   root_resource_id: string;
   mode: "read" | "write";
+  execution_mode: CommandPermission;
   granted_mode: "read" | "write";
   version: number;
   source_link_id: string;
@@ -34,6 +36,24 @@ export async function coveringGrant(
     } catch {
       /* An inaccessible or changed path never grants access. */
     }
+  }
+  return undefined;
+}
+
+export async function coveringExecution(
+  grants: ResourceGrant[],
+  path: string,
+  mode: "isolated" | "host",
+) {
+  for (const grant of grants) {
+    if (grant.execution_mode === "host") return grant;
+    if (
+      mode === "isolated" &&
+      grant.execution_mode === "isolated" &&
+      grant.resource?.type === "directory" &&
+      withinPath(await canonicalPath(grant.resource.path), path)
+    )
+      return grant;
   }
   return undefined;
 }
@@ -107,6 +127,17 @@ export async function canvasPermissions(sql: Sql, canvasId: string) {
           resource_id: n.id,
           resource_kind: n.kind,
           resource: n.resource,
+          execution_mode: available
+            ? g.execution_mode !== "none" &&
+              n.resource &&
+              (await coveringExecution(
+                available,
+                await canonicalPath(n.resource.path),
+                g.execution_mode,
+              ))
+              ? g.execution_mode
+              : "none"
+            : (g.execution_mode ?? "none"),
         };
         effective.push(grant);
       }
@@ -131,7 +162,12 @@ export function reducedPermissions(
       old.some(
         (g) =>
           !(after.get(id) ?? []).some(
-            (n) => n.resource_id === g.resource_id && (g.mode === "read" || n.mode === "write"),
+            (n) =>
+              n.resource_id === g.resource_id &&
+              (g.mode === "read" || n.mode === "write") &&
+              (g.execution_mode === "none" ||
+                n.execution_mode === "host" ||
+                n.execution_mode === g.execution_mode),
           ),
       ),
     )

@@ -99,10 +99,10 @@ export class GraphCommands {
       return { node: canvasView(row), graphRevision: row.graph_revision };
     });
   }
-  async createNode(req: CreateNodeRequest, actor: Actor = OWNER) {
+  async createNode(req: CreateNodeRequest, actor: Actor = OWNER, nameLanguage = "en") {
     const canvasId = await this.queries.canvasId(req.parentId);
     return this.command(canvasId, req.idempotencyKey, "node.create", req, actor, async (m) => {
-      const nodeId = await m.insert(req);
+      const nodeId = await m.insert({ ...req, nameLanguage });
       return { node: await this.queries.node(nodeId, m.tx) };
     });
   }
@@ -561,7 +561,7 @@ async function restore(tx: Tx, patch: UndoPatch) {
     const g = item.before;
     if (g)
       await tx.query(
-        "insert into grants(id,canvas_id,subject_id,resource_id,mode,source_link_id,version,delegated_by) values($1,$2,$3,$4,$5,$6,$7,$8)",
+        "insert into grants(id,canvas_id,subject_id,resource_id,mode,source_link_id,version,delegated_by,execution_mode) values($1,$2,$3,$4,$5,$6,$7,$8,$9)",
         [
           g.id,
           g.canvas_id,
@@ -571,6 +571,7 @@ async function restore(tx: Tx, patch: UndoPatch) {
           g.source_link_id,
           Math.max(g.version, item.after?.version ?? 0) + 1,
           g.delegated_by ?? null,
+          g.execution_mode ?? "none",
         ],
       );
   }

@@ -5,12 +5,14 @@ export function ComposerAction({
   interrupted,
   busy,
   onStop,
+  modelReady = true,
 }: {
   hasText: boolean;
   running: boolean;
   interrupted: boolean;
   busy: boolean;
   onStop: () => void;
+  modelReady?: boolean;
 }) {
   useTranslation();
 
@@ -27,7 +29,7 @@ export function ComposerAction({
       type="button"
       aria-label={label}
       title={mode === "send" && running ? tr("发送追加指令") : label}
-      disabled={busy}
+      disabled={busy || (mode !== "stop" && !modelReady)}
       onClick={(event) => {
         event.preventDefault();
         if (mode === "stop") onStop();

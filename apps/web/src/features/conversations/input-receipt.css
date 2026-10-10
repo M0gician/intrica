@@ -1,0 +1,77 @@
+.chat-user,
+.agent-event-user {
+  position: relative;
+}
+.input-receipt {
+  /* Let the footer set the bubble's minimum width while keeping its corner inset. */
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  height: 12px;
+  margin: 4px -9px -16px;
+  line-height: 12px;
+  white-space: nowrap;
+  color: var(--text-secondary, #5f646c);
+}
+.input-receipt [role="status"] {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.input-receipt .agent-event-time {
+  display: none;
+  margin: 0;
+  color: inherit;
+  font-size: 10px;
+}
+:is(.chat-user, .agent-event-user):is(:hover, :focus-visible, :has(:focus-visible))
+  > .input-receipt:has(.agent-event-time) {
+  margin-left: 16px;
+}
+:is(.chat-user, .agent-event-user):is(:hover, :focus-visible, :has(:focus-visible))
+  > .input-receipt
+  .agent-event-time {
+  display: block;
+  opacity: 1;
+}
+.input-expedite.ui-button {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 3px;
+  border: 1px solid var(--card-border);
+  border-radius: 50%;
+  background: var(--card-bg, #fffefa);
+  color: #dc2626;
+  opacity: 0;
+  pointer-events: none;
+}
+.input-expedite::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+}
+:is(.chat-user, .agent-event-user):hover .input-expedite,
+.input-expedite:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.input-expedite.ui-button:hover {
+  color: #b91c1c;
+  background: #fff0ef;
+}
+.input-expedite:focus-visible {
+  outline: 2px solid #dc2626;
+  outline-offset: 1px;
+}
+.input-receipt-error {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}

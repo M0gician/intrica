@@ -7,6 +7,11 @@ contextBridge.exposeInMainWorld("intricaDesktop", {
     reveal: (id) => ipcRenderer.invoke("files:reveal", id),
   },
   connection: {
+    subscribe: (listener) => {
+      const changed = (_event, state) => listener(state);
+      ipcRenderer.on("connection:changed", changed);
+      return () => ipcRenderer.removeListener("connection:changed", changed);
+    },
     get: () => ipcRenderer.invoke("connection:get"),
     list: () => ipcRenderer.invoke("connection:list"),
     save: (input) => ipcRenderer.invoke("connection:save", input),
@@ -17,17 +22,16 @@ contextBridge.exposeInMainWorld("intricaDesktop", {
     forgetToken: (id) => ipcRenderer.invoke("connection:forgetToken", id),
   },
   ssh: Object.fromEntries(
-    ["aliases", "connect", "inspect", "plan", "apply", "restart"].map((method) => [
+    ["aliases", "connect", "inspect", "install", "state", "cancel", "restart"].map((method) => [
       method,
       (input) => ipcRenderer.invoke(`ssh:${method}`, input),
     ]),
   ),
   preferences: { setLanguage: (value) => ipcRenderer.invoke("preferences:language", value) },
   updates: Object.fromEntries(
-    ["state", "check", "download", "cancel", "open", "configure", "dismissNotice"].map((method) => [
-      method,
-      (value) => ipcRenderer.invoke(`updates:${method}`, value),
-    ]),
+    ["state", "check", "download", "cancel", "open", "install", "configure", "dismissNotice"].map(
+      (method) => [method, (value) => ipcRenderer.invoke(`updates:${method}`, value)],
+    ),
   ),
   browser: {
     preview: (url) => ipcRenderer.invoke("browser:preview", url),

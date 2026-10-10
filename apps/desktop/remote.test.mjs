@@ -8,19 +8,26 @@ import { fileURLToPath } from "node:url";
 import { startLocalBackend } from "@intrica/server/runtime";
 import { _electron, expect } from "@playwright/test";
 
+import { createDefaultEndpoint } from "../../tests/fixtures/default-endpoint.mjs";
+
 const directory = dirname(fileURLToPath(import.meta.url));
 test("real local and remote servers preserve data, tools, drafts, and connection boundaries", {
   timeout: 180000,
-}, async () => {
+}, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "intrica-remote-audit-"));
   let remote, app;
+  const endpoint = await createDefaultEndpoint();
+  t.after(() => endpoint.close());
+  const previousModelEnv = Object.fromEntries(
+    Object.keys(endpoint.env).map((key) => [key, process.env[key]]),
+  );
+  Object.assign(process.env, endpoint.env);
   const shutdownErrors = [];
   const report = {
     platform: process.platform,
     executable: process.env.INTRICA_TEST_EXECUTABLE ?? "source",
     checks: [],
   };
-  process.env.MODEL_KIND = "mock";
   const token = process.env.INTRICA_TEST_REMOTE_TOKEN_FILE
     ? (await readFile(process.env.INTRICA_TEST_REMOTE_TOKEN_FILE, "utf8")).trim()
     : randomUUID();
@@ -33,9 +40,13 @@ test("real local and remote servers preserve data, tools, drafts, and connection
       port: 0,
       accessToken: token,
     });
+  for (const [key, value] of Object.entries(previousModelEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   const remoteUrl = process.env.INTRICA_TEST_REMOTE_URL ?? remote.apiUrl;
   const launch = async () => {
-    const env = { ...process.env, MODEL_KIND: "mock", INTRICA_DESKTOP_PORT: "0" };
+    const env = { ...process.env, ...endpoint.env, INTRICA_DESKTOP_PORT: "0" };
     delete env.ELECTRON_RUN_AS_NODE;
     delete env.INTRICA_SERVER_URL;
     delete env.INTRICA_ACCESS_TOKEN;

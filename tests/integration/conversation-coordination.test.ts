@@ -1,16 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Node } from "@intrica/contracts";
 import { buildServer, type Kernel } from "@intrica/server";
 import pg from "pg";
-import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import type { Lease } from "../../apps/server/dist/modules/execution/store.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { Worker } from "../../apps/server/dist/modules/execution/worker.js";
+import { expediteInput } from "../../apps/server/dist/modules/work/input-receipts.js";
+import { wireOutput } from "../fixtures/addressed-output.mjs";
 
 const key = () => randomUUID();
 const database = `intrica_coordination_${key().replaceAll("-", "")}`;
@@ -19,22 +22,30 @@ let app: Awaited<ReturnType<typeof buildServer>>, k: Kernel, admin: pg.Client;
 let provider: Server, directory: string, board: string;
 let inputs: Array<{ messages: Array<{ role: string; content: unknown }> }> = [];
 const workers: Worker[] = [];
+let holdNext: ((response: ServerResponse) => Promise<void>) | undefined;
 beforeAll(async () => {
   provider = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     const input = JSON.parse(body);
     inputs.push(input);
+    const held = holdNext;
+    holdNext = undefined;
+    if (held) await held(res);
+    if (res.destroyed) return;
     if (JSON.stringify(input.messages).includes("FAIL_AUTH")) {
       res.writeHead(401, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: { message: "401 unauthorized fixture-private-detail" } }));
       return;
     }
-    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "x-request-id": "provider-request-fixture",
+    });
     const chunk = (delta: object, finish_reason: string | null) =>
-      `data: ${JSON.stringify({ id: key(), object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
+      `data: ${JSON.stringify({ id: "provider-response-fixture", object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta, finish_reason }], usage: { prompt_tokens: 120, completion_tokens: 12, total_tokens: 132, prompt_tokens_details: { cached_tokens: 20 } } })}\n\n`;
     res.end(
-      `${chunk({ role: "assistant", content: "Received." }, null)}${chunk({}, "stop")}data: [DONE]\n\n`,
+      `${chunk({ role: "assistant", content: wireOutput(input.messages, "Received.") }, null)}${chunk({}, "stop")}data: [DONE]\n\n`,
     );
   });
   await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
@@ -68,6 +79,9 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const worker of workers.splice(0)) await worker.close();
   await k.db.pool.query("update conversations set consumed_message_seq=message_seq");
+  await k.db.pool.query(
+    "update messages set content=content||'{\"closed\":true}'::jsonb where consumed_run_id is null",
+  );
   await k.db.pool.query(
     "update runs set state='cancelled',cancel_requested_at=now() where state in('queued','running','waiting')",
   );
@@ -136,6 +150,233 @@ const runs = async (member: Node) =>
       [member.id],
     )
   ).rows;
+
+async function until(check: () => Promise<boolean>, timeout = 3000) {
+  const deadline = Date.now() + timeout;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error("Timed out waiting for durable state");
+    await delay(20);
+  }
+}
+function holdResponse() {
+  let started!: () => void, release!: () => void;
+  const entered = new Promise<void>((r) => {
+    started = r;
+  });
+  const held = new Promise<void>((r) => {
+    release = r;
+  });
+  let cancelled = false;
+  holdNext = async (response) => {
+    response.once("close", () => {
+      cancelled = true;
+    });
+    started();
+    await held;
+  };
+  return { entered, release, cancelled: () => cancelled };
+}
+it("ordinary input stays unread during inference; explicit expedite consumes distinct IDs in order", async () => {
+  const member = await agent(),
+    run = await start(member),
+    held = holdResponse();
+  const execution = k.worker.handlers.conversation(context(run));
+  try {
+    await held.entered;
+    const first = await k.conversations.submit({
+      canvasId: board,
+      agentId: member.id,
+      message: "Same text",
+      association: { kind: "append", requestId: run.frozen_input.workItemId },
+      key: key(),
+    });
+    const second = await k.conversations.submit({
+      canvasId: board,
+      agentId: member.id,
+      message: "Same text",
+      association: { kind: "append", requestId: run.frozen_input.workItemId },
+      key: key(),
+    });
+    await delay(150);
+    const view = await k.conversations.read.view(run.subject_id);
+    expect(
+      view.messages.filter((m) => m.role === "user").map((m) => m.content.inputReceipt.state),
+    ).toEqual(["read", "unread", "unread"]);
+    expect(held.cancelled()).toBe(false);
+    await Promise.all([
+      expediteInput(k.db, run.subject_id, second.messageId),
+      expediteInput(k.db, run.subject_id, second.messageId),
+    ]);
+    await execution;
+    expect(held.cancelled()).toBe(true);
+    expect(inputs).toHaveLength(2);
+    const messages = (await history(member)).filter((m) => m.role === "user");
+    expect(messages.slice(1).map((m) => m.client_message_id)).toEqual([
+      first.messageId,
+      second.messageId,
+    ]);
+    expect(messages.every((m) => m.consumed_run_id === run.id)).toBe(true);
+    expect(JSON.stringify(inputs[1]!.messages).match(/Same text/g)).toHaveLength(2);
+    expect(await expediteInput(k.db, run.subject_id, second.messageId)).toMatchObject({
+      state: "read",
+    });
+  } finally {
+    held.release();
+    await execution;
+  }
+});
+it("approved independent tools resume within two seconds without interrupting inference or consuming normal input", async () => {
+  const member = await agent(),
+    run = await start(member);
+  const path = join(directory, "outside-workspace.txt");
+  await writeFile(path, "read-once");
+  const logical = key(),
+    pending = await call(run, "read", { target: { kind: "path", path } }, logical);
+  expect(pending.waiting).toBe("approval");
+  await k.db.pool.query(
+    "update tool_calls set is_async=true,delivered_at=now() where id=(select origin_call_id from approvals where id=$1)",
+    [pending.value.requestId],
+  );
+  const held = holdResponse(),
+    execution = k.worker.handlers.conversation(context(run));
+  try {
+    await held.entered;
+    const queued = await k.conversations.submit({
+      canvasId: board,
+      agentId: member.id,
+      message: "ordinary input",
+      key: key(),
+    });
+    const started = Date.now();
+    await k.access.decide(pending.value.requestId, 1, "approve", "Allow this read");
+    await until(
+      async () =>
+        (
+          await k.db.pool.query(
+            "select state from tool_calls where run_id=$1 and logical_call_id=$2",
+            [run.id, logical],
+          )
+        ).rows[0].state === "succeeded",
+      2000,
+    );
+    expect(Date.now() - started).toBeLessThanOrEqual(2000);
+    expect(held.cancelled()).toBe(false);
+    expect(
+      (await history(member)).find((m) => m.client_message_id === queued.messageId).consumed_run_id,
+    ).toBeNull();
+    expect(await readFile(path, "utf8")).toBe("read-once");
+    expect(
+      (
+        await k.db.pool.query(
+          "select count(*)::int as n from tool_calls where run_id=$1 and logical_call_id=$2",
+          [run.id, logical],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+  } finally {
+    held.release();
+    await execution;
+  }
+});
+it("expedite cannot restart a stopped run or consume a reset input", async () => {
+  const member = await agent(),
+    run = await start(member);
+  const queued = await k.conversations.submit({
+    canvasId: board,
+    agentId: member.id,
+    message: "pending",
+    key: key(),
+  });
+  await k.conversations.stop(member.id);
+  await k.runs.fail(run, new Error("stopped"));
+  await expect(expediteInput(k.db, run.subject_id, queued.messageId)).rejects.toMatchObject({
+    code: "INVALID_STATE",
+  });
+  await k.conversations.reset(member.id);
+  expect(
+    (await k.conversations.read.view(run.subject_id)).messages.find(
+      (m) => m.content.text === "pending",
+    ).content.inputReceipt.state,
+  ).toBe("closed");
+});
+
+it("a rolled-back checkpoint never publishes a read receipt", async () => {
+  const member = await agent(),
+    run = await start(member);
+  const canvas = k.db.canvas.bind(k.db);
+  const failing = vi.spyOn(k.db, "canvas").mockImplementation(async (id, action, ...args) =>
+    canvas(
+      id,
+      async (tx) => {
+        const result = await action(tx);
+        if (
+          (
+            await tx.query(
+              "select 1 from messages where conversation_id=$1 and consumed_run_id=$2",
+              [run.subject_id, run.id],
+            )
+          ).rowCount
+        )
+          throw new Error("fixture rollback");
+        return result;
+      },
+      ...args,
+    ),
+  );
+  try {
+    await expect(
+      k.conversations.execute(context(run), (ctx, input) => k.tools.create(ctx, input)),
+    ).rejects.toThrow("fixture rollback");
+  } finally {
+    failing.mockRestore();
+  }
+  const view = await k.conversations.read.view(run.subject_id);
+  expect(view.messages[0].content.inputReceipt.state).toBe("unread");
+  expect(
+    (await k.db.pool.query("select checkpoint from conversations where id=$1", [run.subject_id]))
+      .rows[0].checkpoint,
+  ).toEqual([]);
+  expect((await k.events.read("run", run.id, "0")).some((e) => e.type === "input.receipt")).toBe(
+    false,
+  );
+});
+
+it("connects request, input, run, attempt and provider IDs in a prompt-free trace", async () => {
+  const member = await agent();
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/v2/canvas-agents/${member.id}/run`,
+    headers: { authorization: `Bearer ${token}` },
+    payload: { message: "private-trace-prompt", idempotencyKey: key() },
+  });
+  expect(response.statusCode).toBe(202);
+  const run = (await k.runs.claim("trace"))!;
+  await k.worker.handlers.conversation(context(run));
+  const trace = (
+    await app.inject({
+      url: `/api/v2/conversations/${run.subject_id}/trace`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+  ).json();
+  expect(trace.inputs[0]).toMatchObject({ id: response.json().messageId, consumed_run_id: run.id });
+  expect(trace.runs[0].request_id).toBe(response.headers["x-request-id"]);
+  expect(trace.models[0]).toMatchObject({
+    run_id: run.id,
+    attempt_id: run.attemptId,
+    request_id: response.headers["x-request-id"],
+    provider_request_id: "provider-request-fixture",
+    response_id: "provider-response-fixture",
+    input_tokens: "120",
+    output_tokens: "12",
+    cache_read_tokens: "20",
+  });
+  expect(Number(trace.models[0].first_response_ms)).toBeGreaterThanOrEqual(0);
+  expect(JSON.stringify(trace)).not.toContain("private-trace-prompt");
+  expect(JSON.stringify(trace)).not.toContain("fixture-only");
+  expect(
+    (await app.inject({ url: `/api/v2/conversations/${run.subject_id}/trace` })).statusCode,
+  ).toBe(401);
+});
 
 it("conversation views select the current run after cancellation or failure", async () => {
   for (const state of ["cancelled", "failed"] as const) {
@@ -295,7 +536,7 @@ it("delivers a real provider failure through the worker to the manager exactly o
   const received = inputs.find((input) => JSON.stringify(input.messages).includes(source.id));
   expect(JSON.stringify(received)).toContain("not user authorization");
   expect(JSON.stringify(received)).not.toContain("fixture-private-detail");
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(manager)).toHaveLength(1);
 });
 
@@ -313,7 +554,7 @@ it("measures manager activation with and without a durable inbox notice", async 
         [c.id],
       );
     }
-    await k.access.maintain();
+    await k.maintain();
     activations.push((await runs(manager)).length);
     expect((await history(member)).filter((m) => m.role === "run_status")).toHaveLength(1);
   }
@@ -346,7 +587,7 @@ it("ignores stale notices and enforces automatic activation budgets", async () =
   const failed = await start(member);
   await k.runs.fail(failed, new Error("timeout"));
   await submit(member, "New independent task");
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(manager)).toHaveLength(0);
   const next = (await k.runs.claim("next"))!;
   await k.db.pool.query("update runs set activation_count=$2 where id=$1", [
@@ -354,7 +595,7 @@ it("ignores stale notices and enforces automatic activation budgets", async () =
     k.runs.limits.collaborationActivations,
   ]);
   await k.runs.fail(next, new Error("timeout"));
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(manager)).toHaveLength(0);
   const notices = (await history(manager)).filter((m) => m.role === "team_notice");
   expect(notices.at(-1).content.activationBlocked).toBe(true);
@@ -423,6 +664,7 @@ it("distinguishes closed inbox entries from input persisted in model context", a
     member = await agent(manager.id);
   const managerRun = await start(manager);
   await call(managerRun, "send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: member.id },
     message: "First assignment",
   });
@@ -432,10 +674,11 @@ it("distinguishes closed inbox entries from input persisted in model context", a
   const stopped = (await call(managerRun, "read_conversation", { agentId: member.id })).value;
   expect(stopped.events.at(-1).receipt.status).toBe("closed");
   await call(managerRun, "send_message", {
+    kind: "update",
     target: { kind: "agent", agentId: member.id },
     message: "Second assignment",
   });
-  await k.access.maintain();
+  await k.maintain();
   const memberRun = (await k.runs.claim("member"))!;
   await k.worker.handlers.conversation(context(memberRun));
   const after = (await call(managerRun, "read_conversation", { agentId: member.id })).value;
@@ -464,7 +707,7 @@ it("writes one status for a stopped turn-limited run and notifies only its curre
     moves: [{ nodeId: member.id, x: 0, y: 0, expectedLayoutVersion: member.layoutVersion }],
     idempotencyKey: key(),
   });
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(manager)).toHaveLength(0);
 });
 
@@ -496,9 +739,11 @@ it("transfers stopped work atomically, blocks stale continuation and delivers re
     title: "Verified result",
     text: "Authoritative result",
   });
-  const report = await call(managerRun, "report_result", {
+  const report = await call(managerRun, "send_message", {
+    kind: "result",
+    target: { kind: "request", id: accepted.value.requestIds[0] },
     message: "Completed with verified result",
-    resourceIds: [artifact.value.id],
+    handoff: { sourceRunIds: [source.id], resourceIds: [artifact.value.id] },
   });
   expect(report.result.isError).not.toBe(true);
   expect(report.value.informedExecutors).toEqual([member.id]);
@@ -510,7 +755,7 @@ it("transfers stopped work atomically, blocks stale continuation and delivers re
     ),
   ).toBe(true);
   await k.runs.finish(managerRun, "succeeded");
-  await k.access.maintain();
+  await k.maintain();
   expect(await runs(member)).toHaveLength(1);
   await k.conversations.stop(member.id);
   const next = await submit(
