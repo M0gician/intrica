@@ -261,19 +261,24 @@ it("admits 64 active Agent conversations plus independent generation capacity", 
     );
   } finally {
     release();
-    await until(
-      async () =>
-        (
-          await k.db.pool.query(
-            "select count(*)::int as n from runs where state in('queued','running')",
-          )
-        ).rows[0].n === 0,
-    );
-    await worker.close();
-    k.runs.limits.toolNoticeMs = oldNotice;
+    try {
+      await until(
+        async () =>
+          (
+            await k.db.pool.query(
+              "select count(*)::int as n from runs where state in('queued','running')",
+            )
+          ).rows[0].n === 0,
+      );
+    } finally {
+      await worker.close();
+      k.runs.limits.toolNoticeMs = oldNotice;
+    }
   }
   expect(submitted).toHaveLength(65);
-});
+  // Setup, bounded admission phases, renewal and cleanup all share this budget.
+  // Each admission phase retains its own ten-second limit and measured latency.
+}, 90000);
 
 async function prepared() {
   const c = await canvas();

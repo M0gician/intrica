@@ -45,7 +45,10 @@ checks Node and browser access to private files. The macOS run is verified;
 other installed browsers and Linux runtime remain platform-specific checks.
 The test uses no renderer or DOM stubs and requires an installed Playwright
 browser distribution. Concurrency coverage retains 64 Agent conversations and
-eight independent generation slots.
+eight independent generation slots. The scaling fixture measures admission
+latency and retains ten-second phase limits. Its separate 90-second total budget
+includes setup, lease renewal and cleanup; cleanup closes the Worker even when
+the idle check fails. Platform results remain separate from these assertions.
 
 Continuous-collaboration regression coverage:
 
