@@ -405,9 +405,9 @@ it.each(["read", "write", "admin", "owner"] as const)(
     expect(visible.some((t) => t.name === "take_over_run")).toBe(role === "admin");
     expect(visible.some((t) => t.name === "create_artifact")).toBe(role !== "read");
     const send = parameters("send_message");
-    expect(
-      Value.Check(send, { kind: "update", target: { kind: "canvas" }, message: "coordinate" }),
-    ).toBe(["admin", "owner"].includes(role));
+    expect(Value.Check(send, { kind: "update", to: "canvas", message: "coordinate" })).toBe(
+      ["admin", "owner"].includes(role),
+    );
     if (role === "read" || role === "write") {
       expect(
         Value.Check(parameters("configure_agent"), {
@@ -436,7 +436,7 @@ it.each(["read", "write", "admin", "owner"] as const)(
       expect(descriptions).not.toMatch(/take.?over|took over|hire_agent|review_access_request/);
       expect(
         Value.Check(parameters("send_message"), {
-          target: { kind: "manager" },
+          to: "manager",
           kind: "result",
           message: "progress",
           resourceIds: [],
@@ -454,7 +454,7 @@ it.each(["read", "write", "admin", "owner"] as const)(
         (
           await s.call("send_message", {
             kind: "update",
-            target: { kind: "canvas" },
+            to: "canvas",
             message: "owner broadcast",
           })
         ).value.recipients,
@@ -766,7 +766,7 @@ it("each model request refreshes role, resource context and visible schemas from
   ).toHaveLength(2);
   expect(checkpoint.at(-1)?.role).toBe("assistant");
   expect(JSON.parse(checkpoint.at(-1).content[0].text)).toMatchObject({
-    target: { kind: "request" },
+    to: "request",
     kind: "result",
     message: "verified",
   });

@@ -125,7 +125,7 @@ English and Chinese prompts are rebuilt from the current capability snapshot
 before each attempt, including retries and the closing stage. They describe one
 continuous context, read receipts, original tool ownership, `running`/`queued`
 receipts and explicit message delivery. The same `send_message` contract and
-final target JSON remain in force. The closing stage retains final JSON guidance
+flat final message JSON remain in force. The closing stage retains final JSON guidance
 with an empty tool list. Execution checks current authority again at admission.
 
 Context commitment is separate from publication. A final candidate goes through

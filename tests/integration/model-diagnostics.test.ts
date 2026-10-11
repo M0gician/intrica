@@ -123,7 +123,8 @@ it("the real runner parks repeated schema failures, completes independent work, 
         chunk({
           role: "assistant",
           content: JSON.stringify({
-            target: { kind: "request", id: current },
+            to: "request",
+            id: current,
             kind: "result",
             message: "Task completed",
           }),

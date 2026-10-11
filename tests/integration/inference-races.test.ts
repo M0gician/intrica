@@ -83,7 +83,8 @@ it.each(["cutover", "publication"] as const)(
     first.start();
     first.answer(
       JSON.stringify({
-        target: { kind: "request", id: s.run.frozen_input.workItemId },
+        to: "request",
+        id: s.run.frozen_input.workItemId,
         kind: "update",
         message: "Original progress",
       }),

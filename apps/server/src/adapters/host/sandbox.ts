@@ -5,8 +5,10 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import type { CommandResult } from "@intrica/contracts";
+import { browserDistributionRoots } from "./browser-runtime.js";
 import { ProcessOutcomeError } from "./process-outcome.js";
 import { socketPath } from "./rpc.js";
+import { seatbeltPolicy } from "./seatbelt-policy.js";
 export async function canonicalPath(path: string, cwd = process.cwd()): Promise<string> {
   const absolute =
     path === "~"
@@ -30,7 +32,12 @@ export function cleanEnvironment(home: string): Record<string, string> {
   return {
     PATH: `${dirname(process.execPath)}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`,
     HOME: home,
-    TMPDIR: join(home, ".tmp"),
+    CFFIXED_USER_HOME: home,
+    TMPDIR: `${join(home, ".tmp")}/`,
+    XDG_CACHE_HOME: join(home, ".cache"),
+    XDG_CONFIG_HOME: join(home, ".config"),
+    XDG_DATA_HOME: join(home, ".local/share"),
+    XDG_RUNTIME_DIR: join(home, ".run"),
     LANG: "en_US.UTF-8",
     TERM: "xterm-256color",
     ELECTRON_RUN_AS_NODE: "1",
@@ -59,50 +66,12 @@ export async function buildSandboxCommand(
 ) {
   const platform = await platformSandbox();
   if (!platform) return null;
+  roots = [...roots];
+  for (const path of browserDistributionRoots())
+    if ((await stat(path).catch(() => null))?.isDirectory())
+      roots.push({ path, directory: true, write: false });
   if (platform === "darwin") {
-    const electronBundle = process.versions.electron
-      ? process.execPath.match(/^(.*?\.app)\/Contents\//)?.[1]
-      : undefined;
-    const readable = [
-      "/System/Library",
-      "/System/Volumes/Preboot/Cryptexes/OS",
-      "/usr/bin",
-      "/usr/sbin",
-      "/usr/lib",
-      "/usr/libexec",
-      "/usr/share",
-      "/usr/local/bin",
-      "/usr/local/lib",
-      "/usr/local/Cellar",
-      "/bin",
-      "/sbin",
-      "/Library/Apple",
-      "/Library/Developer",
-      "/opt/homebrew/bin",
-      "/opt/homebrew/lib",
-      "/opt/homebrew/Cellar",
-      dirname(process.execPath),
-      // The Worker may run Electron Helper inside a nested .app. Both it and the
-      // main executable load the OUTER bundle's runtime; never grant its data paths.
-      ...(electronBundle ? [join(electronBundle, "Contents", "Frameworks")] : []),
-      "/private/etc",
-      "/dev/null",
-      "/dev/urandom",
-      "/dev/fd",
-    ];
-    const allowRead = readable.map((p) => `(subpath ${JSON.stringify(p)})`).join(" ");
-    const grants = roots
-      .map(
-        (r) =>
-          `(allow file-read* ${r.write ? "file-write*" : ""} (${r.directory ? "subpath" : "literal"} ${JSON.stringify(r.path)}))`,
-      )
-      .join("");
-    const protectedPaths = await protections(dataDir);
-    const denied = protectedPaths.private.map((p) => `(subpath ${JSON.stringify(p)})`).join(" ");
-    const readOnly = protectedPaths.readOnly.map((p) => `(subpath ${JSON.stringify(p)})`).join(" ");
-    // Host networking includes DNS and system certificate verification. File grants stay separate.
-    const network = `(allow network*)(allow mach-lookup (global-name "com.apple.mDNSResponder") (global-name "com.apple.SystemConfiguration.configd") (global-name "com.apple.trustd") (global-name "com.apple.trustd.agent"))`;
-    const profile = `(version 1)(deny default)(allow process-exec process-fork)(allow signal (target self))(allow sysctl-read)(allow file-read-metadata)(allow file-read* (literal "/") ${allowRead})(allow file-write* (literal "/dev/null") (subpath "/dev/fd"))${grants}(deny file-read* file-write* ${denied})(deny file-write* ${readOnly})${network}`;
+    const profile = await seatbeltPolicy(roots, await protections(dataDir));
     return { command: "/usr/bin/sandbox-exec", args: ["-p", profile, command, ...args] };
   }
   const bindings: string[] = [];
@@ -145,6 +114,8 @@ export async function buildSandboxCommand(
       "/dev",
       "--tmpfs",
       "/tmp",
+      "--tmpfs",
+      "/dev/shm",
       // Bind grants after the empty base mounts; private masks remain last.
       ...bindings,
       "--chdir",

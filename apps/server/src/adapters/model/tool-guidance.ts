@@ -15,8 +15,8 @@ export function toolGuidance(
       : "",
     tools.has("list_capabilities")
       ? text(
-          "You use list_capabilities for effective execution mode, default cwd, interpreter paths, indexed skills, external capabilities and registered environments. Runtime versions marked null require verification before use.",
-          "你通过 list_capabilities 查看当前执行方式、默认 cwd、解释器路径、已索引 Skill、外部能力和已登记环境。标为 null 的运行时版本需要在使用前核实。",
+          "You use list_capabilities for effective authority, defaultExecutionMode, default cwd, interpreter paths, indexed skills, browser distributions and registered environments. Runtime versions marked null require verification before use. browsers.verification=unverified records binary availability; you verify launch, real rendering and input before reporting browser checks. fullHostAvailable describes authority for explicitly requested host execution.",
+          "你通过 list_capabilities 查看有效权限、defaultExecutionMode、默认 cwd、解释器路径、已索引 Skill、浏览器发行文件和已登记环境。标为 null 的运行时版本需要在使用前核实。browsers.verification=unverified 表示发现了程序文件，你在报告浏览器检查前核实启动、真实渲染和输入。fullHostAvailable 表示显式请求宿主执行时可使用的权限。",
         )
       : "",
     tools.has("register_environment")

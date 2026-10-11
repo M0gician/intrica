@@ -6,6 +6,7 @@ import { Type } from "typebox";
 import { type ExecutionTool, result } from "../../modules/execution/tool-calls.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
 import { DomainError } from "../postgres/database.js";
+import { browserCapabilities } from "./browser-runtime.js";
 import { cleanEnvironment, isolationAvailable } from "./sandbox.js";
 
 export async function hostCapabilities() {
@@ -19,7 +20,8 @@ export async function hostCapabilities() {
       const path = join(dir, entry.name, "SKILL.md");
       if ((await stat(path).catch(() => null))?.isFile()) skills.push({ name: entry.name, path });
     }
-  for (const name of ["node", "python3", "git", "lark-cli"])
+  commands.push({ name: "node", path: process.execPath, version: process.version });
+  for (const name of ["python3", "git", "lark-cli"])
     for (const dir of cleanEnvironment("").PATH!.split(":")) {
       const path = join(dir, name);
       if (
@@ -35,6 +37,7 @@ export async function hostCapabilities() {
   return {
     skills,
     commands,
+    browsers: await browserCapabilities(),
     isolation: await isolationAvailable(),
     mcp: "stdio",
     installation:

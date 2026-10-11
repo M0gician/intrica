@@ -130,7 +130,8 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
               tool: "send_message",
               args: {
                 kind: "update",
-                target: { kind: "agent", agentId: hire.id },
+                to: "agent",
+                id: hire.id,
                 message: "FOLLOWUP: Include evidence gaps at the report tail.",
               },
             };
@@ -253,7 +254,7 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
               `ACCEPTANCE_MEMBER_${member}_DONE artifactId=${artifacts[0].value.id}`,
             ),
           );
-          assert.equal(result.target.kind, "request", "Members must finish their assigned request");
+          assert.equal(result.to, "request", "Members must finish their assigned request");
           reply = {
             tool: "send_message",
             args: result,

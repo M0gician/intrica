@@ -1,6 +1,7 @@
 import { type AddressedMessage, addressedMessageSchema } from "@intrica/contracts";
 import { Value } from "typebox/value";
 import { DomainError } from "../../adapters/postgres/database.js";
+import { messageEnvelope } from "./message-envelope.js";
 
 export function addressedMessage(value: unknown): AddressedMessage {
   if (!Value.Check(addressedMessageSchema, value))
@@ -26,8 +27,8 @@ export function parseAddressedMessage(text: string): AddressedMessage {
   } catch {
     throw new DomainError(
       "MESSAGE_PROTOCOL",
-      "最终输出必须是包含 target 和 message 的 JSON 消息对象",
+      "最终输出必须是包含 to 和 message 的单个 JSON 消息对象",
     );
   }
-  return addressedMessage(parsed);
+  return messageEnvelope(parsed);
 }

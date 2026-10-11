@@ -164,7 +164,8 @@ it("M01 four-level cross-branch coordination preserves recipients, roles and dis
   expect(await managementChain(k.db.pool, worker.id)).toEqual([lead.id, division.id, top.id]);
   const args = {
     kind: "update",
-    target: { kind: "agent", agentId: cousin.id },
+    to: "agent",
+    id: cousin.id,
     message: "inspect your branch, not my files",
   };
   const sent = await child.call("send_message", args, "cross-branch-once");
@@ -176,7 +177,8 @@ it("M01 four-level cross-branch coordination preserves recipients, roles and dis
     (
       await peer.call("send_message", {
         kind: "update",
-        target: { kind: "agent", agentId: worker.id },
+        to: "agent",
+        id: worker.id,
         message: "branch checked",
       })
     ).value.delivered,
@@ -185,7 +187,7 @@ it("M01 four-level cross-branch coordination preserves recipients, roles and dis
     (
       await child.call("send_message", {
         kind: "result",
-        target: { kind: "manager" },
+        to: "manager",
         message: "direct result",
       })
     ).value.recipients,
@@ -208,7 +210,8 @@ it("M02 one private leaf resource blocks cross-branch delivery despite a common 
   const sender = await start(worker),
     args = {
       kind: "update",
-      target: { kind: "agent", agentId: cousin.id },
+      to: "agent",
+      id: cousin.id,
       message: "must remain private",
     };
   const pending = await sender.call("send_message", args, "private-branch-once");
@@ -363,7 +366,8 @@ it.each(["move-middle", "revoke-root", "downgrade-root"] as const)(
     await expect(
       manager.call("send_message", {
         kind: "update",
-        target: { kind: "agent", agentId: worker.id },
+        to: "agent",
+        id: worker.id,
         message: "stale manager work",
       }),
     ).rejects.toMatchObject({ code: "STALE_EXECUTION" });
@@ -388,7 +392,7 @@ it("M05 a normal node breaks the management chain even when Agents are deeply ne
     (
       await child.call("send_message", {
         kind: "result",
-        target: { kind: "manager" },
+        to: "manager",
         message: "local report",
       })
     ).value.recipients,
@@ -397,7 +401,8 @@ it("M05 a normal node breaks the management chain even when Agents are deeply ne
     (
       await child.call("send_message", {
         kind: "update",
-        target: { kind: "agent", agentId: top.id },
+        to: "agent",
+        id: top.id,
         message: "not an ancestor team",
       })
     ).waiting,
@@ -413,7 +418,7 @@ it("M05 a normal node breaks the management chain even when Agents are deeply ne
     (
       await child.call("send_message", {
         kind: "result",
-        target: { kind: "manager" },
+        to: "manager",
         message: "no manager",
       })
     ).result.isError,
@@ -461,7 +466,7 @@ it("M06 a deep artifact is shared only with readable ancestors and explicitly re
     (
       await child.call("send_message", {
         kind: "result",
-        target: { kind: "manager" },
+        to: "manager",
         message: "report ready for direct manager",
       })
     ).value.recipients,
@@ -539,10 +544,8 @@ it("M08 concurrent deep-team broadcasts use resource intersection, deduplicate r
     peer = await start(cousin),
     args = {
       kind: "update",
-      target: {
-        kind: "resource_readers",
-        resourceIds: [firstResource.id, secondResource.id, firstResource.id],
-      },
+      to: "resource_readers",
+      ids: [firstResource.id, secondResource.id, firstResource.id],
       message: "same content, independent senders",
     };
   const sends = await Promise.all([
@@ -622,12 +625,13 @@ it("M09 hierarchy does not expose private transcripts to ancestors, siblings or 
   });
   await child.call("send_message", {
     kind: "result",
-    target: { kind: "manager" },
+    to: "manager",
     message: "public direct-manager report",
   });
   await child.call("send_message", {
     kind: "update",
-    target: { kind: "agent", agentId: sibling.id },
+    to: "agent",
+    id: sibling.id,
     message: "sibling-only coordination",
   });
   const own = await child.call("read_conversation", {}),

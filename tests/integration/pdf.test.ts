@@ -286,7 +286,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     });
     const invalid = await fresh.call("send_message", {
       kind: "result",
-      target: { kind: "manager" },
+      to: "manager",
       message: "missing file",
       fileIds: [textOnly.value.id],
     });

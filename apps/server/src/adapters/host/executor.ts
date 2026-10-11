@@ -41,7 +41,8 @@ export class HostExecutor {
   ) {}
   async workspace(canvasId: string, agentId?: string) {
     const p = join(this.dataDir, "workspaces", canvasId, agentId ?? "shared");
-    await mkdir(join(p, ".tmp"), { recursive: true, mode: 0o700 });
+    for (const directory of [".tmp", ".run", ".cache", ".config", ".local/share"])
+      await mkdir(join(p, directory), { recursive: true, mode: 0o700 });
     return canonicalPath(p);
   }
   async protectedPath(path: string, write = false) {

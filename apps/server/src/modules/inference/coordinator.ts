@@ -6,6 +6,7 @@ import type { BackgroundTools } from "../execution/background-tools.js";
 import type { ToolExecution } from "../execution/tool-calls.js";
 import type { ExecutionContext } from "../execution/worker.js";
 import { contextManifest, providerHistory } from "./context-projection.js";
+import { steerInbox } from "./inbox-steering.js";
 import { ItemStore } from "./item-store.js";
 import { beginSettling, claimDispatch, openAttempt, sealRequest } from "./lifecycle.js";
 import { backoff, retryDecision } from "./retry-policy.js";
@@ -34,7 +35,10 @@ export async function infer(
   const idleMs = Math.max(1, Number(process.env.INTRICA_INFERENCE_IDLE_MS) || 300_000);
   let active: InferenceIdentity | undefined;
   const stopMonitor = await background.monitorInference(async () => {
-    if (!cutover.signal.aborted && (await expedited())) {
+    if (
+      !cutover.signal.aborted &&
+      ((await expedited()) || (await steerInbox(ctx, decisionRevision)))
+    ) {
       if (active) await beginSettling(ctx, active, settleMs);
       cutover.abort(new DomainError("EXPEDITED", "有加急输入"));
     }

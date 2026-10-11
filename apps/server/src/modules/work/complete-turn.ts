@@ -52,7 +52,9 @@ export class OutputCompletion {
   async reject(tx: Tx, turnId: string, error: unknown, text = "", thinking = "") {
     const reason =
       (error instanceof Error ? error.message : "消息未通过校验") +
-      (error instanceof DomainError && error.code === "REQUEST_CLOSED" && error.details
+      (error instanceof DomainError &&
+      ["REQUEST_CLOSED", "MESSAGE_PROTOCOL"].includes(error.code) &&
+      error.details
         ? ` ${JSON.stringify(error.details)}`
         : "");
     this.pending = null;
@@ -88,8 +90,8 @@ export class OutputCompletion {
       timestamp: Date.now(),
       content: promptText(
         this.input.language,
-        `Server output validation: ${reason}. This output was not published. Use one JSON object with an explicit target and message. Reply to a request with {"target":{"kind":"request","id":"the supplied request ID"},"kind":"result","message":"your answer"}; a private work note uses {"target":{"kind":"internal"},"message":"your note"}. Already committed tool operations retain their receipts.`,
-        `服务端消息校验：${reason}。此输出尚未发布。请输出一个包含明确 target 和 message 的 JSON 对象。回复使用 {"target":{"kind":"request","id":"服务端提供的请求 ID"},"kind":"result","message":"答复"}；内部笔记使用 {"target":{"kind":"internal"},"message":"笔记"}。已经提交的工具操作保留原回执。`,
+        `Server output validation: ${reason}. This output was not published. Correct the listed fields, retaining the intended message. Reply with {"to":"request","id":"the supplied request ID","kind":"result","message":"your answer"}; a private note uses {"to":"internal","message":"your note"}. Already committed tool operations retain their receipts.`,
+        `服务端消息校验：${reason}。此输出尚未发布。修正列出的字段，保留原消息正文。回复使用 {"to":"request","id":"服务端提供的请求 ID","kind":"result","message":"答复"}；内部笔记使用 {"to":"internal","message":"笔记"}。已经提交的工具操作保留原回执。`,
       ),
     };
   }

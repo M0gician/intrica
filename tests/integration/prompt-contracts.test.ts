@@ -131,7 +131,9 @@ it.each(cases)(
         expect(prompt).toContain(language === "en" ? "limit is 3" : "上限为 3 次");
         expect(prompt).toContain(language === "en" ? "allows 5 corrections" : "修正 5 次");
         const send = this.state.tools.find((t) => t.name === "send_message")!;
-        expect(send.description).toContain(language === "en" ? "limit is 3" : "最多跟进 3 次");
+        expect(send.description).toContain(
+          language === "en" ? "3 followups per request" : "最多跟进 3 次",
+        );
         expect(this.state.tools.some((t) => t.name === "hire_agent")).toBe(
           role === "admin" || role === "owner",
         );
@@ -185,7 +187,8 @@ it("request metadata keeps directions, current-task priority and partial-index b
     receiver = await agent("read", sender.id);
   const s = await start(sender.id);
   const sent = await s.call("send_message", {
-    target: { kind: "agent", agentId: receiver.id },
+    to: "agent",
+    id: receiver.id,
     kind: "request",
     message: "Inspect a dependency",
     lifetime: "independent",
@@ -223,7 +226,8 @@ it("request metadata keeps directions, current-task priority and partial-index b
   expect(receiverContext.incoming.requests.map((r) => r.id)).toEqual([requestId]);
   expect(receiverContext.outgoing.requests).toEqual([]);
   await s.call("send_message", {
-    target: { kind: "followup", id: requestId },
+    to: "followup",
+    id: requestId,
     kind: "update",
     message: "Additional evidence",
   });
@@ -244,7 +248,8 @@ it("shared dependencies identify their followup controller and takeover refreshe
   const s = await start(source.id);
   const requestId = (
     await s.call("send_message", {
-      target: { kind: "agent", agentId: worker.id },
+      to: "agent",
+      id: worker.id,
       kind: "request",
       message: "Continue a dependency",
     })

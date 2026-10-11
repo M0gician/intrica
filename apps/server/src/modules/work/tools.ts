@@ -47,6 +47,13 @@ export class ToolRegistry {
       effective: {
         ...effective,
         defaultWorkingDirectory,
+        defaultExecutionMode:
+          agentId && available.isolation
+            ? "isolated"
+            : effective.hostExecution
+              ? "host"
+              : "unavailable",
+        fullHostAvailable: effective.hostExecution,
         executionMode: effective.hostExecution
           ? "host"
           : available.isolation

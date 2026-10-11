@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentRole } from "@intrica/contracts";
 import { buildServer, type Kernel } from "@intrica/server";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, expect, vi } from "vitest";
@@ -22,7 +23,7 @@ export type InferenceSession = {
 type Harness = {
   k: Kernel;
   endpoint: Awaited<ReturnType<typeof responseEndpoint>>;
-  session: (configure?: (tools: ToolSet) => void) => Promise<InferenceSession>;
+  session: (configure?: (tools: ToolSet) => void, role?: AgentRole) => Promise<InferenceSession>;
   watch: (canvasId: string, predicate: () => Promise<boolean>) => Promise<void>;
   exists: (query: string, values: unknown[]) => Promise<boolean>;
   nextWhile: (done: Promise<unknown>) => Promise<ResponsesWire>;
@@ -75,13 +76,26 @@ export function inferenceHarness(): Harness {
     if (directory) await rm(directory, { recursive: true, force: true });
   });
 
-  async function session(configure?: (tools: ToolSet) => void) {
+  async function session(configure?: (tools: ToolSet) => void, role?: AgentRole) {
     const canvasId = (
       await k.graph.createCanvas({ title: "Inference lifecycle", idempotencyKey: key() })
     ).node.id;
+    const agentId = role
+      ? (
+          await k.graph.createNode({
+            kind: "agent",
+            parentId: canvasId,
+            title: "Inbox fixture",
+            agent: { role, persona: "Check inputs", enabled: false },
+            position: { x: 0, y: 0, width: 220, height: 300 },
+            idempotencyKey: key(),
+          })
+        ).node.id
+      : undefined;
     const inputId = key();
     const submission = await k.conversations.submit({
       canvasId,
+      ...(agentId ? { agentId } : {}),
       message: "Inspect this isolated fixture",
       key: inputId,
     });

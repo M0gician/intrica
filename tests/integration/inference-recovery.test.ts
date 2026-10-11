@@ -78,7 +78,7 @@ it.each(["prepared", "streaming", "cutting", "settling", "sealed"])(
     await claimDispatch(s.ctx, identity);
     const store = new ItemStore(s.ctx, identity);
     const native = { ...reasoning("rs_saved", "encrypted_saved"), status: "completed" };
-    const text = JSON.stringify({ target: { kind: "internal" }, message: "Saved work" });
+    const text = JSON.stringify({ to: "internal", message: "Saved work" });
     const complete: AssistantMessage = {
       role: "assistant",
       api: model.state.model.api,

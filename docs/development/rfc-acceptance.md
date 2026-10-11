@@ -27,6 +27,21 @@ the built-in test model.
 
 ## Test layers
 
+The flat message contract additionally checks all destination forms, conditional
+field requirements, precise missing-field paths, role-safe correction specimens,
+duplicate address normalization, and exclusion of submitted text and IDs from
+errors. `inference-inbox.test.ts` checks normal user input, peer messages, current
+approval notices, stale versions, routine progress, coalescing, minimum work
+windows and preservation of committed tool pairs during active thinking.
+
+`sandbox-browser.test.ts` launches actual Chromium under platform isolation,
+loads a local HTTP page, reads real WebGL pixels after input, saves a PNG and
+checks Node and browser access to private files. The macOS run is verified;
+other installed browsers and Linux runtime remain platform-specific checks.
+The test uses no renderer or DOM stubs and requires an installed Playwright
+browser distribution. Concurrency coverage retains 64 Agent conversations and
+eight independent generation slots.
+
 Continuous-collaboration regression coverage:
 
 | Issue | Contract and principal checks |

@@ -48,6 +48,40 @@ export const internalMessageSchema = object({
   message: messageText,
 });
 export const addressedMessageSchema = Type.Union([internalMessageSchema, externalMessageSchema]);
+/** Model-facing messages use one flat object; routing objects stay server-owned. */
+export const messageEnvelopeSchema = object({
+  to: Type.Union([
+    ...messageTargets.map((target) => target.properties.kind),
+    Type.Literal("internal"),
+  ]),
+  id: Type.Optional(
+    Type.String({
+      minLength: 1,
+      maxLength: 200,
+      description: "Required for request, followup or agent. Copy the ID from server metadata.",
+    }),
+  ),
+  ids: Type.Optional(
+    Type.Array(id, {
+      minItems: 1,
+      maxItems: 1000,
+      description:
+        "Required only for agents or resource_readers. Duplicate IDs select a recipient once. Resource readers accepts at most 40 distinct IDs.",
+    }),
+  ),
+  kind: Type.Optional({
+    ...messageKinds,
+    description:
+      "Required for external messages. request asks for work or an answer; update gives progress; result completes an answer; decline refuses an incoming request. Omit kind for internal notes.",
+  }),
+  message: messageText,
+  fileIds: externalMessageSchema.properties.fileIds,
+  priority: externalMessageSchema.properties.priority,
+  lifetime: externalMessageSchema.properties.lifetime,
+  environmentRefs: externalMessageSchema.properties.environmentRefs,
+  handoff: externalMessageSchema.properties.handoff,
+});
+export type MessageEnvelope = Static<typeof messageEnvelopeSchema>;
 export type ExternalMessage = Static<typeof externalMessageSchema>;
 export type AddressedMessage = Static<typeof addressedMessageSchema>;
 export type MessageTarget = ExternalMessage["target"];

@@ -1,5 +1,43 @@
 # Explicit Agent messages
 
+## Model contract
+
+The model receives one flat object schema for send_message and final text.
+The server validates fields before dispatch and converts the envelope into an
+internal routing object. Discovery and execution share the same schema for this
+tool. Role restrictions narrow destinations, priority and handoff fields.
+Incoming metadata includes a copyable replyTo object; controlled outgoing
+requests include followupTo. Stored routing objects are server-owned records.
+
+Invalid inputs return path, expected type or allowed values, actual type,
+executed=false, a valid specimen and repairsRemaining. Specimens contain no
+submitted message text, identifiers or credentials. Semantic failures use the
+same recorded, bounded correction path as schema failures. The Agent corrects
+the indicated fields. Contract version 3 stops old message arguments from
+dispatching as new calls. The version-1 hiring adapter remains limited to v1.
+
+All actionable incoming user messages, peer messages, current approval notices,
+dependency notices and final tool updates use the durable inbox eligibility
+rules. Outgoing copies, private notes, routine progress and stale notices do not
+trigger a cutover. The default coalescing window is 2 seconds, configurable with
+INTRICA_INBOX_STEER_MS (250–30,000 ms). Explicit expedite retains immediate
+cutover. Automatic cutovers also reserve a 5-second model work window, configured
+with INTRICA_INBOX_WORK_WINDOW_MS (1,000–30,000 ms); natural context boundaries
+continue admitting input during that window. Explicit expedite retains its
+authorization policy. Automatic scheduling grants no authority,
+bypasses no execution barrier and does not replay tools.
+
+Current Pi adapters do not support provider-native mid-response steering. The
+runner uses bounded cancel/drain/continue, retaining committed context and real
+tool receipts while discarding incomplete diagnostic output. Pending inputs
+enter in acceptance order. Read means the updated checkpoint is durable.
+Provider-native steering can extend the continuation adapter; accepted and
+applied receipts must remain distinct. Provider acceptance alone is not read.
+
+report_result and reply_message are not active tools. Results and progress use
+send_message with explicit destinations. Historical labels and migration readers
+exist only to display and preserve old execution records.
+
 RFC #26 uses one communication protocol. A model either calls `send_message` or
 returns one JSON object as its final text. Both paths call `MessageService`.
 Bare text has one correction opportunity. A second invalid output blocks
@@ -7,14 +45,16 @@ publication and records the reason. A provider's reasoning content stays in
 its execution record. It does not become a delivered message.
 
 ```json
-{"target":{"kind":"request","id":"request-id"},"kind":"result","message":"Verified findings","fileIds":["published-node-id"]}
-{"target":{"kind":"internal"},"message":"An observation to check later"}
+{"to":"request","id":"request-id","kind":"result","message":"Verified findings","fileIds":["published-node-id"]}
+{"to":"internal","message":"An observation to check later"}
 ```
 
-External messages require `target`, `kind` and `message`. Optional `fileIds`
+External messages require `to`, `kind` and `message`. `to` is a destination string.
+Request, followup and agent require `id`; agents and resource_readers require `ids`.
+Canvas, manager and internal omit both fields. Optional `fileIds`
 refer to accessible published snapshots. Admin result messages can include
 `handoff: {sourceRunIds, resourceIds?}`. Only those source runs receive handoff
-records and resource access. Private notes accept only `target` and `message`.
+records and resource access. Private notes accept only `to` and `message`.
 Text is nonblank and limited to 65,536 characters. Over-limit drafts are retained
 as unpublished diagnostics, never silently truncated and delivered.
 
@@ -50,8 +90,9 @@ same request fails with the existing reply reference. Different business
 messages are not merged by their text.
 
 Each Agent retains one checkpoint. Work items are request metadata, not context
-branches. New independent requests queue separately. The selected task's body
-enters the next model call. General notices can enter the current context.
+branches. New independent requests retain separate work records. Actionable input
+refreshes active inference after a short coalescing window. Selected task bodies
+and relevant notices enter the same checkpoint.
 Switching tasks retains previous inputs, tools, notes and published replies.
 Compaction summarizes the context; request and delivery state remain in tables.
 
@@ -65,7 +106,7 @@ this projection from the same ownership records used by message routing.
 Compaction instructions preserve request directions, waits, unresolved tool
 outcomes, delivery receipts and versioned file and environment references.
 
-Expedite preserves the input ID and advances the conversation generation. The
+Inbox steering preserves the input ID and advances the conversation generation. The
 runner checks pending expedite requests while acquiring the generation and again
 before storing or sending output. Started tools retain their effects and IDs.
 Late results keep the work association captured by the original tool call.

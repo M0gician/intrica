@@ -82,6 +82,8 @@ export function toolInputError(
   schema: any | undefined,
   args: unknown,
   parseError?: string,
+  semanticIssues?: ToolInputIssue[],
+  example?: unknown,
 ): ToolInputError | null {
   let code: ToolInputError["code"];
   let message: string;
@@ -103,7 +105,7 @@ export function toolInputError(
       },
     ];
   } else {
-    if (Value.Check(schema, args)) return null;
+    if (Value.Check(schema, args) && !semanticIssues?.length) return null;
     code = "TOOL_ARGUMENTS_INVALID";
     message =
       "Tool arguments do not match the schema. Correct the listed fields. The call was not executed; specimen IDs must be replaced with real authorized IDs.";
@@ -113,8 +115,27 @@ export function toolInputError(
       if (["anyOf", "oneOf"].includes(error.keyword)) continue;
       const path = error.instancePath || "/";
       const params = error.params as Record<string, any>;
+      if (error.keyword === "required" && Array.isArray(params.requiredProperties)) {
+        for (const key of params.requiredProperties) {
+          const missingPath = `${error.instancePath}/${String(key).replaceAll("~", "~0").replaceAll("/", "~1")}`;
+          unique.set(missingPath, {
+            path: missingPath,
+            expected: "required field",
+            actual: "undefined",
+            message: `Supply the required ${key} field.`,
+          });
+        }
+        continue;
+      }
+      const field = error.instancePath
+        .split("/")
+        .slice(1)
+        .reduce((part: any, key: string) => part?.properties?.[key] ?? part?.items, schema);
+      const constants = (field?.anyOf ?? field?.oneOf)?.map((part: any) => part.const);
       const expected =
-        params.type ??
+        (constants?.length && constants.every((value: unknown) => value !== undefined)
+          ? `one of ${JSON.stringify(constants)}`
+          : params.type) ??
         (error.keyword === "required"
           ? `required field ${params.requiredProperty ?? params.missingProperty ?? ""}`
           : error.message);
@@ -127,7 +148,7 @@ export function toolInputError(
       unique.set(`${path}:${expected}`, issue);
       if (unique.size >= 16) break;
     }
-    issues = [...unique.values()];
+    issues = [...unique.values(), ...(semanticIssues ?? [])].slice(0, 16);
   }
   return {
     code,
@@ -135,7 +156,7 @@ export function toolInputError(
     phase: parseError ? "parse" : "validation",
     executed: false,
     issues,
-    ...(schema ? { example: schemaExample(schema, args) } : {}),
+    ...(schema ? { example: example ?? schemaExample(schema, args) } : {}),
     fingerprint: digest({
       name,
       code,

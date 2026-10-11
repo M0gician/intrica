@@ -161,7 +161,8 @@ it("environment references recheck permissions, current executable identity and 
     })
   ).node;
   const sent = await s.call("send_message", {
-    target: { kind: "agent", agentId: recipient.id },
+    to: "agent",
+    id: recipient.id,
     kind: "request",
     message: "Continue related work with this environment reference",
     environmentRefs: [ref],

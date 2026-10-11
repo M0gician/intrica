@@ -2,9 +2,7 @@
 export function addressedOutput(system, text, kind = "result") {
   const id = system.match(/Current work item: (request-[\w-]+)/)?.[1];
   return JSON.stringify(
-    id
-      ? { target: { kind: "request", id }, kind, message: text }
-      : { target: { kind: "internal" }, message: text },
+    id ? { to: "request", id, kind, message: text } : { to: "internal", message: text },
   );
 }
 export function wireOutput(messages, text) {

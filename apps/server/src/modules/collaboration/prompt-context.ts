@@ -2,7 +2,11 @@ import type { Sql } from "../../adapters/postgres/database.js";
 
 const limit = 40;
 const page = (rows: any[]) => ({
-  requests: rows.map(({ total: _total, ...request }) => request),
+  requests: rows.map(({ total: _total, ...request }) => ({
+    ...request,
+    ...(request.senderKind ? { replyTo: { to: "request", id: request.id } } : {}),
+    ...(request.controlsFollowup ? { followupTo: { to: "followup", id: request.id } } : {}),
+  })),
   total: Number(rows[0]?.total ?? 0),
   truncated: Number(rows[0]?.total ?? 0) > rows.length,
 });

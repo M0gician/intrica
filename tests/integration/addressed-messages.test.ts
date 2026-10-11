@@ -29,7 +29,8 @@ const activeRequest = (body: any) =>
     .content.match(/Current work item: (request-[\w-]+)/)?.[1];
 const answer = (body: any, text = "Verified result") =>
   JSON.stringify({
-    target: { kind: "request", id: activeRequest(body) },
+    to: "request",
+    id: activeRequest(body),
     kind: "result",
     message: text,
   });
@@ -194,7 +195,8 @@ it("returns an Agent's final answer to its requester and retains request lineage
     b = await agent(a.id);
   const s = await start(a);
   const sent = await call(s, "send_message", {
-    target: { kind: "agent", agentId: b.id },
+    to: "agent",
+    id: b.id,
     kind: "request",
     message: "Compare these two independent claims without work tools.",
   });
@@ -217,8 +219,7 @@ it("returns an Agent's final answer to its requester and retains request lineage
 });
 it("keeps internal notes private and leaves the request unanswered", async () => {
   const s = await start();
-  respond = () =>
-    JSON.stringify({ target: { kind: "internal" }, message: "Need one more observation" });
+  respond = () => JSON.stringify({ to: "internal", message: "Need one more observation" });
   const run = await execute(s.run);
   expect(run.state).toBe("waiting");
   expect(run.reason).toBe("reply_required");
@@ -246,7 +247,8 @@ it("deduplicates replay and refuses a second final reply", async () => {
   const s = await start();
   const requestId = s.run.frozen_input.workItemId;
   const payload = {
-    target: { kind: "request", id: requestId },
+    to: "request",
+    id: requestId,
     kind: "result",
     message: "One published result",
   };
@@ -295,7 +297,8 @@ it("restores a final output after communication authorization without inventing 
     b = await agent();
   const s = await start(a);
   const sent = await call(s, "send_message", {
-    target: { kind: "agent", agentId: b.id },
+    to: "agent",
+    id: b.id,
     kind: "request",
     message: "Return your assessment",
   });
@@ -325,7 +328,8 @@ it("restores a final output after communication authorization without inventing 
 it("creates a child question for a user and resumes the same work when the user answers", async () => {
   const s = await start();
   const question = await call(s, "send_message", {
-    target: { kind: "request", id: s.run.frozen_input.workItemId },
+    to: "request",
+    id: s.run.frozen_input.workItemId,
     kind: "request",
     message: "Which constraint has priority?",
   });
@@ -384,7 +388,8 @@ it("does not block an unrelated task while a native output waits for communicati
   respond = (body) =>
     activeRequest(body) === first
       ? JSON.stringify({
-          target: { kind: "agent", agentId: b.id },
+          to: "agent",
+          id: b.id,
           kind: "update",
           message: "A bounded observation",
         })
@@ -409,12 +414,12 @@ it("does not block an unrelated task while a native output waits for communicati
 });
 
 it.each([
-  { target: { kind: "internal" }, message: "private", kind: "result" },
-  { target: { kind: "internal" }, message: "private", fileIds: ["fake"] },
-  { target: { kind: "agent", agentId: "missing" }, kind: "decline", message: "no" },
-  { target: { kind: "request", id: "foreign" }, kind: "result", message: "forged" },
-  { target: { kind: "manager" }, kind: "result", message: "No manager exists" },
-  { target: { kind: "internal" }, message: " ", senderId: "forged" },
+  { to: "internal", message: "private", kind: "result" },
+  { to: "internal", message: "private", fileIds: ["fake"] },
+  { to: "agent", id: "missing", kind: "decline", message: "no" },
+  { to: "request", id: "foreign", kind: "result", message: "forged" },
+  { to: "manager", kind: "result", message: "No manager exists" },
+  { to: "internal", message: " ", senderId: "forged" },
 ])("rejects invalid addressing without publishing: %j", async (payload) => {
   const s = await start();
   respond = () => JSON.stringify(payload);
@@ -431,7 +436,8 @@ it("replies to the requester when its identity differs from the direct manager",
     a = await agent(board, "admin");
   const caller = await start(a);
   const sent = await call(caller, "send_message", {
-    target: { kind: "agent", agentId: b.id },
+    to: "agent",
+    id: b.id,
     kind: "request",
     message: "Answer this request",
   });
@@ -439,7 +445,8 @@ it("replies to the requester when its identity differs from the direct manager",
   const recipientRun = (await k.runs.claim("recipient"))!;
   respond = () =>
     JSON.stringify({
-      target: { kind: "request", id: sent.value.deliveries[0].requestId },
+      to: "request",
+      id: sent.value.deliveries[0].requestId,
       kind: "result",
       message: "Original requester only",
     });
@@ -467,7 +474,8 @@ it("keeps a late business result passive after the originating task was stopped"
     b = await agent(a.id);
   const s = await start(a);
   await call(s, "send_message", {
-    target: { kind: "agent", agentId: b.id },
+    to: "agent",
+    id: b.id,
     kind: "request",
     message: "Work in progress",
     lifetime: "independent",
@@ -515,7 +523,8 @@ it("marks requests unavailable when an Agent is deleted and preserves its identi
     b = await agent(a.id);
   const s = await start(a);
   const sent = await call(s, "send_message", {
-    target: { kind: "agent", agentId: b.id },
+    to: "agent",
+    id: b.id,
     kind: "request",
     message: "Pending work",
   });
@@ -548,7 +557,8 @@ it("transfers reply responsibility and routes a user's clarification back to the
   const takeover = await call(owner, "take_over_run", { agentId: member.id, runId: source.run.id });
   expect(takeover.value.requestIds).toContain(originalRequest);
   const question = await call(owner, "send_message", {
-    target: { kind: "request", id: originalRequest },
+    to: "request",
+    id: originalRequest,
     kind: "request",
     message: "Which result format do you need?",
   });
@@ -566,7 +576,8 @@ it("transfers reply responsibility and routes a user's clarification back to the
   );
   expect(forwarded.content.workItemId).toBe(originalRequest);
   const result = await call(owner, "send_message", {
-    target: { kind: "request", id: originalRequest },
+    to: "request",
+    id: originalRequest,
     kind: "result",
     message: "Verified table",
     handoff: { sourceRunIds: [source.run.id] },
@@ -586,13 +597,15 @@ it("keeps two workspace return addresses distinct", async () => {
   const b = await agent();
   const first = await start();
   await call(first, "send_message", {
-    target: { kind: "agent", agentId: b.id },
+    to: "agent",
+    id: b.id,
     kind: "request",
     message: "First workspace request",
   });
   const second = await start();
   await call(second, "send_message", {
-    target: { kind: "agent", agentId: b.id },
+    to: "agent",
+    id: b.id,
     kind: "request",
     message: "Second workspace request",
   });
@@ -616,7 +629,8 @@ it.each(["deny", "expire", "escalate"] as const)(
     const s = await start(a);
     respond = () =>
       JSON.stringify({
-        target: { kind: "agent", agentId: b.id },
+        to: "agent",
+        id: b.id,
         kind: "update",
         message: "Restricted observation",
       });

@@ -1,3 +1,4 @@
+import { Value } from "typebox/value";
 import { assertFence, DomainError, digest, type Tx } from "../../adapters/postgres/database.js";
 import { promptText } from "../../prompt-language.js";
 import { completeToolCall, type ToolBackground } from "./tool-completion.js";
@@ -9,14 +10,14 @@ import {
 } from "./tool-ledger.js";
 import { deferTool } from "./tool-order.js";
 import { backgroundResult, result, type ToolResult } from "./tool-results.js";
-import { toolInputError } from "./tool-validation.js";
+import { type ToolInputIssue, toolInputError } from "./tool-validation.js";
 import type { ExecutionContext } from "./worker.js";
 
 export type { StoredToolCall, ToolResult } from "./tool-results.js";
 export { backgroundResult, result, storedToolResult } from "./tool-results.js";
 
-// Version 2 removes caller-provided names from hire_agent.
-export const TOOL_SCHEMA_VERSION = 2;
+// Version 3 changes model messages to flat envelopes. Saved calls must pass the upgrade barrier.
+export const TOOL_SCHEMA_VERSION = 3;
 
 export type ExecutionTool = {
   name: string;
@@ -24,6 +25,8 @@ export type ExecutionTool = {
   modelVisible?: boolean;
   /** A narrowed discovery schema; durable recovery retains the original execution schema. */
   modelParameters?: any;
+  inputIssues?: (args: any) => ToolInputIssue[];
+  inputExample?: (args: any) => unknown;
   label: string;
   description: string;
   parameters: any;
@@ -34,7 +37,7 @@ export type ExecutionTool = {
   coordination?: boolean;
   normalize?: (args: any) => Promise<any>;
   /** Adapt only persisted calls from an earlier schema; their input hash stays unchanged. */
-  restore?: (args: any) => any;
+  restore?: (args: any, sourceVersion: number) => any;
   prepare?: (
     tx: Tx,
     callId: string,
@@ -97,8 +100,10 @@ export async function invokeTool(
         definition,
         observation,
       });
-    const restoring = Boolean(row) || inputVersion < TOOL_SCHEMA_VERSION;
-    const validationArgs = restoring && definition?.restore ? definition.restore(args) : args;
+    const sourceVersion = row ? Number(row.audit?.schemaVersion ?? 1) : inputVersion;
+    const restoring = sourceVersion < TOOL_SCHEMA_VERSION;
+    const validationArgs =
+      restoring && definition?.restore ? definition.restore(args, sourceVersion) : args;
     const parameters =
       definition?.parameters.type === "object"
         ? {
@@ -106,7 +111,16 @@ export async function invokeTool(
             additionalProperties: definition.parameters.additionalProperties ?? false,
           }
         : definition?.parameters;
-    const inputError = toolInputError(name, parameters, validationArgs, observation?.parseError);
+    const inputError = toolInputError(
+      name,
+      parameters,
+      validationArgs,
+      observation?.parseError,
+      parameters && Value.Check(parameters, validationArgs)
+        ? definition?.inputIssues?.(validationArgs)
+        : undefined,
+      definition?.inputExample?.(validationArgs),
+    );
     if (inputError) {
       const output = await rejectInput(tx, ctx, callId, inputError);
       await emit(tx, {
@@ -186,7 +200,8 @@ export async function invokeTool(
       executionArgs =
         row?.execution_input ??
         (checked.normalize ? await checked.normalize(validationArgs) : validationArgs);
-      if (restoring && checked.restore) executionArgs = checked.restore(executionArgs);
+      if (restoring && checked.restore)
+        executionArgs = checked.restore(executionArgs, sourceVersion);
       await tx.query("update tool_calls set execution_input=$2 where id=$1", [
         callId,
         JSON.stringify(executionArgs),

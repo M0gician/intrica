@@ -58,7 +58,8 @@ export function teamTools(context: ToolContext) {
     },
   );
   // Only persisted calls from the old schema may omit the obsolete input on replay.
-  hire.restore = (args) => {
+  hire.restore = (args, version) => {
+    if (version >= 2) return args;
     if (!args || typeof args !== "object" || Array.isArray(args)) return args;
     const { title: _title, ...current } = args;
     return current;

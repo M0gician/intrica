@@ -348,7 +348,8 @@ describe("origin-bound approval lifecycle", () => {
     await k.conversations.stop(m.id);
     const delivery = await child.call("send_message", {
       kind: "update",
-      target: { kind: "agent", agentId: m.id },
+      to: "agent",
+      id: m.id,
       message: "new work after stop",
     });
     expect(delivery.value.delivered).toBe(1);
@@ -408,7 +409,7 @@ describe("origin-bound approval lifecycle", () => {
       (
         await child.call("send_message", {
           kind: "result",
-          target: { kind: "manager" },
+          to: "manager",
           message: "review delivered",
         })
       ).value.delivered,
@@ -417,7 +418,8 @@ describe("origin-bound approval lifecycle", () => {
       (
         await child.call("send_message", {
           kind: "update",
-          target: { kind: "agent", agentId: m.id },
+          to: "agent",
+          id: m.id,
           message: "follow up",
         })
       ).value.delivered,
@@ -463,7 +465,7 @@ describe("origin-bound approval lifecycle", () => {
       (
         await child.call("send_message", {
           kind: "result",
-          target: { kind: "manager" },
+          to: "manager",
           message: "PRIVATE",
         })
       ).waiting,
@@ -628,7 +630,8 @@ describe("origin-bound approval lifecycle", () => {
         (
           await from!.call("send_message", {
             kind: "update",
-            target: { kind: "agent", agentId: to!.actor.agentId },
+            to: "agent",
+            id: to!.actor.agentId,
             message: "follow up",
           })
         ).waiting,
@@ -637,7 +640,7 @@ describe("origin-bound approval lifecycle", () => {
       (
         await author.call("send_message", {
           kind: "result",
-          target: { kind: "manager" },
+          to: "manager",
           message: "delivered",
         })
       ).waiting,
@@ -693,7 +696,8 @@ describe("origin-bound approval lifecycle", () => {
       child = await start(a.id);
     const pending = await child.call("send_message", {
       kind: "update",
-      target: { kind: "agent", agentId: m.id },
+      to: "agent",
+      id: m.id,
       message: "PRIVATE-BODY",
     });
     const page = await k.access.list(c, { actor: manager.actor });
@@ -715,7 +719,7 @@ describe("origin-bound approval lifecycle", () => {
     });
     const denied = await child.call(
       "send_message",
-      { kind: "update", target: { kind: "agent", agentId: m.id }, message: "PRIVATE-BODY" },
+      { kind: "update", to: "agent", id: m.id, message: "PRIVATE-BODY" },
       pending.logical,
     );
     expect(denied.value.message).toBe("Wait for a revised assignment");
@@ -806,7 +810,8 @@ describe("origin-bound approval lifecycle", () => {
         if (from !== to) {
           const sent = await from.call("send_message", {
             kind: "update",
-            target: { kind: "agent", agentId: to.actor.agentId },
+            to: "agent",
+            id: to.actor.agentId,
             message: "team coordination",
           });
           expect(sent.waiting).toBeUndefined();
@@ -814,7 +819,8 @@ describe("origin-bound approval lifecycle", () => {
         }
     const broadcast = await members[1]!.call("send_message", {
       kind: "update",
-      target: { kind: "resource_readers", resourceIds: [left.id] },
+      to: "resource_readers",
+      ids: [left.id],
       message: "shared evidence",
     });
     expect(broadcast.waiting).toBeUndefined();
@@ -846,7 +852,7 @@ describe("origin-bound approval lifecycle", () => {
       (
         await child.call("send_message", {
           kind: "result",
-          target: { kind: "manager" },
+          to: "manager",
           message: "findings saved",
         })
       ).waiting,
@@ -884,7 +890,8 @@ describe("origin-bound approval lifecycle", () => {
       (
         await child.call("send_message", {
           kind: "update",
-          target: { kind: "agent", agentId: m.id },
+          to: "agent",
+          id: m.id,
           message: "private evidence",
         })
       ).waiting,
@@ -1222,7 +1229,7 @@ describe("origin-bound approval lifecycle", () => {
       (
         await child.call("send_message", {
           kind: "result",
-          target: { kind: "manager" },
+          to: "manager",
           message: "blocked on another resource",
         })
       ).waiting,
@@ -1788,14 +1795,15 @@ describe("origin-bound approval lifecycle", () => {
     expect((await k.graph.queries.node(b.id)).revision).toBe(b.revision + 1);
     const message = await caller.call("send_message", {
       kind: "update",
-      target: { kind: "agent", agentId: b.id },
+      to: "agent",
+      id: b.id,
       message: "do work",
     });
     expect(message.waiting).toBe("approval");
     await decide(message.value.requestId);
     await caller.call(
       "send_message",
-      { kind: "update", target: { kind: "agent", agentId: b.id }, message: "do work" },
+      { kind: "update", to: "agent", id: b.id, message: "do work" },
       message.logical,
     );
     expect(

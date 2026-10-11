@@ -113,13 +113,11 @@ export function createCanvasAgent(
           text: JSON.stringify({
             ...(context.systemPrompt?.match(/Current work item: (request-[\w-]+)/)?.[1]
               ? {
-                  target: {
-                    kind: "request",
-                    id: context.systemPrompt.match(/Current work item: (request-[\w-]+)/)![1],
-                  },
+                  to: "request",
+                  id: context.systemPrompt.match(/Current work item: (request-[\w-]+)/)![1],
                   kind: "result",
                 }
-              : { target: { kind: "internal" } }),
+              : { to: "internal" }),
             message: `模拟会话第 ${turns} 轮。\n${context.systemPrompt ?? ""}`,
           }),
         },

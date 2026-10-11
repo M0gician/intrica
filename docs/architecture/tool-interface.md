@@ -133,17 +133,22 @@ exit codes and SIGPIPE are not silently converted to success.
 
 ## Collaboration and permissions
 
-`send_message` and structured final output share the [explicit message contract](addressed-messages.md). External messages require `target`, `kind` and `message`. The targets are:
+`send_message` and structured final output share one flat [explicit message contract](addressed-messages.md). External messages require `to`, `kind` and `message`. The destinations are:
 
-- `{kind:"request",id}` replies to the request's original user, Agent or workspace.
-- `{kind:"followup",id}` adds an update to an outgoing request's current recipient.
-- `{kind:"manager"}` selects the current direct manager. A missing manager is an error.
-- `{kind:"internal"}` saves a private work note. This branch accepts only target and message.
+- `{to:"request",id}` replies to the request's original user, Agent or workspace.
+- `{to:"followup",id}` adds an update to an outgoing request's current recipient.
+- `{to:"manager"}` selects the current direct manager. A missing manager is an error.
+- `{to:"internal"}` saves a private work note. This branch accepts only to and message.
 
-- `{kind:"agent",agentId}` sends to one Agent.
-- `{kind:"agents",agentIds}` sends to a deduplicated set.
-- `{kind:"canvas"}` sends to all other Agents on the canvas.
-- `{kind:"resource_readers",resourceIds}` sends to readers of every selected resource.
+- `{to:"agent",id}` sends to one Agent.
+- `{to:"agents",ids}` sends to a deduplicated set.
+- `{to:"canvas"}` sends to all other Agents on the canvas.
+- `{to:"resource_readers",ids}` sends to readers of every selected resource.
+
+The discovery and execution schemas are identical. Field-level semantic checks
+return correction paths for missing IDs, missing external kinds and invalid
+combinations. Metadata supplies copyable replyTo and followupTo addresses.
+Server-owned routing objects remain in stored dispatches, not model parameters.
 
 Administrators and workspace owners can use the Agent audience targets without
 communication approval. Read/write members retain their existing communication
@@ -223,7 +228,8 @@ New hire calls reject `title`, `name`, `displayName` and other unknown fields.
 The saved node ID and name are returned on replay; the first task is not submitted
 again. Old durable calls and version-1 conversation checkpoints remove only the
 obsolete title before validation. The original argument digest is preserved.
-New assistant turns persist tool schema version 2. Completed receipts keep their
+New assistant turns persist tool schema version 3. Version-1 hiring restoration
+does not apply to version-2 or newer arguments. Completed receipts keep their
 historical result. Existing names and human renaming remain supported; Agent
 tools cannot rename Agent nodes.
 

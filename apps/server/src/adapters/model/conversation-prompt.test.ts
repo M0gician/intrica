@@ -1,4 +1,4 @@
-import { type AgentRole, addressedMessageSchema } from "@intrica/contracts";
+import { type AgentRole, messageEnvelopeSchema } from "@intrica/contracts";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import { buildClosingPrompt, buildConversationPrompt } from "./conversation-prompt.js";
@@ -53,12 +53,10 @@ describe("capability-specific conversation guidance", () => {
           for (const name of names)
             if (!availableTools.includes(name))
               expect(prompt).not.toMatch(new RegExp(`\\b${name}\\b`));
-          const examples = prompt.match(
-            /\{"target":\{"kind":"(?:request|internal)"[^}]*\},[^}]*\}/g,
-          )!;
+          const examples = prompt.match(/\{"to":"(?:request|internal)"[^}]*\}/g)!;
           expect(examples).toHaveLength(2);
           for (const example of examples)
-            expect(Value.Check(addressedMessageSchema, JSON.parse(example))).toBe(true);
+            expect(Value.Check(messageEnvelopeSchema, JSON.parse(example))).toBe(true);
         }
       }
     },
@@ -101,6 +99,9 @@ describe("capability-specific conversation guidance", () => {
         expect(prompt).toContain(language === "en" ? "keeping requests open" : "请求保持开放");
         expect(prompt.includes("priority=expedite")).toBe(role === "admin" || role === "owner");
         expect(prompt.includes("handoff.sourceRunIds")).toBe(role === "admin");
+        expect(prompt.includes("agents/resource_readers")).toBe(
+          role === "admin" || role === "owner",
+        );
         if (role === "admin" || role === "owner")
           expect(prompt).toContain(language === "en" ? "43-second" : "43 秒");
       }

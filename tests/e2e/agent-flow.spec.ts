@@ -230,7 +230,7 @@ test("已处理申请保留原历史位置；统一按钮发送、追加、停�
         name: "send_message",
         status: "error",
         approvalStatus: "expired",
-        args: { kind: "result", target: { kind: "manager" }, message: "QA 已完成" },
+        args: { kind: "result", to: "manager", message: "QA 已完成" },
         result: { content: [{ type: "text", text: '{"status":"expired","executed":false}' }] },
       },
     },

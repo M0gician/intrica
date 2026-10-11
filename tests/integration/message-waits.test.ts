@@ -84,7 +84,8 @@ async function session() {
     [run.subject_id, run.id],
   );
   const sent = await call("send_message", {
-    target: { kind: "agent", agentId: receiver.id },
+    to: "agent",
+    id: receiver.id,
     kind: "request",
     message: "Inspect a separate input",
   });
@@ -208,7 +209,8 @@ it("unknown outcomes defer a timer and stop cancels it without bypassing either 
 it("followups use the original recipient, preserve work, and enforce per-request limits idempotently", async () => {
   const s = await session();
   const args = {
-      target: { kind: "followup", id: s.requestId },
+      to: "followup",
+      id: s.requestId,
       kind: "update",
       message: "Additional evidence",
     },
@@ -237,13 +239,15 @@ it("closing one parent retains shared and independent children and closes only e
   const s = await session(),
     parent = s.run.frozen_input.workItemId;
   const independent = await s.call("send_message", {
-    target: { kind: "agent", agentId: s.receiver.id },
+    to: "agent",
+    id: s.receiver.id,
     kind: "request",
     message: "Independent work",
     lifetime: "independent",
   });
   const exclusive = await s.call("send_message", {
-    target: { kind: "agent", agentId: s.receiver.id },
+    to: "agent",
+    id: s.receiver.id,
     kind: "request",
     message: "Exclusive work",
   });
@@ -284,7 +288,8 @@ it("closing one parent retains shared and independent children and closes only e
   };
   const tools = await k.tools.create(context, receiverRun.frozen_input);
   const reply = await invokeTool(context, tools.find((t) => t.name === "send_message")!, key(), {
-    target: { kind: "request", id: s.requestId },
+    to: "request",
+    id: s.requestId,
     kind: "result",
     message: "Shared dependency result",
   });
@@ -320,7 +325,8 @@ it("Agent urgency requires management authority, fences old output, and limits r
       .rows[0].generation,
   ).toBe("1");
   const next = await s.call("send_message", {
-    target: { kind: "followup", id: s.requestId },
+    to: "followup",
+    id: s.requestId,
     kind: "update",
     message: "More evidence",
     priority: "expedite",
