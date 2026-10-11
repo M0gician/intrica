@@ -63,8 +63,8 @@ export function buildConversationPrompt(
       : "",
     manage
       ? text(
-          "You assign work according to task dependencies, member experience, relevant context and workload. Related follow-up work goes to the original Agent in its existing conversation. Members with key background continue their related work. You ask members about their progress when you need more information. You start independent work in parallel as early as capacity allows. Operations with result dependencies or conflicting writes follow dependency order. You handle simple tasks directly.",
-          "你根据任务依赖、成员经验、相关上下文和工作量安排分工。相关后续任务优先交给原 Agent，并追加到其原会话。掌握关键背景的成员继续负责相关部分。需要补充信息时，你向相关成员询问进展。你在并发额度内尽早并行启动独立工作。存在结果依赖或共享目标的写入冲突时，相关操作按依赖顺序执行。你直接完成简单任务。",
+          "You assign work according to task dependencies, member experience, relevant context and workload. Related follow-up work goes to the original Agent in its existing conversation. Members with key background continue their related work. You ask members about their progress when you need more information. You start independent work in parallel as early as capacity allows. Operations with result dependencies or conflicting writes follow dependency order. You return deliverables to members with relevant context for verification when that context supports the check. Verification records include evidence, the environment and remaining gaps. You handle simple tasks directly.",
+          "你根据任务依赖、成员经验、相关上下文和工作量安排分工。相关后续任务优先交给原 Agent，并追加到其原会话。掌握关键背景的成员继续负责相关部分。需要补充信息时，你向相关成员询问进展。你在并发额度内尽早并行启动独立工作。存在结果依赖或共享目标的写入冲突时，相关操作按依赖顺序执行。已有上下文有助于检查时，你将交付物交给掌握相关背景的成员验证。验证记录包含证据、环境和待补内容。你直接完成简单任务。",
         )
       : text(
           "You continue related tasks in your existing conversation and retain useful context, decisions and pending work. You ask relevant peers for help and report progress and workload to your manager.",
@@ -200,7 +200,7 @@ export function buildConversationPrompt(
 export function buildClosingPrompt(language: PromptLanguage): string {
   return promptText(
     language,
-    "This run has reached its tool-turn limit and entered the reporting stage. You submit a progress report based on available results using the addressed final JSON protocol. kind=update reports partial work while keeping the request open; kind=result or kind=decline records a final answer. target=internal saves a private note. The report contains completed work, pending tools, results awaiting verification and blockers. Added user input can continue this run.",
-    "本轮执行已达到工具回合上限，当前进入结果汇报阶段。你根据已有结果，以明确指定目标的最终 JSON 提交阶段报告。kind=update 汇报阶段进展并保留请求，kind=result 或 kind=decline 提交最终答复，target=internal 保存私有笔记。报告包含已完成工作、待处理工具、待确认结果和阻塞原因。用户追加输入后，可继续当前运行。",
+    "This run has reached its tool-turn limit and entered the reporting stage. You submit exactly one flat final JSON object based on available results, with to, id or ids when required, kind and message. You use the supplied incoming request ID for replies. kind=update reports partial work while keeping the request open; a delivered kind=result or kind=decline settles the addressed request. to=internal saves a private note using only to and message. The report contains completed work, pending tools, results awaiting verification and blockers. Added user input can continue this run.",
+    "本轮执行已达到工具回合上限，当前进入结果汇报阶段。你根据已有结果提交一个扁平的最终 JSON 对象，包含 to、目标要求的 id 或 ids、kind 和 message。回复使用服务端提供的收到的请求 ID。kind=update 汇报阶段进展并保留请求，kind=result 或 kind=decline 在投递后结束指定请求。to=internal 保存私有笔记，只包含 to 和 message。报告包含已完成工作、待处理工具、待确认结果和阻塞原因。用户追加输入后，可继续当前运行。",
   );
 }

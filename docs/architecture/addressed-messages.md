@@ -13,7 +13,9 @@ Invalid inputs return path, expected type or allowed values, actual type,
 executed=false, a valid specimen and repairsRemaining. Specimens contain no
 submitted message text, identifiers or credentials. Semantic failures use the
 same recorded, bounded correction path as schema failures. The Agent corrects
-the indicated fields. Contract version 3 stops old message arguments from
+the indicated fields while retaining valid text and destination intent. Example
+IDs are placeholders; actual IDs come from current authorized metadata.
+Contract version 3 stops old message arguments from
 dispatching as new calls. The version-1 hiring adapter remains limited to v1.
 
 All actionable incoming user messages, peer messages, current approval notices,
@@ -26,6 +28,9 @@ with INTRICA_INBOX_WORK_WINDOW_MS (1,000–30,000 ms); natural context boundarie
 continue admitting input during that window. Explicit expedite retains its
 authorization policy. Automatic scheduling grants no authority,
 bypasses no execution barrier and does not replay tools.
+Every role receives this inbox guidance. Prompt timing values and scheduling
+read the same policy in `inference/inbox-policy.ts`. Explicit expedite instructions
+remain limited to roles with that authority.
 
 Current Pi adapters do not support provider-native mid-response steering. The
 runner uses bounded cancel/drain/continue, retaining committed context and real
@@ -141,8 +146,8 @@ no request. The UI shows targets, deadlines, countdowns and follow-up state, wit
 wake-now and cancel-wait controls. Cancelling a wait leaves the business request
 open and returns the decision to the Agent when its execution barriers permit.
 
-`target:{kind:"followup",id}` with `kind:"update"` routes from the responsible
-requester to the existing request's recipient. `target:request` remains the reply
+`{to:"followup",id,kind:"update",message}` routes from the responsible
+requester to the existing request's recipient. `{to:"request",id,kind,message}` remains the reply
 route from recipient to requester. Neither direction guesses from the latest
 speaker. Follow-ups reuse the request and context. `INTRICA_MESSAGE_FOLLOWUPS`
 defaults to one automatic follow-up per request; each wait window permits at most

@@ -1,18 +1,10 @@
 import { assertFence, type Sql } from "../../adapters/postgres/database.js";
 import { actionableMessage } from "../execution/messages.js";
 import type { ExecutionContext } from "../execution/worker.js";
+import { inboxSteerDelayMs, inboxWorkWindowMs } from "./inbox-policy.js";
 import { cutoverInput } from "./input-cutover.js";
 
-/** A coalescing window bounds thinking latency without interrupting on every progress event. */
-export function inboxSteerDelayMs() {
-  const configured = Number(process.env.INTRICA_INBOX_STEER_MS ?? 2000);
-  return Number.isFinite(configured) ? Math.max(250, Math.min(30_000, configured)) : 2000;
-}
-
-export function inboxWorkWindowMs() {
-  const configured = Number(process.env.INTRICA_INBOX_WORK_WINDOW_MS ?? 5000);
-  return Number.isFinite(configured) ? Math.max(1000, Math.min(30_000, configured)) : 5000;
-}
+export { inboxSteerDelayMs, inboxWorkWindowMs } from "./inbox-policy.js";
 
 export async function steerableInbox(
   sql: Sql,

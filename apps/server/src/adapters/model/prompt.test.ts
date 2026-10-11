@@ -51,7 +51,13 @@ describe("buildSystemPrompt", () => {
     for (const language of ["en", "zh-CN"] as const) {
       const conversation = buildConversationPrompt(language, {
         availableTools: ["read", "send_message", "rg"],
-        policy: { followupLimit: 1, toolInputRepairs: 2, agentExpediteCooldownSeconds: 30 },
+        policy: {
+          followupLimit: 1,
+          toolInputRepairs: 2,
+          agentExpediteCooldownSeconds: 30,
+          inboxSteerDelaySeconds: 2,
+          inboxWorkWindowSeconds: 5,
+        },
         agent: true,
         persona: "USER_PERSONA 保留原文",
         selection: ["n-1"],

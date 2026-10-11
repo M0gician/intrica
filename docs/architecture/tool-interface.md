@@ -28,6 +28,10 @@ tool catalog. Each tool's guidance is independent of other tools being present.
 The closing stage keeps the addressed final-output protocol and omits tool-call
 instructions. Follow-up and input-repair limits come from the current execution
 policy, and Agent expedite guidance shares the runtime cooldown constant.
+Automatic inbox windows come from the scheduler's shared timing policy. Every
+role receives input, receipt and bounded cutover guidance. Administrator-only
+expedite instructions follow the current capability scope. The closing stage
+uses `to=internal` for notes and the same flat fields as ordinary final output.
 Message, environment and media guidance live in small, separate prompt modules.
 
 Read/write members do not see hiring, dismissal, approval decisions or run
@@ -148,11 +152,13 @@ exit codes and SIGPIPE are not silently converted to success.
 The discovery and execution schemas are identical. Field-level semantic checks
 return correction paths for missing IDs, missing external kinds and invalid
 combinations. Metadata supplies copyable replyTo and followupTo addresses.
+The model copies the address and adds kind and message. Duplicate IDs are
+normalized; resource_readers accepts at most 40 distinct resource IDs.
 Server-owned routing objects remain in stored dispatches, not model parameters.
 
 Administrators and workspace owners can use the Agent audience targets without
 communication approval. Read/write members retain their existing communication
-checks. Their message schema includes request, internal, manager, single-Agent and resource-reader targets. Resource-reader
+checks. Their message schema includes request, followup, internal, manager, single-Agent and resource-reader targets. Resource-reader
 filtering applies to administrators too. The resource list must be nonempty.
 Broadcasts exclude the sender. Resource-response settings do not disable messages.
 Workspace conversation reads include an Agent's public messages and activity;
@@ -200,7 +206,12 @@ path rules for both one-time and persistent requests.
 
 ## Input receipts and tool recovery
 
-Appending input persists it in queue without cancelling inference. Read
+Appending input first persists it in queue. Eligible user and peer input,
+current approval and dependency notices, and final tool updates trigger bounded
+inference cutover after the default two-second coalescing window. Each automatic
+cutover reserves a default five-second work window; safe boundaries can consume
+input sooner. Routine progress, outgoing copies, notes and stale notices remain
+passive. Current adapters use cancel/drain/continue, with native steering disabled. Read
 status is recorded atomically with the context checkpoint. A message becomes
 read only after that transaction commits. Reconnect reads durable receipts.
 
@@ -212,7 +223,8 @@ Stopped runs and unknown outcomes keep their existing barriers.
 The run lease owner listens for committed tool-state notifications during
 inference. Bounded polling recovers lost notifications. Dispatch rechecks
 permissions, capacity and dependencies and uses the original logical call ID.
-Tool approval does not cancel inference or create a second dispatch owner.
+Tool approval creates no second dispatch owner. Actionable approval notices and
+final tool updates follow the shared inbox cutover policy.
 
 ## Configuration and execution
 
@@ -236,7 +248,10 @@ tools cannot rename Agent nodes.
 Role-specific prompts encourage early parallel work, continued use of relevant
 Agents in their original conversations and peer questions, findings and dependency
 updates. Administrators can recruit for large or independent tasks without first
-exhausting existing members. Prompt guidance does not guarantee a model's choices.
+exhausting existing members. They return deliverables to members with useful
+prior context for verification and record evidence, environment and remaining
+gaps. Browser verification checks actual launch, rendering and input, with its
+platform scope recorded. Prompt guidance does not guarantee a model's choices.
 
 `configure_agent({agentId?,expectedRevision,patch})` accepts persona,
 role, `respondToResources` and schedule fields. Only an Agent targeting

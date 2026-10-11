@@ -33,6 +33,11 @@ duplicate address normalization, and exclusion of submitted text and IDs from
 errors. `inference-inbox.test.ts` checks normal user input, peer messages, current
 approval notices, stale versions, routine progress, coalescing, minimum work
 windows and preservation of committed tool pairs during active thinking.
+Prompt contract tests exercise all four roles in English and Chinese, including
+the closing stage. They change inbox timing between actual model turns and check
+configuration bounds and fallback values in the refreshed prompt. Every role
+receives actionable-inbox guidance; management and expedite instructions remain
+role-scoped. Examples use the flat protocol, including strict internal notes.
 
 `sandbox-browser.test.ts` launches actual Chromium under platform isolation,
 loads a local HTTP page, reads real WebGL pixels after input, saves a PNG and

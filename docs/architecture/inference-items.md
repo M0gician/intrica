@@ -127,6 +127,10 @@ continuous context, read receipts, original tool ownership, `running`/`queued`
 receipts and explicit message delivery. The same `send_message` contract and
 flat final message JSON remain in force. The closing stage retains final JSON guidance
 with an empty tool list. Execution checks current authority again at admission.
+All roles receive automatic inbox guidance and the current coalescing/work-window
+values from the scheduler's shared policy. Explicit expedite instructions remain
+scoped to current authority. Input repairs retain valid message intent and use
+actual authorized IDs rather than the placeholders in correction examples.
 
 Context commitment is separate from publication. A final candidate goes through
 the existing generation-fenced `MessageService` transaction. A stale candidate

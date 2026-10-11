@@ -33,8 +33,8 @@ export function toolGuidance(
       : "",
     tools.has("bash")
       ? text(
-          "bash.environment={id,version} selects a registered cwd after current permission and runtime checks. You name the registered interpreter explicitly in command. An explicit cwd matches that environment's cwd.",
-          "bash.environment={id,version} 在校验当前权限和运行时后选择已登记 cwd。你在 command 中明确使用登记的解释器路径，显式填写的 cwd 与该环境的 cwd 保持一致。",
+          "bash.environment={id,version} selects a registered cwd after current permission and runtime checks. You name the registered interpreter explicitly in command. An explicit cwd matches that environment's cwd. Isolated execution uses the host network and enforces file grants and protected paths. Browser checks use the discovered runtime in a permitted execution mode. You report launch or access failures with the actual error and required capability; verification records the browser, platform and observed behavior.",
+          "bash.environment={id,version} 在校验当前权限和运行时后选择已登记 cwd。你在 command 中明确使用登记的解释器路径，显式填写的 cwd 与该环境的 cwd 保持一致。隔离执行使用宿主网络，并执行文件授权和受保护路径检查。浏览器检查在允许的执行模式中使用已发现的运行时。你根据实际错误及所需能力报告启动或访问失败；验证记录包含浏览器、平台和观察到的行为。",
         )
       : "",
     tools.has("send_message")
@@ -51,8 +51,8 @@ export function toolGuidance(
       : "",
     tools.size
       ? text(
-          `Tool input errors carry code, phase, executed=false, issues, a schema example when available and repairsRemaining. You correct the listed fields using the current tool schema and actual authorized IDs. The configured budget allows ${toolInputRepairs} corrections for the same input error in a work item. At repairsRemaining=0 the affected work waits with tool_input for corrected input; independent work remains eligible. An unknown outcome from a started tool requires resolution through its original receipt before further execution.`,
-          `工具输入错误返回 code、phase、executed=false、issues、适用时的结构示例和 repairsRemaining。你按当前工具参数定义及实际授权 ID 修正列出的字段。当前配置允许同一任务中的相同输入错误修正 ${toolInputRepairs} 次。repairsRemaining=0 时，受影响的任务以 tool_input 状态等待更正输入，独立工作仍可继续。已开始执行但结果未知的工具，需要先通过原回执确认结果，再继续执行。`,
+          `Tool input errors carry code, phase, executed=false, issues, a schema example when available and repairsRemaining. Each issue identifies a field path, expected type or allowed values and actual type. You retain valid message text and destination intent, correct the listed fields using the current tool schema and actual authorized IDs, and treat example IDs as placeholders. The configured budget allows ${toolInputRepairs} corrections for the same input error in a work item. At repairsRemaining=0 the affected work waits with tool_input for corrected input; independent work remains eligible. An unknown outcome from a started tool requires resolution through its original receipt before further execution.`,
+          `工具输入错误返回 code、phase、executed=false、issues、适用时的结构示例和 repairsRemaining。每个问题标明字段路径、预期类型或允许值，以及实际类型。你保留有效正文和目标意图，按当前工具参数定义及实际授权 ID 修正列出的字段，并将示例 ID 视为占位值。当前配置允许同一任务中的相同输入错误修正 ${toolInputRepairs} 次。repairsRemaining=0 时，受影响的任务以 tool_input 状态等待更正输入，独立工作仍可继续。已开始执行但结果未知的工具，需要先通过原回执确认结果，再继续执行。`,
         )
       : "",
   ];

@@ -27,7 +27,13 @@ function fixture(role: AgentRole | "owner") {
     agent: role !== "owner",
     selection: [],
     asyncSeconds: 17,
-    policy: { followupLimit: 1, toolInputRepairs: 2, agentExpediteCooldownSeconds: 30 },
+    policy: {
+      followupLimit: 1,
+      toolInputRepairs: 2,
+      agentExpediteCooldownSeconds: 30,
+      inboxSteerDelaySeconds: 2,
+      inboxWorkWindowSeconds: 5,
+    },
     availableTools: [
       ...common,
       ...(role !== "owner" ? ["request_permission"] : []),
@@ -68,7 +74,13 @@ describe("capability-specific conversation guidance", () => {
       for (const role of roles) {
         const prompt = buildConversationPrompt(language, {
           ...fixture(role),
-          policy: { followupLimit: 7, toolInputRepairs: 5, agentExpediteCooldownSeconds: 43 },
+          policy: {
+            followupLimit: 7,
+            toolInputRepairs: 5,
+            agentExpediteCooldownSeconds: 43,
+            inboxSteerDelaySeconds: 0.75,
+            inboxWorkWindowSeconds: 8.25,
+          },
         });
         for (const token of [
           "incoming",
@@ -97,6 +109,16 @@ describe("capability-specific conversation guidance", () => {
           language === "en" ? "one continuous model context" : "一份持续的模型上下文",
         );
         expect(prompt).toContain(language === "en" ? "keeping requests open" : "请求保持开放");
+        expect(prompt).toContain(language === "en" ? "window is 0.75 seconds" : "窗口为 0.75 秒");
+        expect(prompt).toContain(language === "en" ? "8.25-second work window" : "8.25 秒工作窗口");
+        expect(prompt).toContain(language === "en" ? "current approval" : "当前有效的审批");
+        expect(prompt).toContain(language === "en" ? "final tool updates" : "最终工具更新");
+        expect(prompt).toContain(language === "en" ? "field path" : "字段路径");
+        expect(prompt).toContain(
+          language === "en" ? "example IDs as placeholders" : "示例 ID 视为占位值",
+        );
+        for (const obsolete of ["target=internal", "target.kind", "report_result", "reply_message"])
+          expect(prompt).not.toContain(obsolete);
         expect(prompt.includes("priority=expedite")).toBe(role === "admin" || role === "owner");
         expect(prompt.includes("handoff.sourceRunIds")).toBe(role === "admin");
         expect(prompt.includes("agents/resource_readers")).toBe(
@@ -107,6 +129,15 @@ describe("capability-specific conversation guidance", () => {
       }
     },
   );
+
+  it.each(languages)("keeps the flat message contract in the closing stage in %s", (language) => {
+    const prompt = buildClosingPrompt(language);
+    for (const field of ["to", "id", "ids", "kind", "message", "to=internal"])
+      expect(prompt).toContain(field);
+    for (const obsolete of ["target", "report_result", "reply_message"])
+      expect(prompt).not.toContain(obsolete);
+    expect(prompt).toContain(language === "en" ? "supplied incoming request ID" : "收到的请求 ID");
+  });
 
   it.each(languages)("describes current environment and media contracts in %s", (language) => {
     const prompt = buildConversationPrompt(language, fixture("read"));

@@ -99,6 +99,8 @@ it.each(cases)(
   "$role receives current tools, policy and valid closing output in $language",
   async ({ role, language }) => {
     vi.stubEnv("INTRICA_MESSAGE_FOLLOWUPS", "3");
+    vi.stubEnv("INTRICA_INBOX_STEER_MS", "750");
+    vi.stubEnv("INTRICA_INBOX_WORK_WINDOW_MS", "8250");
     k.runs.limits.toolInputRepairs = 5;
     k.runs.limits.conversationTurns = 1;
     const member = role === "owner" ? undefined : await agent(role);
@@ -112,6 +114,10 @@ it.each(cases)(
         language === "en" ? `Current role: ${role}.` : `当前角色：${role}。`,
       );
       if (member) expect(prompt).toContain("PERSONA_MARKER");
+      for (const obsolete of ["target=internal", "target.kind", "report_result", "reply_message"])
+        expect(prompt).not.toContain(obsolete);
+      expect(prompt).toContain(language === "en" ? "current approval" : "当前有效的审批");
+      expect(prompt).toContain(language === "en" ? "final tool updates" : "最终工具更新");
       for (const tool of s.tools) {
         if (
           (tool.name.includes("_") || ["bash", "rg"].includes(tool.name)) &&
@@ -130,6 +136,8 @@ it.each(cases)(
         expect(this.state.tools.length).toBeGreaterThan(0);
         expect(prompt).toContain(language === "en" ? "limit is 3" : "上限为 3 次");
         expect(prompt).toContain(language === "en" ? "allows 5 corrections" : "修正 5 次");
+        expect(prompt).toContain(language === "en" ? "window is 0.75 seconds" : "窗口为 0.75 秒");
+        expect(prompt).toContain(language === "en" ? "8.25-second work window" : "8.25 秒工作窗口");
         const send = this.state.tools.find((t) => t.name === "send_message")!;
         expect(send.description).toContain(
           language === "en" ? "3 followups per request" : "最多跟进 3 次",
@@ -140,9 +148,13 @@ it.each(cases)(
         expect(this.state.tools.some((t) => t.name === "create_artifact")).toBe(role !== "read");
         expect(this.state.tools.some((t) => t.name === "take_over_run")).toBe(role === "admin");
         vi.stubEnv("INTRICA_MESSAGE_FOLLOWUPS", "0");
+        vi.stubEnv("INTRICA_INBOX_STEER_MS", "invalid");
+        vi.stubEnv("INTRICA_INBOX_WORK_WINDOW_MS", "999999");
       } else {
         expect(this.state.tools).toEqual([]);
         expect(prompt).toContain(language === "en" ? "limit is 0" : "上限为 0 次");
+        expect(prompt).toContain(language === "en" ? "window is 2 seconds" : "窗口为 2 秒");
+        expect(prompt).toContain(language === "en" ? "30-second work window" : "30 秒工作窗口");
         expect(prompt).toContain("kind=update");
         expect(prompt).toContain("kind=result");
         expect(Value.Check(schema, JSON.parse(addressedOutput(prompt, "Verified")))).toBe(true);
