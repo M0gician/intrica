@@ -96,8 +96,13 @@ database backup and copy `DATA_DIR` together. Protect backups as credentials.
 
 ## Database migration and uncertain results
 
-Current source uses schema 12. Schema 11 separates file and execution grants
-and persists input receipts. Schema 12 adds tracing and scoped media references.
+Current source uses schema 16. Schemas 11–13 separate file/command grants, preserve
+input receipts, and add tracing, media references and resource-change scheduling.
+Schemas 14–15 add message deliveries, read/reply deadlines, inbox reviews and
+persistent collaboration pause. Schema 16 records model response activity.
+Completed tool receipts are retained. Tool schema 5 separates takeover result
+resources (`handoffResourceIds`) from resource delegation (`grant_resources`) and
+requires an explicit reason for waiting without a current dependency.
 Schema 8 and 9 upgrades reconcile persistent
 tool receipts and execution state in one transaction. Stop the old API,
 Worker and execution processes normally before migration; stopping the
