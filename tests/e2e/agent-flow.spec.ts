@@ -227,10 +227,10 @@ test("已处理申请保留原历史位置；统一按钮发送、追加、停�
       data: {
         id: "logical-report",
         callId: "delayed-report",
-        name: "report_result",
+        name: "send_message",
         status: "error",
         approvalStatus: "expired",
-        args: { message: "QA 已完成" },
+        args: { to: "user", kind: "result", message: "QA 已完成" },
         result: { content: [{ type: "text", text: '{"status":"expired","executed":false}' }] },
       },
     },
@@ -241,17 +241,17 @@ test("已处理申请保留原历史位置；统一按钮发送、追加、停�
       kind: "tool_update",
       data: {
         callId: "delayed-report",
-        name: "report_result",
+        name: "send_message",
         status: "failed",
         approvalStatus: "expired",
-        text: "后台工具 report_result internal-callback-prose",
+        text: "后台工具 send_message internal-callback-prose",
         updatedAt: "2026-09-22T05:47:39Z",
         result: { content: [{ type: "text", text: '{"status":"expired","executed":false}' }] },
       },
     },
   );
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  const toolCard = page.locator(".tool-call-details").filter({ hasText: "提交报告" });
+  const toolCard = page.locator(".tool-call-details").filter({ hasText: "发送消息" });
   await expect(toolCard).toHaveCount(1);
   await expect(toolCard).toContainText("审批已过期 · 未执行");
   await expect(page.getByText(/internal-callback-prose/)).toHaveCount(0);

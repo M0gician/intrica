@@ -2,19 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
-
-// Pair real protocol responses with their calls; a scripted final string alone
-// must never satisfy this acceptance journey.
-function toolResults(messages, name) {
-  const calls = new Map(
-    messages.flatMap((m) => (m.tool_calls ?? []).map((c) => [c.id, c.function])),
-  );
-  return messages.flatMap((m) => {
-    const call = calls.get(m.tool_call_id);
-    if (m.role !== "tool" || call?.name !== name) return [];
-    return [{ args: JSON.parse(call.arguments), value: JSON.parse(m.content) }];
-  });
-}
+import { reviewedReply, taskReplyAddress, toolResults } from "./journey-protocol.mjs";
 
 export async function until(check, timeout = 30000) {
   const deadline = Date.now() + timeout;
@@ -120,7 +108,8 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
             reply = {
               tool: "send_message",
               args: {
-                target: { kind: "agent", agentId: hire.id },
+                to: "agent",
+                id: hire.id,
                 message: "FOLLOWUP: Include evidence gaps at the report tail.",
               },
             };
@@ -149,7 +138,7 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
                 )
                 .find(Boolean),
             );
-            if (!reports.every(Boolean)) reply = { tool: "wait_for_message", args: {} };
+            if (!reports.every(Boolean)) reply = reviewedReply(body.messages, { waiting: true });
             else {
               const reads = toolResults(body.messages, "read");
               for (const [i, id] of reports.entries()) {
@@ -198,7 +187,7 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
                     updates.every((u) => u.value.node?.text.includes("[x]")),
                     "Final delivery requires successful ToDo writes",
                   );
-                  reply = { text: "ACCEPTANCE_TEAM_DONE" };
+                  reply = reviewedReply(body.messages, { text: "ACCEPTANCE_TEAM_DONE" });
                 }
               }
             }
@@ -235,15 +224,18 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
               text: `${"Observed mechanism; not a confirmed incident cause.\n".repeat(140)}\nTail evidence: ${evidence[member - 1]}`,
             },
           };
-        } else if (!toolResults(body.messages, "report_result").length) {
+        } else if (!toolResults(body.messages, "send_message").length) {
           assert.ok(artifacts[0].value.id, "Report must reference an actually saved artifact");
           reply = {
-            tool: "report_result",
+            tool: "send_message",
             args: {
+              ...taskReplyAddress(body.messages),
+              kind: "result",
+              fileIds: [artifacts[0].value.id],
               message: `ACCEPTANCE_MEMBER_${member}_DONE artifactId=${artifacts[0].value.id}`,
             },
           };
-        } else reply = { text: "Member finished" };
+        } else reply = reviewedReply(body.messages, { text: "Member finished" });
       }
       if (res.destroyed) return;
       const isTool = "tool" in reply;
@@ -431,7 +423,9 @@ export async function verifyJourney(call, journey, existingRequestIds = []) {
   }
   const managerFeed = await call(`canvas-agents/${journey.manager.id}`);
   assert.equal(
-    managerFeed.events.filter((e) => e.kind === "tool" && e.data.name === "send_message").length,
+    managerFeed.events.filter(
+      (e) => e.kind === "tool" && e.data.name === "send_message" && e.data.status === "complete",
+    ).length,
     2,
     "Both independently scoped members must receive an ordinary follow-up without approval",
   );
