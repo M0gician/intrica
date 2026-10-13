@@ -75,7 +75,8 @@ export const deliveryFields = `q.*,q.expect_reply as "expectReply",q.deadline_at
  q.unread_deadline_at as "unreadDeadlineAt",q.snoozed_until as "snoozedUntil",
  q.sender_conversation_id as "senderConversationId",q.recipient_conversation_id as "recipientConversationId",
  q.sender_agent_id as "senderId",q.recipient_agent_id as "recipientId",q.inbox_message_id as "messageId",
- sender.body->>'title' as "senderName",n.body->>'title' as "recipientName",
+ coalesce(sender.body->>'title',m.content->>'senderName') as "senderName",
+ coalesce(n.body->>'title',sent.content->'recipientNames'->>q.recipient_agent_id) as "recipientName",
  expedited.consumed_at as "expediteReadAt",m.consumed_at as "readAt",left(m.content->>'text',500) as message,
  coalesce(a.paused,false) as paused,coalesce(m.content->>'activationBlocked'='true',false) as blocked,
  (n.id is null or (m.consumed_run_id is null and m.seq<=c.consumed_message_seq)) as closed,
@@ -85,6 +86,7 @@ export const deliveryJoins = `from message_deliveries q
  left join agent_configs a on a.node_id=q.recipient_agent_id
  join conversations c on c.id=q.recipient_conversation_id
  left join messages m on m.conversation_id=q.recipient_conversation_id and m.client_message_id=q.inbox_message_id
+ left join messages sent on sent.conversation_id=q.sender_conversation_id and sent.client_message_id=q.source_message_id
  left join messages expedited on expedited.conversation_id=q.recipient_conversation_id and expedited.client_message_id=q.expedite_message_id`;
 
 export async function deliveries(
@@ -122,7 +124,7 @@ function projectDelivery(q: any, conversationId?: string) {
   return {
     ...q,
     deliveryId: q.id,
-    pending: q.state === "open" && !q.tracking_stopped && !q.closed && (!q.readAt || q.expectReply),
+    pending: q.state === "open" && !q.tracking_stopped && (!q.readAt || q.expectReply),
     ...(q.recipientConversationId === conversationId && q.state === "open"
       ? { replyTo: { to: "reply", id: q.id } }
       : {}),

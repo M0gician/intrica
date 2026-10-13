@@ -96,7 +96,7 @@ export class HostExecutor {
       });
     }
     const commandRoots = grants
-      .filter((g) => g.execution_mode === "host")
+      .filter((g) => g.execution_mode === "host" && !g.resource?.snapshot)
       .map((g) => g.resource?.path ?? g.resource_id);
     const isolatedRoots = [
       scratch,
@@ -202,7 +202,7 @@ export class HostExecutor {
         (
           await Promise.all(
             raw
-              .filter((g) => g.granted_mode === "write" && g.resource)
+              .filter((g) => g.granted_mode === "write" && g.resource && !g.resource.snapshot)
               .map(async (g) => {
                 if (!g.resource) return false;
                 const p = await canonicalPath(g.resource.path);

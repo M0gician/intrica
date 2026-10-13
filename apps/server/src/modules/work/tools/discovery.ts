@@ -8,7 +8,7 @@ export function adaptToolDiscovery(
   { capabilities: caps, text }: ToolContext,
 ) {
   const find = (name: string) => tools.find((t) => t.name === name)!;
-  for (const name of ["hire_agent", "dismiss_agent", "review_access_request"])
+  for (const name of ["hire_agent", "dismiss_agent", "review_access_request", "grant_resources"])
     find(name).modelVisible = caps.manageTeam;
   find("take_over_run").modelVisible = caps.role === "admin";
   for (const name of ["update_node", "create_artifact"]) find(name).modelVisible = caps.writeNodes;
@@ -57,7 +57,8 @@ export function adaptToolDiscovery(
         ),
       },
     };
-    const { resourceIds: _handoffResources, ...sendFields } = send.modelParameters.properties;
+    const { handoffResourceIds: _handoffResources, ...sendFields } =
+      send.modelParameters.properties;
     send.modelParameters = { ...send.modelParameters, properties: sendFields };
   }
   const hire = find("hire_agent");

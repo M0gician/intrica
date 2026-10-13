@@ -865,7 +865,10 @@ it("migrates ambiguous legacy blocks without reviving stopped work", async () =>
         ],
       );
     }
-    // Reconstruct v12, including removal of fields introduced by the v14 migration.
+    // Reconstruct v12, including removal of fields introduced by later migrations.
+    await db.pool.query(
+      "alter table model_calls drop column last_response_at, drop column response_phase",
+    );
     await db.pool.query(
       "drop table message_deliveries;drop table inbox_reviews;alter table agent_configs drop column paused;alter table tool_calls drop column schema_version",
     );

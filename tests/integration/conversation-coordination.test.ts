@@ -743,7 +743,7 @@ it("transfers stopped work atomically, blocks stale continuation and delivers re
     to: "user",
     kind: "result",
     message: "Completed with verified result",
-    resourceIds: [artifact.value.id],
+    handoffResourceIds: [artifact.value.id],
   });
   expect(report.result.isError).not.toBe(true);
   expect(report.value.informedExecutors).toEqual([member.id]);

@@ -69,7 +69,11 @@ function reviewedWait(model: Agent): Reply {
       ? JSON.parse((latest.content[0] as { text: string }).text)
       : undefined;
   if (value?.reviewToken && !(last?.role === "toolResult" && last.isError))
-    return toolReply("wait_for_message", { confirmed: true, reviewToken: value.reviewToken });
+    return toolReply("wait_for_message", {
+      confirmed: true,
+      reviewToken: value.reviewToken,
+      reason: "Remain available for the next interaction in this test scenario",
+    });
   if (value?.reviewId)
     return toolReply("review_inbox", {
       action: "confirm",

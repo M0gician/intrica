@@ -24,7 +24,13 @@ export function recipientName(event: Activity, nodes: ReadonlyMap<string, Node>,
     (event.data.recipientNames as Record<string, string> | undefined)?.[id],
   );
 }
-export function EventTime({ value }: { value: Activity["createdAt"] }) {
+export function EventTime({
+  value,
+  precise = false,
+}: {
+  value: Activity["createdAt"];
+  precise?: boolean;
+}) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
@@ -39,6 +45,7 @@ export function EventTime({ value }: { value: Activity["createdAt"] }) {
         day: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
+        ...(precise ? { second: "2-digit" as const } : {}),
       })}
     </time>
   );
@@ -46,9 +53,13 @@ export function EventTime({ value }: { value: Activity["createdAt"] }) {
 export function ActivityHeader({
   event,
   nodes,
+  currentAgentId,
+  showTime = true,
 }: {
   event: Activity;
   nodes: ReadonlyMap<string, Node>;
+  currentAgentId?: string | undefined;
+  showTime?: boolean;
 }) {
   const hasReceipts =
     Array.isArray(event.data.deliveryReceipts) && event.data.deliveryReceipts.length > 0;
@@ -66,40 +77,53 @@ export function ActivityHeader({
     trigger: tr("资源与定时任务"),
     completion_review: tr("结束前检查"),
   };
+  const authorId = event.data.from ?? event.data.senderId ?? event.agentId;
   const author =
     system[event.kind] ??
-    participantName(
-      nodes,
-      event.data.from ?? event.data.senderId ?? event.agentId,
-      event.data.senderName,
-    );
-  const recipients: string[] = event.data.from
-    ? [event.agentId]
-    : Array.isArray(event.data.recipients)
-      ? (event.data.recipients as string[])
-      : typeof event.data.to === "string"
-        ? [event.data.to]
-        : [];
+    (authorId === currentAgentId ? null : participantName(nodes, authorId, event.data.senderName));
+  const recipients: string[] = (
+    event.data.from
+      ? [event.agentId]
+      : Array.isArray(event.data.recipients)
+        ? (event.data.recipients as string[])
+        : typeof event.data.to === "string"
+          ? [event.data.to]
+          : []
+  ).filter((id) => id !== currentAgentId);
   const target =
     recipients.length > 2
       ? tr("{{count}} 位成员", { count: recipients.length })
       : recipients.map((id) => recipientName(event, nodes, id)).join("、");
+  const hasParticipants = Boolean(author || target || event.kind === "team_notice");
+  if (
+    !hasParticipants &&
+    !priority &&
+    event.kind !== "report" &&
+    (!showTime || hasReceipts || !event.createdAt)
+  )
+    return null;
   return (
-    <header className="activity-header">
-      <div className="activity-participants">
-        <strong>{author}</strong>
-        {["message", "report", "broadcast"].includes(event.kind) && target && (
-          <span>{tr("发给 {{name}}", { name: target })}</span>
-        )}
-        {event.kind === "team_notice" && (
-          <span>{participantName(nodes, event.data.subjectId, event.data.subjectName)}</span>
-        )}
-      </div>
+    <header className={`activity-header${hasParticipants ? "" : " activity-header-compact"}`}>
+      {hasParticipants && (
+        <div className="activity-participants">
+          {author && <strong>{author}</strong>}
+          {["message", "report", "broadcast"].includes(event.kind) && target && (
+            <span>{tr("发给 {{name}}", { name: target })}</span>
+          )}
+          {event.kind === "team_notice" && (
+            <span>{participantName(nodes, event.data.subjectId, event.data.subjectName)}</span>
+          )}
+        </div>
+      )}
       <div className="activity-header-meta">
         {priority && <PriorityControl active label={tr("加急")} />}
-        {event.kind === "tool" && <span>{tr("工具")}</span>}
         {event.kind === "report" && <span>{tr("结果汇报")}</span>}
-        {!hasReceipts && <EventTime value={event.createdAt} />}
+        {showTime && !hasReceipts && (
+          <EventTime
+            value={event.createdAt}
+            precise={!["message", "report", "broadcast", "message_notice"].includes(event.kind)}
+          />
+        )}
       </div>
     </header>
   );

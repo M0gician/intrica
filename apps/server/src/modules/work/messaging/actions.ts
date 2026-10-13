@@ -24,10 +24,27 @@ export async function updateDelivery(
     )
   ).rows[0];
   if (!q) throw new DomainError("FORBIDDEN", "只能跟踪自己发送的消息");
-  if (version !== undefined && q.version !== version)
-    throw new DomainError("VERSION_CONFLICT", "消息状态已变化，请刷新回执", { version: q.version });
   const status = (await deliveries(tx, conversationId, [deliveryId])).find((d) => d.id === q.id)!;
+  if (version !== undefined && q.version !== version)
+    throw new DomainError("VERSION_CONFLICT", "消息状态已变化；按当前回执重新决定操作", {
+      executed: false,
+      version: q.version,
+      receipt: status,
+      allowedActions: !status.pending
+        ? []
+        : status.closed
+          ? ["cancel"]
+          : status.paused || status.blocked
+            ? ["wait", "cancel"]
+            : ["wait", "expedite", "cancel"],
+    });
   if (!status.pending) return { deliveryId, status: q.state, changed: false };
+  if (status.closed && action !== "cancel")
+    throw new DomainError("RECIPIENT_REMOVED", "接收者已移除；核查结果并重新分配工作后停止跟踪", {
+      executed: false,
+      receipt: status,
+      allowedActions: ["cancel"],
+    });
   if (action === "expedite") {
     if (status.blocked)
       throw new DomainError("MESSAGE_BLOCKED", "消息达到自动协作上限；需要用户恢复任务后再处理", {

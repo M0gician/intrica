@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import type { AccessIntent, AgentRole, ApprovalRecord } from "@intrica/contracts";
-import { canonicalPath, withinPath } from "../../adapters/host/sandbox.js";
+import { canonicalPath } from "../../adapters/host/sandbox.js";
 import { DomainError, type Sql } from "../../adapters/postgres/database.js";
 import { validateDelivery } from "./collaboration.js";
 import { agentIdentity, canReadAgentResources, grantsFor, managementChain } from "./policy.js";
@@ -30,26 +30,7 @@ export async function canGrantRole(sql: Sql, managerId: string, subject: string,
   const required = await grantsFor(sql, subject);
   for (const id of await roleDelta(sql, subject, role)) {
     const need = required.find((g) => g.resource_id === id)!;
-    let covered = false;
-    for (const grant of available.filter((g) => g.mode === "write")) {
-      if (grant.resource_id === id) {
-        covered = true;
-        break;
-      }
-      if (
-        need.resource &&
-        grant.resource &&
-        grant.resource.type === "directory" &&
-        withinPath(
-          await canonicalPath(grant.resource.path),
-          await canonicalPath(need.resource.path),
-        )
-      ) {
-        covered = true;
-        break;
-      }
-    }
-    if (!covered) return false;
+    if (!(await coveringGrant(available, { id, resource: need.resource }, "write"))) return false;
   }
   return true;
 }

@@ -5,8 +5,8 @@ import { actionableMessage } from "./messages.js";
 import { toolFailure, validationFailure } from "./tool-validation.js";
 import type { ExecutionContext } from "./worker.js";
 
-// Version 4 uses delivery IDs and explicit inbox review decisions.
-export const TOOL_SCHEMA_VERSION = 4;
+// Version 5 separates handoff resources and requires a reason for prospective waits.
+export const TOOL_SCHEMA_VERSION = 5;
 
 export type ToolResult = {
   content: Array<

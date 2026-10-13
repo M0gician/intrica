@@ -15,6 +15,7 @@ import {
   reducedPermissions,
 } from "../access/resources.js";
 import { cancelAgents } from "../execution/cancellation.js";
+import { notifyMemberRemoval } from "../execution/member-removal.js";
 import {
   cancelResourceSchedules,
   recoverModelSchedules,
@@ -243,7 +244,9 @@ export class GraphMutation {
           !input.publishFile &&
           !(await coveringGrant(
             await grantsFor(this.tx, manager),
-            { resource: input.resource },
+            // Sharing newly published bytes may follow an existing source-path
+            // read grant, but the resulting snapshot never grants that path back.
+            { resource: { type: input.resource.type, path: input.resource.path } },
             "read",
           ))
         )
@@ -540,6 +543,7 @@ export class GraphMutation {
       this.affectedScopes.add(row.parent_id ?? this.canvasId);
     }
     const ids = rows.map((r) => r.id);
+    await notifyMemberRemoval(this.tx, this.canvasId, ids);
     const removed = (
       await this.tx.query(
         "delete from grants where resource_id=any($1::text[]) or subject_id=any($1::text[]) returning *",
@@ -547,7 +551,9 @@ export class GraphMutation {
       )
     ).rows;
     for (const g of removed) if (!this.beforeGrants.has(g.id)) this.beforeGrants.set(g.id, g);
-    await cancelAgents(this.tx, [...ids, ...removed.map((g) => g.subject_id)]);
+    // Removing a managed member does not revoke the manager's execution authority.
+    // Actual resource reductions are reconciled after the mutation is complete.
+    await cancelAgents(this.tx, ids);
     const edges = (
       await this.tx.query(
         "select id from edges where from_id=any($1::text[]) or to_id=any($1::text[])",

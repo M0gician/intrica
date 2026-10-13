@@ -83,6 +83,8 @@ export function AgentNodePanel({
   const [message, setMessage] = useState(() => readAgentDraft(storageKey(node.id)));
   const [draftPersistent, setDraftPersistent] = useState(true);
   const panel = useRef<HTMLDivElement>(null);
+  const profileIdentity = useRef<HTMLInputElement>(null);
+  const [profileVisible, setProfileVisible] = useState(true);
   const focusedRequest = useRef<number | undefined>(undefined);
   const revealRequest = (id: string) => {
     const element = Array.from(
@@ -108,6 +110,16 @@ export function AgentNodePanel({
     <div className="agent-node-panel" ref={panel}>
       <ConversationPause reason={data.runReason} />
       <CollaborationState
+        identity={
+          profileVisible
+            ? undefined
+            : {
+                id: node.id,
+                name: node.title || tr("未命名元素"),
+                variant: draft.portraitVariant,
+                ...(draft.portraitAssetId ? { assetId: draft.portraitAssetId } : {}),
+              }
+        }
         paused={data.collaborationPaused}
         respondsToResources={draft.enabled}
         busy={busy}
@@ -144,6 +156,9 @@ export function AgentNodePanel({
         }
       />
       <AgentTimeline
+        currentAgentId={node.id}
+        profileRef={profileIdentity}
+        onProfileVisibilityChange={setProfileVisible}
         navigationRef={navigation}
         onLoadEarlier={cursor ? loadEarlier : undefined}
         onLoadLater={
@@ -184,6 +199,7 @@ export function AgentNodePanel({
         before={
           <>
             <AgentProfile
+              identityRef={profileIdentity}
               node={node}
               nodes={nodes}
               linkedCount={linkedCount}

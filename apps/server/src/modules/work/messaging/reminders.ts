@@ -3,6 +3,7 @@ import { type MessagingContext, wakeInbox } from "./context.js";
 import { deliveries } from "./deliveries.js";
 
 const due = `q.state='open' and not q.tracking_stopped
+ and exists(select 1 from nodes recipient where recipient.id=q.recipient_agent_id)
  and (q.snoozed_until is null or q.snoozed_until<=clock_timestamp())
  and ((q.expect_reply and q.notified_at is null and q.deadline_at<=clock_timestamp())
    or (q.unread_notified_at is null and q.unread_deadline_at<=clock_timestamp() and exists(
@@ -41,13 +42,7 @@ export async function tickReminders(context: MessagingContext) {
       const entries = [];
       for (const q of rows) {
         const status = statuses.find((d) => d.id === q.id)!;
-        if (!status.pending) {
-          if (status.closed)
-            await tx.query("update message_deliveries set tracking_stopped=true where id=$1", [
-              q.id,
-            ]);
-          continue;
-        }
+        if (!status.pending || status.closed) continue;
         const unread = !status.readAt && !q.unread_notified_at && q.unread_deadline_at <= q.clock;
         const reply = q.expect_reply && !q.notified_at && q.deadline_at <= q.clock;
         if (!unread && !reply) continue;

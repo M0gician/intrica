@@ -24,6 +24,7 @@ import type { ExecutionContext } from "../../execution/worker.js";
 import type { ConversationInput, Conversations, ToolsFactory } from "../conversations.js";
 import { createCheckpointWriter } from "./checkpoints.js";
 import { finishConversation } from "./finish.js";
+import { recoverCheckpointTools } from "./recovery.js";
 
 export async function executeConversation(
   conversations: Conversations,
@@ -35,12 +36,12 @@ export async function executeConversation(
   const model = createCanvasAgent(config, ctx.run.id);
   if (ctx.store.media)
     model.prepareMessages = (messages) => ctx.store.media!.hydrate(messages, input.conversationId);
-  const conversation = (
-    await conversations.db.pool.query("select * from conversations where id=$1", [
-      input.conversationId,
-    ])
-  ).rows[0];
+  const { conversation, blocked } = await recoverCheckpointTools(ctx);
   if (!conversation) throw new DomainError("NOT_FOUND", "会话已删除");
+  if (blocked) {
+    await ctx.store.finish(ctx.run, "waiting", undefined, "unknown");
+    return;
+  }
   model.state.messages = conversation.checkpoint;
   let identity = input.agentId ? await agentIdentity(conversations.db.pool, input.agentId) : null;
   const savedLanguage = (

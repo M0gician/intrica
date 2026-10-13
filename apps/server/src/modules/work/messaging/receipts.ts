@@ -29,7 +29,7 @@ export async function projectCollaborationReceipts(
     deliveryId: q.id,
     recipientId: q.recipient_agent_id,
     recipientName: q.recipientName ?? "",
-    state: q.readAt ? "read" : q.closed ? "closed" : "unread",
+    state: q.closed ? "closed" : q.readAt ? "read" : "unread",
     readAt: q.readAt?.toISOString() ?? null,
     expectReply: q.expect_reply,
     replied: q.state === "replied",
@@ -41,8 +41,7 @@ export async function projectCollaborationReceipts(
     expediteReadAt: q.expediteReadAt?.toISOString() ?? null,
     paused: q.paused,
     blocked: q.blocked,
-    tracking:
-      q.state === "open" && !q.tracking_stopped && !q.closed && (!q.readAt || q.expect_reply),
+    tracking: q.state === "open" && !q.tracking_stopped && (!q.readAt || q.expect_reply),
     version: q.version,
   });
   for (const record of records) {

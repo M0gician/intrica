@@ -43,7 +43,14 @@ export function collaborationTools(context: ToolContext) {
       fileIds: Type.Optional(
         Type.Array(idParameter, { minItems: 1, maxItems: 20, uniqueItems: true }),
       ),
-      resourceIds: Type.Optional(Type.Array(idParameter, { maxItems: 100, uniqueItems: true })),
+      handoffResourceIds: Type.Optional(
+        Type.Array(idParameter, {
+          maxItems: 100,
+          uniqueItems: true,
+          description:
+            "Result resources for a taken-over run only. To grant input access, use grant_resources before sending.",
+        }),
+      ),
     }),
     "graph",
     preflightOnly,
@@ -63,8 +70,11 @@ export function collaborationTools(context: ToolContext) {
       invalid("replyWithinSeconds", "设置回复时间时必须 expectReply=true");
     if (args.expectReply && ["reply", "user"].includes(args.to))
       invalid("expectReply", "回复及面向用户的结果不建立新的成员回复请求");
-    if (args.resourceIds && (!capabilities.manageTeam || args.kind !== "result"))
-      invalid("resourceIds", "仅管理者的 result 可交付已接管工作的资源");
+    if (args.handoffResourceIds && (!capabilities.manageTeam || args.kind !== "result"))
+      invalid(
+        "handoffResourceIds",
+        "仅管理者的 result 可交付已接管工作的资源；授予任务输入权限请先使用 grant_resources",
+      );
     if (args.kind === "reply" && args.to !== "reply")
       invalid("to", "kind=reply 需要 to=reply，并使用来信 replyTo 中的 id");
     const ids = [...new Set<string>(args.ids ?? [])];
@@ -117,8 +127,8 @@ export function collaborationTools(context: ToolContext) {
             : "message",
       ...(args.to === "resource_readers"
         ? { resourceIds: ids }
-        : args.resourceIds
-          ? { resourceIds: args.resourceIds }
+        : args.handoffResourceIds
+          ? { resourceIds: args.handoffResourceIds }
           : {}),
       ...(args.fileIds ? { fileIds: args.fileIds } : {}),
       ...(replyTo ? { replyTo } : {}),

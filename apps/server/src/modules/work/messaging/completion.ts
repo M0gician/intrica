@@ -5,7 +5,10 @@ import { reviewStatus } from "./review.js";
 
 export async function completionState(sql: Sql, conversationId: string, runId: string) {
   const status = await reviewStatus(sql, conversationId);
-  if (!status.state.deliveries.length)
+  if (
+    !status.state.deliveries.length &&
+    !status.state.messages.some((m) => m.event === "member_removed")
+  )
     return { kind: "ready" as const, fingerprint: status.state.fingerprint };
   if (status.fresh)
     return {

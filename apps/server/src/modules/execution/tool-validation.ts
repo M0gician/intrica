@@ -61,23 +61,30 @@ export function validationFailure(name: string, schema: any, args: unknown) {
     nextAction:
       name === "send_message"
         ? '使用扁平字段，例如 {to:"agent",id:"当前成员ID",message:"正文",expectReply:true,replyWithinSeconds:120}。to 是字符串；不要使用 target 对象或 JSON 字符串。'
-        : name === "read" && (args as any)?.target?.frame !== undefined
-          ? '将 frame 移到顶层，例如 {target:{kind:"path",path:"file.gif"},frame:0,mode:"image"}。'
-          : name === "request_permission" && (args as any)?.scope?.access === "file"
-            ? "单文件只接受 execution=none；在自己的工作目录运行隔离命令即可读取已授权文件。"
-            : "保持正确字段，只修正 issues 指出的字段；工具尚未执行。",
+        : name === "read" && typeof (args as any)?.target === "string"
+          ? 'target 必须直接传对象，无需 JSON 编码。例如 {target:{kind:"node",nodeId:"节点ID"},mode:"text"} 或 {target:{kind:"path",path:"文件路径"},mode:"text"}。'
+          : name === "read" && (args as any)?.target?.frame !== undefined
+            ? '将 frame 移到顶层，例如 {target:{kind:"path",path:"file.gif"},frame:0,mode:"image"}。'
+            : name === "request_permission" && (args as any)?.scope?.access === "file"
+              ? "单文件只接受 execution=none；在自己的工作目录运行隔离命令即可读取已授权文件。"
+              : "保持正确字段，只修正 issues 指出的字段；工具尚未执行。",
   };
 }
 export function toolFailure(error: unknown, executed: boolean) {
-  if (error instanceof DomainError)
+  if (error instanceof DomainError) {
+    const { executed: knownExecution, ...details } =
+      error.details && typeof error.details === "object"
+        ? (error.details as Record<string, unknown>)
+        : {};
     return {
       error: {
         code: error.code,
         message: error.message,
-        ...(error.details && typeof error.details === "object" ? error.details : {}),
+        ...details,
       },
-      executed,
+      executed: typeof knownExecution === "boolean" ? knownExecution : executed,
     };
+  }
   const code = (error as any)?.code;
   return {
     error: {

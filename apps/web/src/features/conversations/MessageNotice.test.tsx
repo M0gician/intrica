@@ -81,3 +81,38 @@ it("invalid custom delay blocks waiting but does not prevent stopping reminders"
   );
   connection.dispose();
 });
+
+it("keeps unresolved closed messages actionable without offering wait or expedite", async () => {
+  const connection = createSessionConnection("", "notice-closed");
+  connection.transport.request = vi.fn(async () => [
+    {
+      deliveryId: "closed",
+      recipientName: "Former reviewer",
+      pending: true,
+      closed: true,
+      state: "open",
+      version: 2,
+    },
+  ]) as any;
+  connection.transport.json = vi.fn(async () => ({})) as any;
+  render(
+    <ConnectionServices.Provider value={connection}>
+      <MessageNotice deliveryIds={["closed"]} />
+    </ConnectionServices.Provider>,
+  );
+  await screen.findByText("Former reviewer");
+  expect(screen.queryByRole("button", { name: "继续等待" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "加急消息" })).toBeNull();
+  expect(screen.queryByLabelText("下次提醒")).toBeNull();
+  expect(screen.getByText("此消息已关闭，请核查结果并处理未完成事项。")).toBeTruthy();
+  fireEvent.click(screen.getByText("更多操作"));
+  fireEvent.click(screen.getByRole("button", { name: "停止跟踪" }));
+  await waitFor(() =>
+    expect(connection.transport.json).toHaveBeenCalledWith(
+      "POST",
+      "/api/v2/message-deliveries/closed",
+      { action: "cancel", version: 2 },
+    ),
+  );
+  connection.dispose();
+});

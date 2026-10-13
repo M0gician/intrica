@@ -4,6 +4,7 @@ import { updateDelivery } from "./messaging/actions.js";
 import type { MessagingContext } from "./messaging/context.js";
 import { deliveries, deliveryStatuses } from "./messaging/deliveries.js";
 import { tickReminders } from "./messaging/reminders.js";
+import { wakeRemovalNotices } from "./messaging/removal-notices.js";
 import { confirmWait, reviewInbox } from "./messaging/review.js";
 
 /** Composition only; delivery, review, reminders and actions have separate modules. */
@@ -18,8 +19,14 @@ export class MessageHooks implements MessagingContext {
   review(tx: Tx, conversationId: string, args: InboxReviewArgs) {
     return reviewInbox(tx, conversationId, args);
   }
-  confirmWait(tx: Tx, conversationId: string, confirmed?: boolean, token?: string) {
-    return confirmWait(tx, conversationId, confirmed, token);
+  confirmWait(
+    tx: Tx,
+    conversationId: string,
+    confirmed?: boolean,
+    token?: string,
+    reason?: string,
+  ) {
+    return confirmWait(tx, conversationId, confirmed, token, reason);
   }
   update(
     tx: Tx,
@@ -64,7 +71,8 @@ export class MessageHooks implements MessagingContext {
       this.update(tx, row.sender_conversation_id, deliveryId, action, seconds, version),
     );
   }
-  tick() {
-    return tickReminders(this);
+  async tick() {
+    await tickReminders(this);
+    await wakeRemovalNotices(this);
   }
 }

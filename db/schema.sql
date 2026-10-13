@@ -1,6 +1,6 @@
 -- Intrica protocol 2. This schema never reads or alters the previous public tables.
-CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=15), models_initialized boolean NOT NULL DEFAULT false);
-INSERT INTO schema_info(version) VALUES (15) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=16), models_initialized boolean NOT NULL DEFAULT false);
+INSERT INTO schema_info(version) VALUES (16) ON CONFLICT DO NOTHING;
 CREATE TABLE canvases (
  id text PRIMARY KEY, title text NOT NULL, graph_revision integer NOT NULL DEFAULT 0,
  event_seq bigint NOT NULL DEFAULT 0,
@@ -96,7 +96,7 @@ CREATE TABLE proposals (
 CREATE INDEX proposals_canvas ON proposals(canvas_id,created_at DESC);
 CREATE TABLE tool_calls (
  id text PRIMARY KEY, run_id text NOT NULL REFERENCES runs(id), attempt_id text NOT NULL REFERENCES attempts(id),
- schema_version integer NOT NULL DEFAULT 4,
+ schema_version integer NOT NULL DEFAULT 5,
  logical_call_id text NOT NULL, name text NOT NULL, args jsonb NOT NULL, args_hash text NOT NULL,
  effect_class text NOT NULL CHECK(effect_class IN ('read','graph','external')),
  state text NOT NULL CHECK(state IN ('prepared','dispatching','succeeded','failed','unknown','waiting')),
@@ -157,6 +157,7 @@ CREATE TABLE model_calls (
  purpose text NOT NULL, simulated boolean NOT NULL DEFAULT false,
  started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz,
  provider_request_id text, response_id text, request_id text, first_response_at timestamptz,
+ last_response_at timestamptz, response_phase text NOT NULL DEFAULT 'awaiting_response',
  outcome text NOT NULL DEFAULT 'unconfirmed', usage_status text NOT NULL DEFAULT 'unavailable',
  input_tokens bigint, output_tokens bigint, cache_read_tokens bigint, cache_write_tokens bigint
 );

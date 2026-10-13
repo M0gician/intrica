@@ -157,7 +157,7 @@ it("rejects retired and malformed tools with precise audited failures and no del
       )
     ).rows[0];
     expect(row.state).toBe("failed");
-    expect(row.schema_version).toBe(4);
+    expect(row.schema_version).toBe(5);
     expect(row.result).toEqual(called.result);
   }
   expect(
@@ -227,7 +227,7 @@ it("tracks unread delivery for every message and keeps one record per recipient 
 
 it("requires a real inbox inspection, complete coverage and current review token before waiting", async () => {
   const s = await start();
-  expect((await s.call("wait_for_message", {})).value.error.code).toBe("INBOX_REVIEW_REQUIRED");
+  expect((await s.call("wait_for_message", {})).value.error.code).toBe("TOOL_ARGUMENTS");
   expect(
     (await s.call("review_inbox", { action: "confirm", decisions: [] })).value.error.code,
   ).toBe("TOOL_ARGUMENTS");
@@ -255,8 +255,13 @@ it("requires a real inbox inspection, complete coverage and current review token
     (await s.call("wait_for_message", { confirmed: true, reviewToken: "forged" })).result.isError,
   ).toBe(true);
   expect(
-    (await s.call("wait_for_message", { confirmed: true, reviewToken: verified.reviewToken }))
-      .waiting,
+    (
+      await s.call("wait_for_message", {
+        confirmed: true,
+        reviewToken: verified.reviewToken,
+        reason: "Await the user's assigned follow-up input",
+      })
+    ).waiting,
   ).toBe("message");
   await k.db.canvas(board, (tx) =>
     k.conversations.append(tx, s.run.subject_id, key(), "user", { text: "new work" }, s.run.id),

@@ -1,6 +1,6 @@
 # Tool contracts
 
-The registry defines 26 tools. Each model request receives the subset and
+The registry defines 28 tools. Each model request receives the subset and
 parameter schemas that match its current capabilities. Workspace sessions use
 the owner's authority. Model visibility is a discovery decision; every
 execution checks its current authority and run lease.
@@ -9,10 +9,10 @@ execution checks its current authority and run lease.
 | --- | --- |
 | Content and execution | `read`, `write`, `edit`, `rg`, `bash` |
 | External capabilities | `web_search`, `mcp`, `list_capabilities` |
-| Canvas | `read_canvas`, `create_artifact`, `update_node` |
+| Canvas | `read_canvas`, `create_artifact`, `copy_artifact`, `update_node` |
 | Collaboration | `send_message`, `review_inbox`, `update_message`, `list_agents`, `read_conversation`, `get_agent_status`, `get_tool_result`, `wait_for_message` |
 | Team | `hire_agent`, `configure_agent`, `dismiss_agent`, `take_over_run` |
-| Permissions | `request_permission`, `list_access_requests`, `review_access_request` |
+| Permissions | `request_permission`, `list_access_requests`, `review_access_request`, `grant_resources` |
 
 The system prompt, visible tools and their descriptions use one capability
 snapshot: identity, role, management scope, effective resource grants and
@@ -23,7 +23,7 @@ Server-authored Chinese and English conversation prompts use affirmative
 declarative sentences, including the closing report instruction. User-authored
 persona text remains unchanged.
 
-Read/write members do not see hiring, dismissal, approval decisions or run
+Read/write members do not see hiring, dismissal, resource delegation, approval decisions or run
 takeover. Their shared tools expose their own schedule, requests and conversation.
 Only administrators see takeover. Read members do not see canvas mutation tools.
 Host execution grants permit commands under the service account's host privileges.
@@ -79,6 +79,22 @@ Image metadata includes the content hash, dimensions and animation timing;
 GIF frames are read by zero-based `frame` against that same snapshot. Text mode
 exposes metadata even when the model has no image capability.
 
+`copy_artifact({nodeId,expectedRevision,fileName?})` copies authorized immutable
+bytes into the caller's own workspace. It checks the node revision, snapshot hash
+and byte length, then returns the destination path and receipt. A fixed helper
+uses an inode-checked working directory and exclusive, no-follow file creation.
+It can reuse identical bytes; it never overwrites a different file or follows a
+destination symlink. The copy checks authority under the canvas lock and does not
+grant access to the source path. Interrupted writes retain unknown-outcome safeguards.
+
+`grant_resources({agentId,resources:[{nodeId,expectedRevision,mode}]})` delegates a
+batch atomically. Administrators need both management authority over the recipient
+and the resource mode being delegated. Workspace owners may grant resources to
+canvas members. Agent private spaces cannot be delegated this way. Stronger existing
+grants are preserved, and this operation grants no new command execution authority.
+After success, `send_message` sends the task and references. Snapshot access is by
+node identity; source paths always have separate authority.
+
 Saving an artifact does not submit a report or certify task completion.
 Command results retain raw exit code, signal, timeout, cancellation and start
 failure. Task outcome remains unverified until separately checked. Nonzero
@@ -87,7 +103,7 @@ exit codes and SIGPIPE are not silently converted to success.
 ## Collaboration and permissions
 
 `send_message` uses flat structured arguments. `report_result` is retired and has
-no execution alias. Tool schema version 4 is persisted in each new receipt.
+no execution alias. Tool schema version 5 is persisted in each new receipt.
 Completed historical receipts retain their original result and argument digest.
 
 ```json
@@ -102,8 +118,10 @@ Completed historical receipts retain their original result and argument digest.
 `result` saves a report and supports authorized handoff resources. A root
 Agent has no `manager`, and uses `user` for its final delivery. A tracked
 reply copies the incoming `replyTo` address to close exactly that delivery.
-`fileIds` identifies accessible published snapshots; `resourceIds` is
+`fileIds` identifies accessible published snapshots; `handoffResourceIds` is
 restricted to authorized manager results for taken-over work.
+The former public `send_message.resourceIds` field has no alias. The `ids` field
+of `to:resource_readers` still selects resource readers and grants no access.
 
 `list_agents` exposes the current administrator's team and manager, including
 members with different file grants. They communicate without approval.
@@ -136,6 +154,9 @@ checks current communication authority and has a recipient-wide 30 second
 cooldown. Cancelling stops tracking while preserving read status and permitting
 a late reply. Pausing an Agent preserves its inbox and tracking. Direct run
 cancellation cancels the sender's open deliveries.
+Expediting interrupts active model inference. The tool description asks the sender
+to assess response activity and dependencies before interrupting a long generation.
+Version conflicts return the current receipt, version and available actions.
 
 Before `wait_for_message`, call `review_inbox({action:"inspect"})` and follow
 `nextAfter` for all `items`. Reply to required incoming requests using `replyTo`,
@@ -147,8 +168,13 @@ then inspect again. Confirm with:
 
 Each item lists its `allowedActions`. Messages require `handled`; outstanding
 incoming requests require a reply or `wait`; outgoing deliveries accept `wait`
-or `background` with a reason. Complete coverage produces `reviewToken` for
-`wait_for_message({confirmed:true,reviewToken})`. Missing fields, unknown IDs,
+or `background` with a reason. Removed-recipient deliveries and member-removal
+notices require a reason explaining handling, reassignment or cancellation.
+Complete coverage produces `reviewToken` and an explicit completion/next-action
+branch. `completion:waiting` permits `wait_for_message({confirmed:true,reviewToken})`;
+`completion:ready` directs the model to verify deliverables, submit its final result
+and finish. Without a current dependency, prospective waiting requires `reason`
+describing an explicitly assigned monitoring task. Missing fields, unknown IDs,
 duplicate decisions, incomplete coverage and stale inspections return corrective
 errors. New messages, read receipts, replies, notices and delivery changes
 invalidate confirmation. These tools are sequential.
@@ -157,7 +183,10 @@ Natural completion uses the same review when collaboration obligations remain.
 An up-to-date `background` disposition permits completion; `wait` keeps the run
 waiting for messages. Missing or stale review adds a durable `completion_review`
 hook. Two ignored hooks for the same snapshot pause at `inbox_review`, avoiding
-an inference loop. Conversations without pending deliveries finish normally.
+an inference loop. Conversations without pending deliveries or unreviewed removal
+notices finish normally. Removing a member does not complete its unfinished work;
+its name and outstanding delivery IDs remain in a durable `member_removed` notice.
+Normal inbox admission enforces pause and activation limits when waking senders.
 The final decision is rechecked under the run fence in the canvas transaction.
 The server verifies coverage and state; the model judges the adequacy of its
 answers and whether a pending reply blocks the task.
@@ -168,6 +197,8 @@ field paths, expected types and received types without echoing message bodies.
 Preflight failures roll back the canvas transaction. Failures after dispatch
 retain execution evidence and existing unknown-outcome safeguards. Models
 correct the indicated field instead of repeating an ambiguous operation.
+Known no-effect rejections retain `executed:false` even when the executor entered
+the handler. A JSON string in `read.target` returns a structured-object example.
 
 `request_permission({scope,reason})` uses one scope:
 
@@ -194,6 +225,9 @@ Grant reconciliation can mark a pending, unexecuted request `satisfied` with
 no fabricated approver. Equivalent pending persistent requests return the original request ID instead of creating duplicates. Stale reviews return the current status and instruct the model to inspect the current version; only pending requests accept a decision. Denial, expiration, escalation, changed targets and
 unknown outcomes remain barriers. Scratch ownership uses the same physical
 path rules for both one-time and persistent requests.
+A completed approval whose execution conditions are no longer satisfied terminates
+the original call with `AUTHORIZATION_CHANGED`; background retries cannot recreate
+approvals for that call. Persistent raw-path grants use separate non-snapshot nodes.
 
 ## Input receipts and tool recovery
 
@@ -210,6 +244,21 @@ The run lease owner listens for committed tool-state notifications during
 inference. Bounded polling recovers lost notifications. Dispatch rechecks
 permissions, capacity and dependencies and uses the original logical call ID.
 Tool approval does not cancel inference or create a second dispatch owner.
+
+On recovery, a pending assistant turn matches durable receipts across runs of the
+same conversation by turn ID, provider call ID, tool name and argument hash.
+Completed receipts repair the checkpoint instead of repeating their effects.
+Unstarted calls from ended runs return a no-effect cancellation; uncertain effects
+block recovery for verification. A later intentional turn has a distinct identity.
+Removing an Agent cancels that Agent's run. Losing management access to an Agent
+does not cancel its manager. Actual resource revocation still interrupts affected
+execution and preserves unread inputs for later handling.
+
+`get_agent_status` includes the latest model call's phase, request start, first and
+last response times, elapsed duration and response age. Stream observations are
+throttled to five-second intervals (phase transitions flush immediately), with a
+final flush on completion or interruption. These are transport observations, not
+proof of semantic progress. Actively streaming requests have no new short timeout.
 
 ## Configuration and execution
 
@@ -229,7 +278,7 @@ New hire calls reject `title`, `name`, `displayName` and other unknown fields.
 The saved node ID and name are returned on replay; the first task is not submitted
 again. Old durable calls and version-1 conversation checkpoints remove only the
 obsolete title before validation. The original argument digest is preserved.
-New assistant turns persist tool schema version 4. Completed receipts keep their
+New assistant turns persist tool schema version 5. Completed receipts keep their
 historical result. Existing names and human renaming remain supported; Agent
 tools cannot rename Agent nodes.
 

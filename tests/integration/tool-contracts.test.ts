@@ -434,7 +434,7 @@ it.each(["read", "write", "admin", "owner"] as const)(
           to: "manager",
           kind: "result",
           message: "progress",
-          resourceIds: [],
+          handoffResourceIds: [],
         }),
       ).toBe(false);
     }

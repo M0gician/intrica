@@ -1563,9 +1563,16 @@ describe("origin-bound approval lifecycle", () => {
     await decide(pending.value.requestId, manager.actor);
     await k.graph.deleteLink(edge.edge.id, { idempotencyKey: key() });
     const resumed = await child.call("write", args, pending.logical);
-    expect(resumed.waiting).toBe("approval");
+    expect(resumed.waiting).toBeUndefined();
+    expect(resumed.value).toMatchObject({
+      executed: false,
+      error: { code: "AUTHORIZATION_CHANGED", requestId: pending.value.requestId },
+    });
     await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" });
-    expect(resumed.value.requestId).not.toBe(pending.value.requestId);
+    expect(
+      (await k.db.pool.query("select count(*) from approvals where subject_id=$1", [b.id])).rows[0]
+        .count,
+    ).toBe("1");
   });
   it("T21 path-covered containers cannot delegate unrelated spatial descendants", async () => {
     const c = await canvas(),

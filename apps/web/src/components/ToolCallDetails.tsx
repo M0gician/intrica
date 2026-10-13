@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   isRecord,
   parsedToolOutput,
@@ -8,7 +8,7 @@ import {
   toolLabel,
   toolOutcomeLabel,
 } from "../features/conversations/tool-display";
-import { tr } from "../i18n";
+import i18n, { tr, useTranslation } from "../i18n";
 import { Button } from "../ui/button";
 import { DeferredDetails } from "./DeferredDetails";
 import { ExecutionTarget } from "./ExecutionTarget";
@@ -26,12 +26,15 @@ export function ToolCallDetails({
   data,
   load,
   loadKey,
+  summaryMeta,
   ...navigation
 }: {
   data: Record<string, unknown>;
   load?: (() => Promise<void>) | undefined;
   loadKey?: string | undefined;
+  summaryMeta?: ReactNode;
 } & ToolNavigation) {
+  useTranslation();
   return (
     <DeferredDetails
       className="tool-call-details"
@@ -43,6 +46,7 @@ export function ToolCallDetails({
             {toolLabel(typeof data.name === "string" ? data.name : "")}
           </span>
           <span className="tool-call-state">{toolOutcomeLabel(data)}</span>
+          {summaryMeta}
         </>
       }
     >
@@ -56,6 +60,7 @@ export function ToolCallBody({
   onOpenFile,
   nodeName,
 }: { data: Record<string, unknown> } & ToolNavigation) {
+  useTranslation();
   const { assetUrl, serverId } = useSessionConnection();
   const [matchCount, setMatchCount] = useState(200);
   const output = parsedToolOutput(data.result);
@@ -250,7 +255,9 @@ export function ToolCallBody({
             <ExecutionTarget />
             {typeof data.updatedAt === "string" && (
               <small>
-                {tr("状态更新：{{v0}}", { v0: new Date(data.updatedAt).toLocaleString() })}
+                {tr("状态更新：{{v0}}", {
+                  v0: new Date(data.updatedAt).toLocaleString(i18n.language),
+                })}
               </small>
             )}
             <ExpandableText text={toolDiagnosticText(data, true)} />

@@ -22,6 +22,7 @@ import type { GraphCommands } from "../graph/commands.js";
 import { GraphMutation } from "../graph/mutation.js";
 import type { Conversations } from "../work/conversations.js";
 import { deliverCollaboration, validateDelivery } from "./collaboration.js";
+import { delegateResources } from "./delegation.js";
 import { publishHandoffReport } from "./handoffs.js";
 import {
   canApprove,
@@ -145,6 +146,18 @@ export class AccessService {
     )
       return;
     if (prior?.status === "pending") return result({ status: "pending", requestId: prior.id });
+    if (prior)
+      throw new DomainError(
+        "AUTHORIZATION_CHANGED",
+        "原申请已结束，但当前执行条件未满足；已停止恢复此调用",
+        {
+          requestId: prior.id,
+          status: prior.status,
+          executed: false,
+          nextAction:
+            "检查目标和当前权限。快照授权只允许读取固定节点；复制文件使用 copy_artifact。解决权限变化后再提交新调用，勿重复申请原操作。",
+        },
+      );
     if (["role", "resource", "path"].includes(intent.kind)) {
       const pending = (
         await tx.query(
@@ -285,8 +298,8 @@ export class AccessService {
         : null;
       let resource = (
         await tx.query(
-          "select n.id from nodes n where n.canvas_id=$1 and n.body->'resource'->>'path'=$2 order by n.created_at,n.id limit 1",
-          [identity.canvas_id, intent.path],
+          "select n.id from nodes n where n.canvas_id=$1 and n.body->'resource'->>'path'=$2 and n.body->'resource'->>'type'=$3 and not(n.body->'resource' ? 'snapshot') order by n.created_at,n.id limit 1",
+          [identity.canvas_id, intent.path, intent.directory ? "directory" : "file"],
         )
       ).rows[0]?.id;
       if (!resource)
@@ -359,7 +372,7 @@ export class AccessService {
         });
         const runId = run.id;
         await mutation.connectGrant(subject, nodeId, "write", "derived_from", runId);
-        await this.grantRecruitResources(
+        await delegateResources(
           mutation,
           subject,
           nodeId,
@@ -438,53 +451,6 @@ export class AccessService {
           .run_id,
       });
     return output;
-  }
-
-  async grantRecruitResources(
-    mutation: GraphMutation,
-    recruiter: string | null,
-    member: string,
-    args: {
-      inheritResources?: boolean;
-      resourceIds?: string[];
-      resourceModes?: Record<string, "read" | "write">;
-    },
-    delegatedBy = recruiter,
-  ) {
-    if (args.inheritResources && args.resourceIds?.length)
-      throw new DomainError("VALIDATION", "请选择继承全部资源或指定节点，不能同时设置");
-    if (args.inheritResources && !recruiter)
-      throw new DomainError("VALIDATION", "工作区招募请指定资源节点");
-    const available = recruiter
-      ? (await grantsFor(mutation.tx, recruiter)).filter((g) => g.resource_kind !== "agent")
-      : [];
-    const ids = args.inheritResources
-      ? [...new Set(available.map((g) => g.root_resource_id))]
-      : [...new Set(args.resourceIds ?? [])];
-    for (const id of ids) {
-      const target = await mutation.row(id);
-      if (target.kind === "agent")
-        throw new DomainError("VALIDATION", "只能继承资源节点，不能继承 Agent 的私有空间");
-      const grant = recruiter
-        ? await coveringGrant(available, { id, resource: target.body.resource }, "read")
-        : undefined;
-      if (recruiter && !grant) throw new DomainError("FORBIDDEN", "不能委托未获授权的资源");
-      const mode = args.resourceModes?.[id] ?? grant?.mode ?? "write";
-      if (
-        recruiter &&
-        !(await coveringGrant(available, { id, resource: target.body.resource }, mode))
-      )
-        throw new DomainError("FORBIDDEN", "原委托权限已变化，请重新申请");
-      await mutation.connectGrant(
-        member,
-        id,
-        mode,
-        "user_link",
-        undefined,
-        delegatedBy,
-        grant?.execution_mode ?? "none",
-      );
-    }
   }
 
   async list(
@@ -690,6 +656,7 @@ export class AccessService {
     });
     if ("conflict" in response)
       throw new DomainError("VERSION_CONFLICT", `申请当前状态为 ${response.status}，此审查未执行`, {
+        executed: false,
         requestId,
         status: response.status,
         nextAction:

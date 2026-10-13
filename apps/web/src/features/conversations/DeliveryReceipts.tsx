@@ -18,7 +18,11 @@ function receiptHint(r: CollaborationReceipt) {
   return [
     labelFor(r),
     r.readAt ? `${tr("已加入模型上下文")} · ${new Date(r.readAt).toLocaleString()}` : "",
-    !r.replied && r.expectReply && r.tracking ? tr("等待回复") : "",
+    r.state === "closed" && r.tracking
+      ? tr("此消息已关闭，请核查结果并处理未完成事项。")
+      : !r.replied && r.expectReply && r.tracking
+        ? tr("等待回复")
+        : "",
     r.paused
       ? tr("对方已暂停协作，恢复后继续处理。")
       : r.blocked
@@ -63,7 +67,12 @@ export function DeliveryReceipts({
   };
   const priority = (r: CollaborationReceipt, inline = false) => {
     const active = r.priority === "expedited" || submitted === `${r.deliveryId}:${r.version}`;
-    const canAct = r.tracking && !r.paused && !r.blocked && (!active || Boolean(r.expediteReadAt));
+    const canAct =
+      r.state !== "closed" &&
+      r.tracking &&
+      !r.paused &&
+      !r.blocked &&
+      (!active || Boolean(r.expediteReadAt));
     if (!active && !canAct) return null;
     return (
       <PriorityControl

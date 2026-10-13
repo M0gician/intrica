@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { globSync, readFileSync } from "node:fs";
 import ts from "typescript";
 import i18next from "../apps/web/node_modules/i18next/dist/esm/i18next.js";
+import { declaredToolNames } from "./tool-catalog.mjs";
 
 const ui = JSON.parse(readFileSync("apps/web/src/i18n/ui.en.json", "utf8"));
 const evaluate = async (path) =>
@@ -10,6 +11,18 @@ const evaluate = async (path) =>
   );
 const { en } = await evaluate("apps/web/src/i18n/en.ts");
 const { zh } = await evaluate("apps/web/src/i18n/zh-CN.ts");
+const { toolLabelKeys } = await evaluate("apps/web/src/features/conversations/tool-labels.ts");
+const tools = declaredToolNames();
+assert.ok(tools.length > 0, "No server tool declarations found");
+for (const name of tools)
+  assert.ok(Object.hasOwn(toolLabelKeys, name), `Missing UI label for tool: ${name}`);
+for (const [name, key] of Object.entries(toolLabelKeys)) {
+  assert.ok(Object.hasOwn(ui, key), `Missing English translation for tool: ${name} (${key})`);
+  assert.ok(
+    ui[key].trim() && !/[\u4e00-\u9fff]/.test(ui[key]),
+    `Tool label is not English: ${name}`,
+  );
+}
 const params = (s) => [...s.matchAll(/{{(\w+)}}/g)].map((m) => m[1]).sort();
 assert.deepEqual(Object.keys(en).sort(), Object.keys(zh).sort());
 for (const key of Object.keys(en)) assert.deepEqual(params(en[key]), params(zh[key]), key);
@@ -62,5 +75,5 @@ assert.equal(instance.t("已移动 {{v0}} 个节点", { ns: "ui", v0: 1, count: 
 assert.equal(instance.t("已移动 {{v0}} 个节点", { ns: "ui", v0: 2, count: 2 }), "Moved 2 nodes");
 assert.deepEqual(failures, []);
 console.log(
-  `Translation keys and parameters verified: ${Object.keys(en).length} settings keys, ${Object.keys(ui).length} UI keys; plural forms and visible labels checked.`,
+  `Translation keys and parameters verified: ${Object.keys(en).length} settings keys, ${Object.keys(ui).length} UI keys, ${tools.length} built-in tool labels; plural forms and visible labels checked.`,
 );

@@ -19,6 +19,7 @@ import { conversationTools } from "./tools/conversations.js";
 import { adaptToolDiscovery } from "./tools/discovery.js";
 import { permissionTools } from "./tools/permissions.js";
 import { readTool } from "./tools/read.js";
+import { resourceHandoffTools } from "./tools/resource-handoff.js";
 import { reviewTools } from "./tools/reviews.js";
 import { teamTools } from "./tools/team.js";
 
@@ -79,6 +80,7 @@ export class ToolRegistry {
       ...conversationTools(context),
       ...permissionTools(context),
       ...reviewTools(context),
+      ...resourceHandoffTools(context),
       ...teamTools(context),
     ];
     const combined = [

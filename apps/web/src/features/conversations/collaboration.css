@@ -6,8 +6,9 @@
   background: currentColor;
 }
 .collaboration-state {
+  container-type: inline-size;
+  container-name: collaboration-state;
   display: flex;
-  flex-wrap: wrap;
   flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
@@ -18,14 +19,62 @@
   font-size: 13px;
 }
 .collaboration-state-description {
-  flex: 1 1 170px;
+  flex: 1;
   min-width: 0;
 }
+.collaboration-state-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.collaboration-state-avatar {
+  display: flex;
+  flex: none;
+}
+.collaboration-state-avatar .agent-portrait {
+  width: 32px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+}
 .collaboration-state strong {
+  display: block;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.collaboration-state-label {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-weight: 600;
+  min-width: 0;
+}
+.collaboration-state-label > :last-child,
+.collaboration-state-name,
+.collaboration-state p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.collaboration-state > button {
+  flex: none;
+}
+.collaboration-state-action-icon {
+  display: none;
+}
+@container collaboration-state (max-width: 360px) {
+  .collaboration-state-action {
+    width: 32px;
+    height: 32px;
+    padding: 6px;
+  }
+  .collaboration-state-action-icon {
+    display: block;
+  }
+  .collaboration-state-action-label {
+    display: none;
+  }
 }
 .collaboration-state .collaboration-state-dot {
   color: var(--status-positive);

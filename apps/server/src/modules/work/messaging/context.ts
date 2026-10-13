@@ -35,6 +35,7 @@ export async function wakeInbox(
     return;
   }
   await tx.query("savepoint message_wake");
+  let blockedReason: string | undefined;
   try {
     await context.conversations.runs.enqueue(tx, {
       canvasId: latest.canvas_id,
@@ -50,6 +51,8 @@ export async function wakeInbox(
       !["LIMIT_REACHED", "QUEUE_FULL", "AGENT_PAUSED"].includes(error.code)
     )
       throw error;
+    blockedReason = error.code;
   }
   await tx.query("release savepoint message_wake");
+  return blockedReason;
 }

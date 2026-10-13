@@ -1,5 +1,6 @@
 import type { Node } from "@intrica/contracts";
 import { nextPortraitVariant, portraitVariant } from "@intrica/contracts";
+import type { Ref } from "react";
 import { newIdempotencyKey } from "../../api/client";
 import { useSessionConnection } from "../../api/connection";
 import { AgentPortrait } from "../../components/AgentPortrait";
@@ -25,12 +26,14 @@ export function AgentProfile({
   linkedCount,
   profile,
   setError,
+  identityRef,
 }: {
   node: Node;
   nodes: ReadonlyMap<string, Node>;
   linkedCount: number;
   profile: AgentProfileState;
   setError: (error: string) => void;
+  identityRef?: Ref<HTMLInputElement>;
 }) {
   const { api } = useSessionConnection();
   const {
@@ -109,6 +112,7 @@ export function AgentProfile({
         </div>
         <div className="agent-profile-info">
           <input
+            ref={identityRef}
             type="text"
             aria-label={tr("Agent 姓名")}
             value={title}

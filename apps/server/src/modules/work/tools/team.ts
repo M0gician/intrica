@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import { DomainError } from "../../../adapters/postgres/database.js";
+import { delegateResources } from "../../access/delegation.js";
 import { takeOverRun } from "../../access/handoffs.js";
 import { grantsFor } from "../../access/policy.js";
 import { result } from "../../execution/tool-calls.js";
@@ -44,7 +45,7 @@ export function teamTools(context: ToolContext) {
               agent: { persona: args.persona, role: args.role, enabled: args.respondToResources },
               position: await m.agentPosition(input.agentId ?? ctx.run.canvas_id),
             });
-            await registry.access.grantRecruitResources(m, input.agentId ?? null, nodeId, args);
+            await delegateResources(m, input.agentId ?? null, nodeId, args);
             const initialTask = await registry.conversations.assignNewAgent(
               m.tx,
               ctx.run.id,

@@ -1,4 +1,5 @@
 import type { AgentRole, ApprovalDecision, ApprovalRecord } from "@intrica/contracts";
+import { toolLabel } from "../features/conversations/tool-display";
 import { date, tr, useTranslation } from "../i18n";
 import { Button } from "../ui/button";
 import { useExecutionTarget } from "./ExecutionTarget";
@@ -39,7 +40,7 @@ export function AgentAccessCard({
             ? tr("Agent 管理")
             : r.kind === "collaboration"
               ? tr("跨权限协作")
-              : tr("服务器操作 · {{v0}}", { v0: r.summary.tool ?? "" });
+              : tr("服务器操作 · {{v0}}", { v0: toolLabel(r.summary.tool ?? "") });
   const status =
     r.status === "pending"
       ? r.reviewerId
@@ -196,7 +197,7 @@ export function AgentAccessCard({
                   <h5>{tr("待执行操作")}</h5>
                   {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Scrollable code must be reachable for keyboard reading. */}
                   <pre className="access-command host-action-preview" tabIndex={0}>
-                    {host.args.command ?? host.args.path ?? host.tool}
+                    {host.args.command ?? host.args.path ?? toolLabel(host.tool)}
                   </pre>
                 </div>
               )}

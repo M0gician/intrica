@@ -21,6 +21,7 @@ export function buildConversationPrompt(
     input.availableTools ?? [
       "read_canvas",
       "read",
+      "copy_artifact",
       "get_agent_status",
       "send_message",
       "read_conversation",
@@ -34,7 +35,9 @@ export function buildConversationPrompt(
       "rg",
       ...(input.agent ? ["request_permission", "list_access_requests"] : []),
       ...(role !== "read" ? ["create_artifact", "update_node"] : []),
-      ...(manage ? ["hire_agent", "dismiss_agent", "review_access_request"] : []),
+      ...(manage
+        ? ["hire_agent", "dismiss_agent", "review_access_request", "grant_resources"]
+        : []),
       ...(role === "admin" ? ["take_over_run"] : []),
     ],
   );
@@ -107,14 +110,14 @@ export function buildConversationPrompt(
       : "",
     has("wait_for_message")
       ? text(
-          "Advance independent work while replies are pending. Before waiting, call review_inbox, answer incoming requests or explicitly track them and review sent messages. You use action=inspect, then action=confirm with reviewId and a decision for every returned item. wait retains work dependencies; background requires a reason. Normal completion uses the same review. Then call wait_for_message({confirmed:true,reviewToken}) with the returned token. A new message or request state change requires another review.",
-          "等待回复期间推进独立工作。等待前先调用 review_inbox，答复收到的请求或明确继续跟踪，并复核已发送消息。先用 action=inspect，再用 action=confirm 携带 reviewId 和每项 decisions；wait 保留工作依赖，background 需要说明原因。正常结束也执行同一检查。将确认凭据用于 wait_for_message({confirmed:true,reviewToken})。新输入或请求状态变化后重新复核。",
+          "You advance independent work while replies are pending. Before waiting or finishing, you call review_inbox with action=inspect, answer incoming requests, then confirm with reviewId and a decision for every item. wait retains a real work dependency; background requires a reason. If completion=waiting and independent work is finished, you use wait_for_message({confirmed:true,reviewToken}). If completion=ready, you verify deliverables, submit the final result and finish normally; future messages can still wake you. Task acceptance requires evidence beyond inbox state. Prospective waiting requires an explicitly assigned future monitoring task, explained in reason. A new message or changed request requires another review.",
+          "等待回复期间推进独立工作。等待或结束前，用 review_inbox 的 action=inspect 检查，先回复必要来信，再以 reviewId 和每项 decisions 确认。wait 表示真实工作依赖；background 需要原因。completion=waiting 且没有独立工作可做时，调用 wait_for_message({confirmed:true,reviewToken})。completion=ready 时核查交付物、提交最终结果并正常结束；未来来信仍可唤醒。空信箱不证明任务已验收。没有当前依赖时，仅为明确承担的后续值守任务等待，并提供 reason。新消息或请求状态变化后重新复核。",
         )
       : "",
     has("get_agent_status")
       ? text(
-          "Message delivery, input consumption by the model, run completion and task acceptance have separate states. You use get_agent_status when coordination requires a status check. Task completion requires checks of the delivered result.",
-          "消息投递、输入进入模型上下文、运行结束和任务验收分别记录状态。你根据协调需要使用 get_agent_status 查询状态。任务完成以交付结果通过检查为依据。",
+          "Message delivery, model input consumption, run completion and task acceptance have separate states. get_agent_status includes current model phase, request duration and response activity. Recent streaming activity indicates transport progress; task results require verification. Expediting interrupts current model inference. You assess dependencies and response activity before choosing to wait or reassign work. Task completion requires checks of the delivered result.",
+          "消息投递、输入进入模型上下文、运行结束和任务验收分别记录状态。get_agent_status 包含模型阶段、请求时长和响应活动。近期流式响应不等于任务产出。加急会中断当前模型生成；应结合工作依赖决定继续等待或重新分配。任务完成以交付结果通过检查为依据。",
         )
       : "",
     has("read")
@@ -127,6 +130,18 @@ export function buildConversationPrompt(
       ? text(
           "You assess search coverage through rg's truncated/reasons/skipped fields. You adjust the scope and search further when results show truncation or skipped items. Conclusions distinguish observations, hypotheses and evidence gaps.",
           "你根据 rg 返回的 truncated/reasons/skipped 判断搜索覆盖范围。搜索存在截断或跳过项时，你调整范围并补充检索。结论分别标明观察结果、推测和待补证据。",
+        )
+      : "",
+    has("copy_artifact")
+      ? text(
+          "Published snapshots and original source paths require separate authorization. For independent byte-level or browser checks, you use copy_artifact({nodeId,expectedRevision}) to copy the authorized immutable bytes into your own workspace, then inspect the returned path. You compare its hash with the published snapshot.",
+          "快照读取权限不授予原始源路径权限。独立检查字节或浏览器效果时，使用 copy_artifact({nodeId,expectedRevision}) 将获准的不可变字节复制到自己的工作目录，再检查返回路径，并核对发布哈希。",
+        )
+      : "",
+    manage && has("grant_resources")
+      ? text(
+          'Before assigning existing inputs, you use grant_resources({agentId,resources:[{nodeId,expectedRevision,mode:"read"}]}), then send the task with send_message. fileIds attaches published snapshots; grant_resources supplies access. handoffResourceIds is only for reporting the result of a taken-over run.',
+          '分派已有输入前，使用 grant_resources({agentId,resources:[{nodeId,expectedRevision,mode:"read"}]}), 成功后用 send_message 发送任务。fileIds 附带发布快照，不授予访问权限。handoffResourceIds 仅用于接管任务后的结果交付。',
         )
       : "",
     text(
@@ -183,8 +198,8 @@ export function buildConversationPrompt(
       : "",
     has("take_over_run")
       ? text(
-          "Before doing a member's task, you obtain its current stopped runId through get_agent_status and take over through take_over_run. You confirm pending tool outcomes before takeover. resourceIds specifies result resources at delivery.",
-          "你代做成员任务前，通过 get_agent_status 获取其当前已停止运行的 runId，并通过 take_over_run 接管。接管前，你确认待处理工具的执行结果。交付时，resourceIds 指定结果资源。",
+          "Before doing a member's task, you obtain its current stopped runId through get_agent_status and take over through take_over_run. You confirm pending tool outcomes before takeover. handoffResourceIds specifies result resources at delivery.",
+          "你代做成员任务前，通过 get_agent_status 获取其当前已停止运行的 runId，并通过 take_over_run 接管。接管前，你确认待处理工具的执行结果。交付时，handoffResourceIds 指定结果资源。",
         )
       : "",
     has("configure_agent")
@@ -196,11 +211,11 @@ export function buildConversationPrompt(
     manage && has("dismiss_agent")
       ? text(
           role === "owner"
-            ? "You use dismiss_agent to remove specified members on this canvas."
-            : "You use dismiss_agent to remove members within your management scope.",
+            ? "You use dismiss_agent to remove specified members on this canvas. You check unfinished work and handoffs first; unfinished obligations remain after removal. You review member_removed notices and record reassignment or cancellation reasons."
+            : "You use dismiss_agent to remove members within your management scope. You check unfinished work and handoffs first; unfinished obligations remain after removal. You review member_removed notices and record reassignment or cancellation reasons.",
           role === "owner"
-            ? "你通过 dismiss_agent 移除本画布的指定成员。"
-            : "你通过 dismiss_agent 移除管理范围内的成员。",
+            ? "你通过 dismiss_agent 移除本画布的指定成员。先检查其未完成工作和交接情况，移除成员不代表任务完成。复核 member_removed 通知并记录重新分配或取消原因。"
+            : "你通过 dismiss_agent 移除管理范围内的成员。先检查其未完成工作和交接情况，移除成员不代表任务完成。复核 member_removed 通知并记录重新分配或取消原因。",
         )
       : "",
     text(

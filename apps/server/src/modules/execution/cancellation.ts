@@ -40,18 +40,14 @@ export async function cancelAgents(
     await tx.query("update agent_configs set paused=true where node_id=any($1::text[])", [
       agentIds,
     ]);
-    await tx.query(
-      `update messages m set run_id=null,expedite_run_id=null from conversations c
-      where c.id=m.conversation_id and c.agent_id=any($1::text[]) and m.seq>c.consumed_message_seq
-      and m.consumed_run_id is null and m.role in('message','message_notice','user')`,
-      [agentIds],
-    );
-  } else {
-    await tx.query(
-      "update conversations set consumed_message_seq=message_seq where agent_id=any($1::text[])",
-      [agentIds],
-    );
   }
+  // Cancellation never consumes an unread input. A later run must still receive it.
+  await tx.query(
+    `update messages m set run_id=null,expedite_run_id=null from conversations c
+    where c.id=m.conversation_id and c.agent_id=any($1::text[]) and m.seq>c.consumed_message_seq
+    and m.consumed_run_id is null and m.role in('message','message_notice','team_notice','user')`,
+    [agentIds],
+  );
   const rows = (
     await tx.query(
       `update runs set cancel_requested_at=now(),state=case when state='running' then state else 'cancelled' end,reason=${cancellationReason},updated_at=now()

@@ -1,8 +1,10 @@
 import { tr } from "../../i18n";
+import { toolLabelKeys } from "./tool-labels";
 export function toolStatusLabel(status: string) {
   return ownLabel(
     {
       pending: tr("准备中"),
+      queued: tr("准备中"),
       prepared: tr("准备中"),
       running: tr("执行中"),
       dispatching: tr("执行中"),
@@ -10,7 +12,9 @@ export function toolStatusLabel(status: string) {
       waiting: tr("等待处理"),
       unknown: tr("结果待核实"),
       error: tr("失败"),
+      failed: tr("失败"),
       complete: tr("完成"),
+      succeeded: tr("完成"),
       stopped: tr("已停止"),
       cancelled: tr("已停止"),
     },
@@ -29,7 +33,7 @@ export function toolResultText(value: unknown): string {
             ? part.text
             : ""
           : typeof part.type === "string"
-            ? `[${part.type}]`
+            ? `[${ownLabel({ image: tr("图片"), audio: tr("音频"), video: tr("视频") }, part.type, part.type)}]`
             : "",
       )
       .join("\n");
@@ -109,32 +113,8 @@ export function coalesceToolEvents<T extends ToolEvent>(events: T[]): T[] {
 }
 
 export function toolLabel(name: string) {
-  const labels: Record<string, string> = {
-    bash: tr("运行命令"),
-    read: tr("读取"),
-    rg: tr("搜索文件内容"),
-    read_canvas: tr("读取画布"),
-    update_node: tr("更新节点"),
-    create_artifact: tr("保存产物"),
-    hire_agent: tr("招募 Agent"),
-    configure_agent: tr("配置 Agent"),
-    get_agent_status: tr("查看 Agent 状态"),
-    get_tool_result: tr("查看工具结果"),
-    read_conversation: tr("读取会话"),
-    request_permission: tr("申请权限"),
-    list_access_requests: tr("查看权限申请"),
-    review_access_request: tr("审查权限申请"),
-    edit: tr("编辑文件"),
-    write: tr("写入文件"),
-    report_result: tr("提交报告"),
-    send_message: tr("发送协作消息"),
-    review_inbox: tr("复核信箱"),
-    update_message: tr("跟踪消息"),
-    list_agents: tr("查看团队成员"),
-    wait_for_message: tr("等待消息"),
-    web_search: tr("搜索网页"),
-  };
-  return ownLabel(labels, name, name);
+  const key = ownLabel(toolLabelKeys, name);
+  return key ? tr(key) : name;
 }
 
 export function toolOutcomeLabel(data: Record<string, unknown>) {

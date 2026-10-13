@@ -119,3 +119,18 @@ it("keeps a single priority label and prevents repeat expediting while the remin
   expect(screen.queryByRole("button", { name: "加急消息" })).toBeNull();
   connection.dispose();
 });
+
+it("does not offer expedite for a closed recipient with an unresolved tracked request", () => {
+  const connection = createSessionConnection("", "closed-delivery");
+  render(
+    <ConnectionServices.Provider value={connection}>
+      <DeliveryReceipts
+        receipts={[receipt({ state: "closed", expectReply: true, tracking: true })]}
+      />
+    </ConnectionServices.Provider>,
+  );
+  expect(screen.getByRole("status", { name: "消息已关闭" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "加急消息" })).toBeNull();
+  expect(screen.getByTitle(/未完成事项/)).toBeTruthy();
+  connection.dispose();
+});

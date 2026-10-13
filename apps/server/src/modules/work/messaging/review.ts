@@ -11,6 +11,7 @@ type Item = {
   seq?: string;
   expectReply?: boolean;
   readAt?: Date | null;
+  reasonRequired?: boolean;
   allowedActions: InboxDecision["action"][];
 };
 
@@ -18,7 +19,7 @@ export async function reviewState(sql: Sql, conversationId: string) {
   const messages = (
     await sql.query(
       `select m.client_message_id as id,m.seq,m.role,left(m.content->>'text',800) as text,
-    m.consumed_at as "readAt" from messages m where m.conversation_id=$1
+    m.consumed_at as "readAt",m.content->>'event' as event from messages m where m.conversation_id=$1
     and (m.role in('user','trigger') or (m.role='message' and m.content ? 'from')
       or (m.role in('message_notice','team_notice','permission_notice') and ${actionableMessage}))
     and m.seq>coalesce((select reviewed_seq from inbox_reviews where conversation_id=$1),0) order by m.seq`,
@@ -35,6 +36,7 @@ export async function reviewState(sql: Sql, conversationId: string) {
       kind: "message" as const,
       text: m.text,
       seq: m.seq,
+      reasonRequired: m.event === "member_removed",
       allowedActions: ["handled" as const],
     })),
     ...relevant.map((q) => ({
@@ -46,9 +48,12 @@ export async function reviewState(sql: Sql, conversationId: string) {
       text: q.message,
       expectReply: q.expectReply,
       readAt: q.readAt,
+      reasonRequired: q.closed,
       allowedActions:
         q.senderConversationId === conversationId
-          ? ["wait" as const, "background" as const]
+          ? q.closed
+            ? ["handled" as const]
+            : ["wait" as const, "background" as const]
           : ["wait" as const],
     })),
   ];
@@ -60,6 +65,7 @@ export async function reviewState(sql: Sql, conversationId: string) {
       q.readAt,
       q.notified_at,
       q.unread_notified_at,
+      q.closed,
     ]),
   });
   return { items, messages, deliveries: relevant, fingerprint };
@@ -90,7 +96,7 @@ export async function reviewInbox(tx: Tx, conversationId: string, args: InboxRev
       incoming: state.deliveries.filter((q) => q.recipientConversationId === conversationId),
       outgoing: state.deliveries.filter((q) => q.senderConversationId === conversationId),
       nextAction:
-        "逐项检查。需要回复的来信先使用 replyTo 答复，再重新 inspect。confirm 必须携带 reviewId 和完整 decisions；background 仅用于不影响当前任务的发信，必须说明 reason。",
+        "逐项检查。需要回复的来信先用 replyTo 答复，再重新 inspect。confirm 携带 reviewId 和完整 decisions，action 来自 allowedActions；background 和 reasonRequired 项必须说明 reason。成员移除后先核查交付或重新分配，再确认处理。",
     };
   }
   if (args.action !== "confirm" || !args.reviewId || !Array.isArray(args.decisions))
@@ -127,11 +133,15 @@ export async function reviewInbox(tx: Tx, conversationId: string, args: InboxRev
           executed: false,
         },
       );
-    if (decision.action === "background" && !decision.reason?.trim())
-      throw new DomainError("INBOX_REVIEW_INPUT", "后台跟踪需要说明此消息为何不影响当前任务完成", {
-        path: "decisions.reason",
-        itemId: decision.itemId,
-      });
+    if ((decision.action === "background" || item.reasonRequired) && !decision.reason?.trim())
+      throw new DomainError(
+        "INBOX_REVIEW_INPUT",
+        "说明此事项的处理结果、重新分配情况或不影响当前任务的原因",
+        {
+          path: "decisions.reason",
+          itemId: decision.itemId,
+        },
+      );
     seen.add(decision.itemId);
   }
   const missing = state.items.filter((i) => !seen.has(i.id));
@@ -140,6 +150,14 @@ export async function reviewInbox(tx: Tx, conversationId: string, args: InboxRev
       missingItems: missing.slice(0, 80),
       nextAction: "沿 nextAfter 读取全部项目，再提交完整 decisions。",
     });
+  for (const decision of args.decisions) {
+    const item = state.items.find((i) => i.id === decision.itemId)!;
+    if (item.kind === "outgoing" && item.reasonRequired && decision.action === "handled")
+      await tx.query(
+        "update message_deliveries set tracking_stopped=true,version=version+1,updated_at=now() where id=$1",
+        [item.deliveryId],
+      );
+  }
   const token = id("inbox-review");
   const reviewedSeq =
     state.messages.at(-1)?.seq ??
@@ -162,6 +180,9 @@ export async function reviewInbox(tx: Tx, conversationId: string, args: InboxRev
     reviewed: true,
     reviewToken: token,
     completion: args.decisions.some((d) => d.action === "wait") ? "waiting" : "ready",
+    nextAction: args.decisions.some((d) => d.action === "wait")
+      ? "仍有工作依赖。推进独立工作；需要等待时使用 wait_for_message({confirmed:true,reviewToken})。"
+      : "信箱复核完成。核查任务交付条件，提交最终结果并结束；无需调用 wait_for_message。未来来信仍可自动唤醒。",
   };
 }
 
@@ -184,8 +205,9 @@ export async function confirmWait(
   conversationId: string,
   confirmed?: boolean,
   token?: string,
+  reason?: string,
 ) {
-  const { review, fresh } = await reviewStatus(tx, conversationId);
+  const { review, fresh, waiting } = await reviewStatus(tx, conversationId);
   if (!confirmed || !token || review?.token !== token || !fresh)
     throw new DomainError(
       "INBOX_REVIEW_REQUIRED",
@@ -197,5 +219,11 @@ export async function confirmWait(
           'review_inbox({action:"inspect"})，确认后使用 wait_for_message({confirmed:true,reviewToken})。',
       },
     );
-  return { waitingForMessage: true, reviewed: true };
+  if (!waiting && !reason?.trim())
+    throw new DomainError(
+      "NO_WAIT_DEPENDENCY",
+      "没有待等待的消息依赖。完成任务后提交结果并结束；明确承担后续值守任务时才提供 reason 等待未来消息。",
+      { executed: false },
+    );
+  return { waitingForMessage: true, reviewed: true, ...(reason ? { reason } : {}) };
 }

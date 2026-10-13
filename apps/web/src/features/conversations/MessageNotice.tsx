@@ -23,16 +23,15 @@ export function MessageNotice({
   const { statuses, pending, error, update } = useMessageNotice(deliveryIds, conversationId);
   const [seconds, setSeconds] = useState(120);
   const validDelay = Number.isInteger(seconds) && seconds >= 1 && seconds <= 604800;
+  const canWait = statuses?.some((s) => s.pending && !s.closed);
   return (
     <section className="message-notice-actions" aria-label={tr("消息跟进")}>
       <div className="message-notice-heading">
         <strong>{statuses?.some((s) => s.pending) ? tr("消息需要跟进") : tr("消息跟进")}</strong>
-        {statuses?.some((s) => s.pending) && <p>{tr("可以继续等待，或请对方优先处理。")}</p>}
+        {canWait && <p>{tr("可以继续等待，或请对方优先处理。")}</p>}
       </div>
       {!statuses && !error && <p role="status">{tr("正在读取消息状态…")}</p>}
-      {statuses?.some((s) => s.pending) && (
-        <ReminderDelay seconds={seconds} onChange={setSeconds} />
-      )}
+      {canWait && <ReminderDelay seconds={seconds} onChange={setSeconds} />}
       {statuses?.length === 0 && <p role="status">{tr("这些消息已不可用。")}</p>}
       <ul className="message-notice-list">
         {statuses?.map((status) => {
@@ -72,27 +71,33 @@ export function MessageNotice({
               {status.message && <blockquote>{status.message}</blockquote>}
               {status.pending && (
                 <>
-                  {status.paused ? (
+                  {status.closed ? (
+                    <p className="message-notice-hint">
+                      {tr("此消息已关闭，请核查结果并处理未完成事项。")}
+                    </p>
+                  ) : status.paused ? (
                     <p className="message-notice-hint">{tr("对方已暂停协作，恢复后继续处理。")}</p>
                   ) : status.blocked ? (
                     <p className="message-notice-hint">{tr("对方暂时无法启动，等待恢复。")}</p>
                   ) : null}
-                  {nextReminder && (
+                  {!status.closed && nextReminder && (
                     <p className="message-notice-hint" role="status">
                       {tr("已延后提醒，下次提醒 {{time}}", { time: nextReminder })}
                     </p>
                   )}
                   <div className="message-notice-buttons">
-                    <Button
-                      variant="primary"
-                      disabled={Boolean(pending) || !validDelay}
-                      onClick={() => void update(status, "wait", seconds)}
-                    >
-                      {pending?.id === status.deliveryId && pending.action === "wait"
-                        ? tr("正在设置…")
-                        : tr("继续等待")}
-                    </Button>
-                    {!status.paused && !status.blocked && !priorityPending && (
+                    {!status.closed && (
+                      <Button
+                        variant="primary"
+                        disabled={Boolean(pending) || !validDelay}
+                        onClick={() => void update(status, "wait", seconds)}
+                      >
+                        {pending?.id === status.deliveryId && pending.action === "wait"
+                          ? tr("正在设置…")
+                          : tr("继续等待")}
+                      </Button>
+                    )}
+                    {!status.closed && !status.paused && !status.blocked && !priorityPending && (
                       <PriorityControl
                         inline
                         disabled={Boolean(pending)}

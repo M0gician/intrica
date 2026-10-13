@@ -16,6 +16,7 @@ import { ReadMore } from "./ReadMore";
 export function TimelineEvent({
   event,
   nodes,
+  currentAgentId,
   accessCards,
   requestEvent,
   onSelectNode,
@@ -24,6 +25,7 @@ export function TimelineEvent({
 }: {
   event: Activity;
   nodes: ReadonlyMap<string, Node>;
+  currentAgentId?: string | undefined;
   accessCards?: Array<{ id: string; card: ReactNode; pending?: boolean }> | undefined;
   requestEvent: ReadonlyMap<string, string>;
   onSelectNode?: ((id: string) => void) | undefined;
@@ -38,9 +40,16 @@ export function TimelineEvent({
     event.data.resultVersion,
   ]);
   const trackedNotice = event.kind === "message_notice" && Array.isArray(event.data.deliveries);
+  const summaryTime = event.kind === "tool" || Boolean(event.data.thinking);
+  const bodyTime = event.kind === "assistant" && !summaryTime && event.agentId === currentAgentId;
   return (
     <>
-      <ActivityHeader event={event} nodes={nodes} />
+      <ActivityHeader
+        event={event}
+        nodes={nodes}
+        currentAgentId={currentAgentId}
+        showTime={!summaryTime && !bodyTime}
+      />
       {event.kind === "broadcast" && (
         <DeferredDetails className="broadcast-scope" summary={tr("接收者与共享资源")}>
           {() => (
@@ -73,12 +82,18 @@ export function TimelineEvent({
           nodeName={(id) => nodes.get(id)?.title || id}
           load={isContentTruncated(event, "result") ? load : undefined}
           loadKey={version}
+          summaryMeta={<EventTime value={event.createdAt} precise />}
         />
       ) : (
         <>
           {event.data.thinking ? (
             <DeferredDetails
-              summary={tr("思考")}
+              summary={
+                <>
+                  {tr("思考")}
+                  <EventTime value={event.createdAt} precise />
+                </>
+              }
               load={isContentTruncated(event, "thinking") ? load : undefined}
               loadKey={version}
             >
@@ -137,6 +152,7 @@ export function TimelineEvent({
             )}
         </>
       )}
+      {bodyTime && <EventTime value={event.createdAt} precise />}
       {Array.isArray(event.data.deliveryReceipts) && (
         <DeliveryReceipts
           receipts={event.data.deliveryReceipts as CollaborationReceipt[]}

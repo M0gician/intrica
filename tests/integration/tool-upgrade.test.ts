@@ -153,6 +153,9 @@ async function checkpoint(calls: Array<{ providerId: string; name: string; args:
 }
 async function version(value: 8 | 9) {
   await k.db.pool.query(
+    "alter table model_calls drop column last_response_at, drop column response_phase",
+  );
+  await k.db.pool.query(
     "drop table message_deliveries;drop table inbox_reviews;alter table agent_configs drop column paused;alter table tool_calls drop column schema_version",
   );
   await k.db.pool.query(
@@ -217,7 +220,7 @@ it.each([8, 9] as const)(
       .rows;
     await version(schema);
     await reopen();
-    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(15);
+    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(16);
     expect((await stored(success.id)).result).toEqual(result({ written: true }));
     expect((await stored(prepared.id)).state).toBe("failed");
     expect((await stored(dispatched.id)).state).toBe("unknown");

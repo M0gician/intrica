@@ -1,4 +1,4 @@
-import type { CommandPermission } from "@intrica/contracts";
+import type { CommandPermission, LocalResource } from "@intrica/contracts";
 import { canonicalPath, withinPath } from "../../adapters/host/sandbox.js";
 import type { Sql } from "../../adapters/postgres/database.js";
 
@@ -15,20 +15,22 @@ export type ResourceGrant = {
   source_link_id: string;
   delegated_by: string | null;
   resource_kind: string;
-  resource?: { type: string; path: string };
+  resource?: LocalResource;
 };
 
 /** Node identity and physical paths are different coverage mechanisms. Neither
  * string prefixes nor an Agent's spatial descendants confer host authority. */
 export async function coveringGrant(
   grants: ResourceGrant[],
-  target: { id?: string; resource?: { type: string; path: string } | undefined },
+  target: { id?: string; resource?: LocalResource | undefined },
   mode: "read" | "write",
 ) {
   for (const g of grants) {
     if (mode === "write" && g.mode !== "write") continue;
     if (target.id === g.resource_id) return g;
-    if (!g.resource || !target.resource) continue;
+    // Published bytes are authorized by node identity, never by their mutable source path.
+    if (!g.resource || !target.resource || g.resource.snapshot || target.resource.snapshot)
+      continue;
     try {
       const root = await canonicalPath(g.resource.path),
         path = await canonicalPath(target.resource.path);
@@ -46,6 +48,7 @@ export async function coveringExecution(
   mode: "isolated" | "host",
 ) {
   for (const grant of grants) {
+    if (!grant.resource || grant.resource.snapshot) continue;
     if (grant.execution_mode === "host") return grant;
     if (
       mode === "isolated" &&
@@ -127,17 +130,19 @@ export async function canvasPermissions(sql: Sql, canvasId: string) {
           resource_id: n.id,
           resource_kind: n.kind,
           resource: n.resource,
-          execution_mode: available
-            ? g.execution_mode !== "none" &&
-              n.resource &&
-              (await coveringExecution(
-                available,
-                await canonicalPath(n.resource.path),
-                g.execution_mode,
-              ))
-              ? g.execution_mode
-              : "none"
-            : (g.execution_mode ?? "none"),
+          execution_mode: n.resource?.snapshot
+            ? "none"
+            : available
+              ? g.execution_mode !== "none" &&
+                n.resource &&
+                (await coveringExecution(
+                  available,
+                  await canonicalPath(n.resource.path),
+                  g.execution_mode,
+                ))
+                ? g.execution_mode
+                : "none"
+              : (g.execution_mode ?? "none"),
         };
         effective.push(grant);
       }
@@ -161,6 +166,7 @@ export function reducedPermissions(
     .filter(([id, old]) =>
       old.some(
         (g) =>
+          g.resource_kind !== "agent" &&
           !(after.get(id) ?? []).some(
             (n) =>
               n.resource_id === g.resource_id &&
