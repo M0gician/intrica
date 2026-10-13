@@ -219,7 +219,12 @@ try {
     assert.equal(after.version, expected.version);
     assert.equal(after.commit, expected.commit);
     assert.equal(after.deployment, "service");
-    assert.equal(after.schemaVersion, 10);
+    const schema = await readFile(join(app, "db/schema.sql"), "utf8");
+    const expectedSchema = Number(
+      schema.match(/INSERT INTO schema_info\(version\) VALUES \((\d+)\)/)?.[1],
+    );
+    assert.ok(Number.isSafeInteger(expectedSchema), "Package must declare its database schema");
+    assert.equal(after.schemaVersion, expectedSchema);
     if (update) {
       assert.equal(after.version, update.release.version);
       assert.equal(after.schemaVersion, update.release.schemaVersion);

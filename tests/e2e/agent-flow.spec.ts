@@ -251,7 +251,7 @@ test("已处理申请保留原历史位置；统一按钮发送、追加、停�
     },
   );
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  const toolCard = page.locator(".tool-call-details").filter({ hasText: "发送消息" });
+  const toolCard = page.locator(".tool-call-details").filter({ hasText: "发送协作消息" });
   await expect(toolCard).toHaveCount(1);
   await expect(toolCard).toContainText("审批已过期 · 未执行");
   await expect(page.getByText(/internal-callback-prose/)).toHaveCount(0);

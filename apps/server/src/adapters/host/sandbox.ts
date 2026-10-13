@@ -235,6 +235,11 @@ export async function buildSandboxCommand(
       "/dev/shm",
       // Bind grants after the empty base mounts; private masks remain last.
       ...bindings,
+      // Chromium uses TMPDIR for Unix sockets, whose paths are limited to 108
+      // bytes on Linux. This /tmp belongs to the sandbox's private mount namespace.
+      "--setenv",
+      "TMPDIR",
+      "/tmp",
       "--chdir",
       cwd,
       command,

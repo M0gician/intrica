@@ -42,7 +42,10 @@ test("scoped Chromium loads network HTML, executes scripts and renders WebGL wit
     }
   if (!browser) return context.skip("No Chromium distribution installed");
   const root = await realpath(await mkdtemp(join(tmpdir(), "intrica-browser-")));
-  const home = join(root, "workspace");
+  const home = join(
+    root,
+    process.platform === "linux" ? `workspace-${"long-path-".repeat(10)}` : "workspace",
+  );
   const server = createServer((_req, res) => {
     res.setHeader("Content-Type", "text/html");
     res.end(
