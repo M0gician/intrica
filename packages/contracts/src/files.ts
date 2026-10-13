@@ -28,3 +28,8 @@ export type FileReferenceOrigin = {
   filePath?: string;
 };
 export type FileReference = { serverId: string; origin: FileReferenceOrigin; path?: string };
+export type CanvasWorkspacePaths = {
+  canvasRoot: string;
+  sharedRoot: string;
+  agentRoots: Array<{ agentId: string; path: string }>;
+};

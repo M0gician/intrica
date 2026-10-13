@@ -5,8 +5,8 @@ import { actionableMessage } from "./messages.js";
 import { toolFailure, validationFailure } from "./tool-validation.js";
 import type { ExecutionContext } from "./worker.js";
 
-// Version 3 introduces flat messages, reply hooks and reviewed waits.
-export const TOOL_SCHEMA_VERSION = 3;
+// Version 4 uses delivery IDs and explicit inbox review decisions.
+export const TOOL_SCHEMA_VERSION = 4;
 
 export type ToolResult = {
   content: Array<

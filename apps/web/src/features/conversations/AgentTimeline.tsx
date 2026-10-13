@@ -10,6 +10,7 @@ import {
 } from "react";
 import { tr, useTranslation } from "../../i18n";
 import { Button } from "../../ui/button";
+import { isExpedited } from "./message-priority";
 import { type Activity, activityKey, type TimelineNavigation } from "./model";
 import type { MessageKey, NavigationSource } from "./navigation/source";
 import { useTranscriptScroll } from "./navigation/use-transcript-scroll";
@@ -113,7 +114,7 @@ export function AgentTimeline({
             {rows.map((event) => (
               <article
                 key={activityKey(event)}
-                className={`agent-event agent-event-${event.kind}`}
+                className={`agent-event agent-event-${event.kind}${isExpedited(event) ? " agent-event-expedited" : ""}`}
                 data-message-seq={event.seq > 0 ? event.seq : lastSeq + 1}
                 data-message-key={activityKey(event)}
                 tabIndex={-1}

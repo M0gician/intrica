@@ -2,7 +2,7 @@ import type { ResourceResponseReason } from "@intrica/contracts";
 import { CronExpressionParser } from "cron-parser";
 import { DomainError, lockCanvas, type Tx } from "../../adapters/postgres/database.js";
 import { promptText } from "../../prompt-language.js";
-import { agentIdentity } from "../access/policy.js";
+import { agentIdentity, grantsFor } from "../access/policy.js";
 import { cancelResourceSchedules, type Schedule, scheduleChanged } from "../execution/schedules.js";
 import type { ToolRegistry } from "./tools.js";
 
@@ -32,6 +32,7 @@ const blockedText = {
 
 async function dispatch(registry: Registry, tx: Tx, row: Schedule) {
   const identity = await agentIdentity(tx, row.agent_id);
+  if (identity.paused) return;
   if (row.kind === "resource_change" && !identity.enabled) {
     await cancelResourceSchedules(tx, [row.agent_id], "disabled");
     return;
@@ -58,6 +59,17 @@ async function dispatch(registry: Registry, tx: Tx, row: Schedule) {
       row.kind === "cron"
         ? `schedule-${row.id}-${row.next_due_at.toISOString()}`
         : `schedule-${row.id}-${source}`;
+    const allowed = new Set((await grantsFor(tx, row.agent_id)).map((g) => g.resource_id));
+    const changedIds = (row.spec.resourceIds ?? []).filter((id: string) => allowed.has(id));
+    const changedResources =
+      row.kind === "resource_change"
+        ? (
+            await tx.query(
+              "select id,content_version as revision,body->'resource'->'snapshot'->>'hash' as hash from nodes where id=any($1::text[]) and canvas_id=$2",
+              [changedIds, row.canvas_id],
+            )
+          ).rows
+        : [];
     const seq = await registry.conversations.append(tx, conversation.id, key, "trigger", {
       language,
       text:
@@ -69,7 +81,10 @@ async function dispatch(registry: Registry, tx: Tx, row: Schedule) {
               "已授权资源发生变化，请根据职责检查并处理。",
             ),
       ...(row.kind === "resource_change"
-        ? { resourceResponse: { scheduleId: row.id, sourceSeq: source, causeId: causeId ?? null } }
+        ? {
+            changedResources,
+            resourceResponse: { scheduleId: row.id, sourceSeq: source, causeId: causeId ?? null },
+          }
         : {}),
     });
     const run = await registry.conversations.runs.enqueue(tx, {
@@ -148,8 +163,8 @@ async function dispatch(registry: Registry, tx: Tx, row: Schedule) {
 export async function tickSchedules(registry: Registry) {
   const schedules = (
     await registry.graph.db.pool.query<Schedule>(
-      `select s.* from schedules s join canvases c on c.id=s.canvas_id
-       where c.deleted_at is null and s.enabled and s.next_due_at<=clock_timestamp()
+      `select s.* from schedules s join canvases c on c.id=s.canvas_id join agent_configs a on a.node_id=s.agent_id
+       where not a.paused and c.deleted_at is null and s.enabled and s.next_due_at<=clock_timestamp()
        order by s.next_due_at,s.id limit 20`,
     )
   ).rows;

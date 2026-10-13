@@ -13,14 +13,14 @@ export async function conversationTrace(db: Database, conversationId: string) {
     throw new DomainError("NOT_FOUND", "会话不存在");
   const runs = (
     await db.pool.query(
-      "select id,cause_id,epoch,state,reason,created_at,updated_at,frozen_input->>'requestId' as request_id from runs where subject_id=$1 order by created_at desc limit 100",
+      "select id,cause_id,epoch,state,reason,created_at,updated_at,frozen_input->>'traceId' as request_id from runs where subject_id=$1 order by created_at desc limit 100",
       [conversationId],
     )
   ).rows;
   const ids = runs.map((r) => r.id);
   const [inputs, attempts, models, tools, approvals] = await Promise.all([
     db.pool.query(
-      "select client_message_id as id,content->>'requestId' as request_id,seq,run_id,consumed_run_id,created_at,consumed_at,extract(epoch from(consumed_at-created_at))*1000 as queue_ms from messages where conversation_id=$1 and role='user' order by seq desc limit 1000",
+      "select client_message_id as id,content->>'traceId' as request_id,seq,run_id,consumed_run_id,created_at,consumed_at,extract(epoch from(consumed_at-created_at))*1000 as queue_ms from messages where conversation_id=$1 and role='user' order by seq desc limit 1000",
       [conversationId],
     ),
     db.pool.query(

@@ -35,7 +35,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   vi.restoreAllMocks();
-  await k.db.pool.query("update message_requests set state='cancelled' where state='open'");
+  await k.db.pool.query("update message_deliveries set state='cancelled' where state='open'");
   await k.db.pool.query("update approvals set status='cancelled' where status='pending'");
   await k.db.pool.query(
     "update tool_calls set state='failed',delivered_at=now() where state not in ('succeeded','failed')",
@@ -94,11 +94,14 @@ async function start(agentId?: string) {
 }
 
 async function review(s: Awaited<ReturnType<typeof start>>) {
-  const inbox = (await s.call("review_inbox", {})).value;
+  const inbox = (await s.call("review_inbox", { action: "inspect" })).value;
   return s.call("review_inbox", {
-    reviewKey: inbox.reviewKey,
-    handledMessageIds: inbox.messages.map((m: any) => m.id),
-    trackRequestIds: [...inbox.incoming, ...inbox.outgoing].map((q: any) => q.id),
+    action: "confirm",
+    reviewId: inbox.reviewId,
+    decisions: inbox.items.map((item: any) => ({
+      itemId: item.id,
+      action: item.kind === "message" ? "handled" : "wait",
+    })),
   });
 }
 async function consume(s: Awaited<ReturnType<typeof start>>) {
@@ -112,7 +115,7 @@ async function consume(s: Awaited<ReturnType<typeof start>>) {
 }
 async function expire(requestId: string) {
   await k.db.pool.query(
-    "update message_requests set deadline_at=now()-interval '1 second' where id=$1",
+    "update message_deliveries set snoozed_until=null,deadline_at=now()-interval '1 second' where id=$1",
     [requestId],
   );
 }
@@ -154,7 +157,7 @@ it("rejects retired and malformed tools with precise audited failures and no del
       )
     ).rows[0];
     expect(row.state).toBe("failed");
-    expect(row.schema_version).toBe(3);
+    expect(row.schema_version).toBe(4);
     expect(row.result).toEqual(called.result);
   }
   expect(
@@ -197,14 +200,15 @@ it("makes siblings with different resource grants visible and directly reachable
   expect(read.waiting).toBe("approval");
 });
 
-it("keeps untracked messages untracked and creates one durable request per tracked recipient on replay", async () => {
+it("tracks unread delivery for every message and keeps one record per recipient on replay", async () => {
   const a = await agent(),
     b = await agent(),
     s = await start();
   await s.call("send_message", { to: "agent", id: a.id, message: "FYI" });
   expect(
-    (await k.db.pool.query("select 1 from message_requests where canvas_id=$1", [board])).rowCount,
-  ).toBe(0);
+    (await k.db.pool.query("select 1 from message_deliveries where canvas_id=$1", [board]))
+      .rowCount,
+  ).toBe(1);
   const args = {
     to: "agents",
     ids: [a.id, b.id],
@@ -213,35 +217,36 @@ it("keeps untracked messages untracked and creates one durable request per track
     replyWithinSeconds: 1,
   };
   const sent = await s.call("send_message", args, "send-once");
-  expect(sent.value.requests).toHaveLength(2);
+  expect(sent.value.deliveries).toHaveLength(2);
   expect((await s.call("send_message", args, "send-once")).value).toEqual(sent.value);
   expect(
-    (await k.db.pool.query("select 1 from message_requests where canvas_id=$1", [board])).rowCount,
-  ).toBe(2);
+    (await k.db.pool.query("select 1 from message_deliveries where canvas_id=$1", [board]))
+      .rowCount,
+  ).toBe(3);
 });
 
 it("requires a real inbox inspection, complete coverage and current review token before waiting", async () => {
   const s = await start();
   expect((await s.call("wait_for_message", {})).value.error.code).toBe("INBOX_REVIEW_REQUIRED");
   expect(
-    (await s.call("review_inbox", { handledMessageIds: [], trackRequestIds: [] })).value.error.code,
-  ).toBe("INBOX_REVIEW_REQUIRED");
-  const first = (await s.call("review_inbox", {})).value;
+    (await s.call("review_inbox", { action: "confirm", decisions: [] })).value.error.code,
+  ).toBe("TOOL_ARGUMENTS");
+  const first = (await s.call("review_inbox", { action: "inspect" })).value;
   expect(
     (
       await s.call("review_inbox", {
-        reviewKey: first.reviewKey,
-        handledMessageIds: [],
-        trackRequestIds: [],
+        action: "confirm",
+        reviewId: first.reviewId,
+        decisions: [],
       })
     ).value.error.code,
   ).toBe("INBOX_REVIEW_INCOMPLETE");
   expect(
     (
       await s.call("review_inbox", {
-        reviewKey: first.reviewKey,
-        handledMessageIds: ["forged"],
-        trackRequestIds: [],
+        action: "confirm",
+        reviewId: first.reviewId,
+        decisions: [{ itemId: "forged", action: "handled" }],
       })
     ).value.error.code,
   ).toBe("INBOX_REVIEW_INPUT");
@@ -273,15 +278,17 @@ it("keeps incoming and outgoing reply obligations until answered or explicitly t
     message: "answer me",
     expectReply: true,
   });
-  const req = sent.value.requests[0].id;
-  const mailbox = (await recipient.call("review_inbox", {})).value;
+  const req = sent.value.deliveries[0].id;
+  const mailbox = (await recipient.call("review_inbox", { action: "inspect" })).value;
   expect(mailbox.incoming.map((q: any) => q.id)).toContain(req);
   expect(
     (
       await recipient.call("review_inbox", {
-        reviewKey: mailbox.reviewKey,
-        handledMessageIds: mailbox.messages.map((m: any) => m.id),
-        trackRequestIds: [],
+        action: "confirm",
+        reviewId: mailbox.reviewId,
+        decisions: mailbox.items
+          .filter((item: any) => item.kind === "message")
+          .map((item: any) => ({ itemId: item.id, action: "handled" })),
       })
     ).value.error.code,
   ).toBe("INBOX_REVIEW_INCOMPLETE");
@@ -290,13 +297,14 @@ it("keeps incoming and outgoing reply obligations until answered or explicitly t
     (await recipient.call("wait_for_message", { confirmed: true, reviewToken: token })).waiting,
   ).toBe("message");
   await recipient.call("send_message", {
-    to: "request",
+    to: "reply",
     id: req,
     kind: "reply",
     message: "answered",
   });
   expect(
-    (await k.db.pool.query("select state from message_requests where id=$1", [req])).rows[0].state,
+    (await k.db.pool.query("select state from message_deliveries where id=$1", [req])).rows[0]
+      .state,
   ).toBe("replied");
   expect(
     (await recipient.call("wait_for_message", { confirmed: true, reviewToken: token })).result
@@ -316,7 +324,7 @@ it("emits one timeout hook per deadline version, wakes a waiting sender, and pre
       message: "check",
       expectReply: true,
     })
-  ).value.requests[0].id;
+  ).value.deliveries[0].id;
   await consume(recipient);
   await k.db.pool.query(
     "update runs set state='waiting',reason='message',owner_id=null,lease_until=null where id=$1",
@@ -326,11 +334,11 @@ it("emits one timeout hook per deadline version, wakes a waiting sender, and pre
   await Promise.all([k.tools.messages.tick(), k.tools.messages.tick()]);
   const delivered = await notices(sender.run.subject_id);
   expect(delivered).toHaveLength(1);
-  expect(delivered[0].content.readAt).toBeTruthy();
+  expect(delivered[0].content.deliveries[0].readAt).toBeTruthy();
   expect((await k.runs.get(sender.run.id)).state).toBe("queued");
   await k.tools.messages.tick();
   expect(await notices(sender.run.subject_id)).toHaveLength(1);
-  const state = (await k.db.pool.query("select version from message_requests where id=$1", [req]))
+  const state = (await k.db.pool.query("select version from message_deliveries where id=$1", [req]))
     .rows[0];
   await k.tools.messages.updateForOwner(req, "wait", 60, state.version);
   await expire(req);
@@ -344,7 +352,7 @@ it("routes a child reply back to the original workspace conversation and closes 
     child = await start(a.id);
   const first = (
     await owner.call("send_message", { to: "agent", id: a.id, message: "first", expectReply: true })
-  ).value.requests[0].id;
+  ).value.deliveries[0].id;
   const second = (
     await owner.call("send_message", {
       to: "agent",
@@ -352,15 +360,15 @@ it("routes a child reply back to the original workspace conversation and closes 
       message: "second",
       expectReply: true,
     })
-  ).value.requests[0].id;
+  ).value.deliveries[0].id;
   await child.call("send_message", {
-    to: "request",
+    to: "reply",
     id: first,
     kind: "result",
     message: "finished first",
   });
   const q = (
-    await k.db.pool.query("select id,state from message_requests where id=any($1)", [
+    await k.db.pool.query("select id,state from message_deliveries where id=any($1)", [
       [first, second],
     ])
   ).rows;
@@ -379,7 +387,7 @@ it("routes a child reply back to the original workspace conversation and closes 
   expect(await notices(owner.run.subject_id)).toHaveLength(0);
 });
 
-it("wait extends the deadline without sending; expedite is bound to the original request and rate limited", async () => {
+it("wait postpones reminders without changing the deadline or sending; expedite is bound to the original request and rate limited", async () => {
   const adminNode = await agent(board, false, "admin"),
     a = await agent(adminNode.id),
     b = await agent(adminNode.id),
@@ -392,13 +400,13 @@ it("wait extends the deadline without sending; expedite is bound to the original
       message: "original question",
       expectReply: true,
     })
-  ).value.requests[0].id;
+  ).value.deliveries[0].id;
   const before = (
     await k.db.pool.query("select message_seq from conversations where id=$1", [
       recipient.run.subject_id,
     ])
   ).rows[0].message_seq;
-  await sender.call("update_message", { requestId: req, action: "wait", waitSeconds: 1 });
+  await sender.call("update_message", { deliveryId: req, action: "wait", waitSeconds: 1 });
   expect(
     (
       await k.db.pool.query("select message_seq from conversations where id=$1", [
@@ -407,7 +415,7 @@ it("wait extends the deadline without sending; expedite is bound to the original
     ).rows[0].message_seq,
   ).toBe(before);
   const expedited = await sender.call("update_message", {
-    requestId: req,
+    deliveryId: req,
     action: "expedite",
     waitSeconds: 60,
   });
@@ -422,11 +430,12 @@ it("wait extends the deadline without sending; expedite is bound to the original
   expect(follow.content.replyTo.id).toBe(req);
   expect(follow.expedite_run_id).toBe(recipient.run.id);
   expect(
-    (await sender.call("update_message", { requestId: req, action: "expedite" })).value.error.code,
+    (await sender.call("update_message", { deliveryId: req, action: "expedite" })).value.error.code,
   ).toBe("EXPEDITE_COOLDOWN");
   await consume(recipient);
   expect(
-    (await recipient.call("update_message", { requestId: req, action: "cancel" })).value.error.code,
+    (await recipient.call("update_message", { deliveryId: req, action: "cancel" })).value.error
+      .code,
   ).toBe("FORBIDDEN");
 });
 
@@ -442,13 +451,14 @@ it("stops tracking on sender Stop and never wakes stopped or deleted canvases", 
       message: "deadline",
       expectReply: true,
     })
-  ).value.requests[0].id;
+  ).value.deliveries[0].id;
   await k.runs.cancel(sender.run.id);
   await expire(req);
   await k.tools.messages.tick();
   expect(await notices(sender.run.subject_id)).toHaveLength(0);
   expect(
-    (await k.db.pool.query("select state from message_requests where id=$1", [req])).rows[0].state,
+    (await k.db.pool.query("select state from message_deliveries where id=$1", [req])).rows[0]
+      .state,
   ).toBe("cancelled");
   await k.db.pool.query("update canvases set deleted_at=now() where id=$1", [board]);
   await k.tools.messages.tick();
@@ -460,7 +470,7 @@ it("rejects stale deadline decisions and invalidates reviewed waits after a time
     s = await start();
   const req = (
     await s.call("send_message", { to: "agent", id: a.id, message: "deadline", expectReply: true })
-  ).value.requests[0].id;
+  ).value.deliveries[0].id;
   const token = (await review(s)).value.reviewToken;
   await expire(req);
   await k.tools.messages.tick();
@@ -468,9 +478,9 @@ it("rejects stale deadline decisions and invalidates reviewed waits after a time
   expect(
     (await s.call("wait_for_message", { confirmed: true, reviewToken: token })).value.error.code,
   ).toBe("INBOX_REVIEW_REQUIRED");
-  await s.call("update_message", { requestId: req, action: "wait", version: 1 });
+  await s.call("update_message", { deliveryId: req, action: "wait", version: 1 });
   expect(
-    (await s.call("update_message", { requestId: req, action: "cancel", version: 1 })).value.error
+    (await s.call("update_message", { deliveryId: req, action: "cancel", version: 1 })).value.error
       .code,
   ).toBe("VERSION_CONFLICT");
 });
@@ -572,15 +582,15 @@ it("delivers reply addresses and timeout hook arguments into actual model contex
       expectReply: true,
       replyWithinSeconds: 30,
     })
-  ).value.requests[0].id;
+  ).value.deliveries[0].id;
   await k.conversations.execute(recipient.ctx, (ctx, input) => k.tools.create(ctx, input));
   const received = inputs
     .flatMap((text) => text.split("\n"))
     .find((line) => line.includes('"replyTo"'))!;
   const address = JSON.parse(received.slice(received.indexOf("{")));
   expect(address).toMatchObject({
-    requestId,
-    replyTo: { to: "request", id: requestId },
+    deliveryId: requestId,
+    replyTo: { to: "reply", id: requestId },
     expectReply: true,
     replyWithinSeconds: 30,
   });

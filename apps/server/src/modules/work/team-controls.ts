@@ -40,7 +40,7 @@ export async function controlTeams(
         `with recursive team as (
         select id from nodes where id=any($1::text[]) and canvas_id=$2
         union select n.id from nodes n join team t on n.parent_id=t.id where n.kind='agent' and n.canvas_id=$2
-      ) select t.id,c.id as conversation_id,a.config from team t join agent_configs a on a.node_id=t.id join conversations c on c.agent_id=t.id order by t.id`,
+      ) select t.id,c.id as conversation_id,a.config,a.paused from team t join agent_configs a on a.node_id=t.id join conversations c on c.agent_id=t.id order by t.id`,
         [roots, canvasId],
       )
     ).rows;
@@ -53,7 +53,7 @@ export async function controlTeams(
         )
       ).rows[0];
       if (action === "stop") {
-        if (active && !active.cancel_requested_at) changed.push(member.id);
+        if (!member.paused || (active && !active.cancel_requested_at)) changed.push(member.id);
         continue;
       }
       const latest = (
@@ -66,7 +66,7 @@ export async function controlTeams(
       if (
         active &&
         (active.state !== "waiting" ||
-          !["message", "turn_limit"].includes(active.reason) ||
+          !["message", "turn_limit", "inbox_review"].includes(active.reason) ||
           active.cancel_requested_at)
       )
         continue;

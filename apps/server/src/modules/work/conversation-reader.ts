@@ -9,6 +9,7 @@ import { resourceResponse } from "../execution/schedules.js";
 import { CollaborationReader } from "./collaboration-reader.js";
 import { ConversationNavigation } from "./conversation-navigation.js";
 import { projectInputReceipts } from "./input-receipts.js";
+import { projectCollaborationReceipts } from "./messaging/receipts.js";
 import { canRetryUnknown } from "./tool-outcomes.js";
 
 function publicContext(context: Record<string, unknown> | null) {
@@ -82,7 +83,7 @@ export class ConversationReader {
   async history(conversationId: string, before?: string, around?: number) {
     const records = (
       await this.db.pool.query(
-        `select seq,role,content,md5(content::text) as record_version,run_id,created_at from messages where conversation_id=$1 and ($2::bigint is null or seq<$2)
+        `select client_message_id,seq,role,content,md5(content::text) as record_version,run_id,created_at from messages where conversation_id=$1 and ($2::bigint is null or seq<$2)
          and ($3::bigint is null or seq>=$3) order by seq ${around === undefined ? "desc" : "asc"} limit 80`,
         [conversationId, before ?? null, around ?? null],
       )
@@ -93,7 +94,7 @@ export class ConversationReader {
   async event(conversationId: string, seq: number) {
     const records = (
       await this.db.pool.query(
-        "select seq,role,content,md5(content::text) as record_version,run_id,created_at from messages where conversation_id=$1 and seq=$2",
+        "select client_message_id,seq,role,content,md5(content::text) as record_version,run_id,created_at from messages where conversation_id=$1 and seq=$2",
         [conversationId, seq],
       )
     ).rows;
@@ -106,6 +107,7 @@ export class ConversationReader {
       for (const record of records)
         record.content = { ...record.content, truncated: false, truncatedFields: {} };
     await projectInputReceipts(this.db, records, conversationId);
+    await projectCollaborationReceipts(this.db.pool, records, conversationId);
     const ids = records
       .filter((r) => ["tool", "tool_update"].includes(r.role))
       .map((r) => r.content.callId)
@@ -214,7 +216,7 @@ export class ConversationReader {
     const c = await this.forAgent(agentId);
     const records = (
       await this.db.pool.query(
-        `select seq,role,run_id,created_at,md5(content::text) as record_version,(content-'text'-'thinking'-'result') || jsonb_build_object(
+        `select client_message_id,seq,role,run_id,created_at,md5(content::text) as record_version,(content-'text'-'thinking'-'result') || jsonb_build_object(
         'text',left(content->>'text',2000),'thinking',left(content->>'thinking',2000),
         'result',case when length(content->>'result')>4000 then to_jsonb(left(content->>'result',4000)) else content->'result' end,
         'truncated',coalesce(length(content->>'text'),0)>2000 or coalesce(length(content->>'thinking'),0)>2000 or coalesce(length(content->>'result'),0)>4000,
@@ -277,6 +279,7 @@ export class ConversationReader {
       runReason: run?.reason,
       supersededByRunId: run?.superseded_by_run_id ?? null,
       unknownTools: unknown,
+      collaborationPaused: Boolean((await agentIdentity(this.db.pool, agentId)).paused),
       resourceResponse: await resourceResponse(this.db.pool, agentId),
       configurationBlocked:
         c.context?.modelBlocked === true ||

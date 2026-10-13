@@ -237,9 +237,12 @@ describe("origin-bound approval lifecycle", () => {
     const noVision = await invokeTool(ctx, tools.find((t) => t.name === "read")!, key(), {
       target: { kind: "path", path: local },
     });
-    expect(noVision.result.isError).toBe(true);
+    expect(noVision.result.isError).not.toBe(true);
     expect(noVision.result.content.every((p) => p.type !== "image")).toBe(true);
-    expect(JSON.stringify(noVision.result)).toContain("不支持图像");
+    expect(JSON.parse((noVision.result.content[0] as { text: string }).text)).toMatchObject({
+      format: "png",
+      frames: 1,
+    });
     const textPath = join(scratch, "actually-text.png");
     await writeFile(textPath, "first\nsecond\nthird");
     expect(
@@ -321,7 +324,7 @@ describe("origin-bound approval lifecycle", () => {
     const path = (await k.host.scope(manager.actor)).scratch;
     await writeFile(join(path, "evidence.txt"), "authorized member read");
     const pending = await child.call("request_permission", {
-      scope: { kind: "path", path, access: "directory_and_commands" },
+      scope: { kind: "path", path, access: "directory", mode: "write", execution: "host" },
       reason: "review parent files",
     });
     expect((await k.access.list(c, { actor: manager.actor })).requests).toHaveLength(0);
@@ -369,7 +372,7 @@ describe("origin-bound approval lifecycle", () => {
     const path = (await k.host.scope(manager.actor)).scratch;
     await writeFile(join(path, "evidence.txt"), "manager-owned evidence");
     const pending = await child.call("request_permission", {
-      scope: { kind: "path", path, access: "directory_and_commands" },
+      scope: { kind: "path", path, access: "directory", mode: "write", execution: "host" },
       reason: "Review assigned files",
     });
     expect(pending.waiting).toBe("approval");
@@ -379,7 +382,7 @@ describe("origin-bound approval lifecycle", () => {
     const resumed = await child.call(
       "request_permission",
       {
-        scope: { kind: "path", path, access: "directory_and_commands" },
+        scope: { kind: "path", path, access: "directory", mode: "write", execution: "host" },
         reason: "Review assigned files",
       },
       pending.logical,
@@ -440,7 +443,7 @@ describe("origin-bound approval lifecycle", () => {
     const manager = await start(m.id),
       child = await start(a.id);
     const pending = await child.call("request_permission", {
-      scope: { kind: "path", path: area, access: "directory_and_commands" },
+      scope: { kind: "path", path: area, access: "directory", mode: "write", execution: "host" },
       reason: "Private evidence",
     });
     expect(
@@ -502,7 +505,13 @@ describe("origin-bound approval lifecycle", () => {
       child = await start(a.id);
     const siblingPath = await k.host.workspace(c, sibling.id);
     const siblingRequest = await child.call("request_permission", {
-      scope: { kind: "path", path: siblingPath, access: "directory_and_commands" },
+      scope: {
+        kind: "path",
+        path: siblingPath,
+        access: "directory",
+        mode: "write",
+        execution: "host",
+      },
       reason: "not owned by manager",
     });
     expect((await request(siblingRequest.value.requestId)).action.workspaceOwnerId).toBeUndefined();
@@ -517,12 +526,18 @@ describe("origin-bound approval lifecycle", () => {
     const redirect = join((await k.host.scope(manager.actor)).scratch, "redirect");
     await symlink(area, redirect);
     const escaped = await child.call("request_permission", {
-      scope: { kind: "path", path: redirect, access: "directory_and_commands" },
+      scope: {
+        kind: "path",
+        path: redirect,
+        access: "directory",
+        mode: "write",
+        execution: "host",
+      },
       reason: "external symlink",
     });
     expect((await request(escaped.value.requestId)).action.workspaceOwnerId).toBeUndefined();
     const forged = await child.call("request_permission", {
-      scope: { kind: "path", path: area, access: "directory_and_commands" },
+      scope: { kind: "path", path: area, access: "directory", mode: "write", execution: "host" },
       reason: "forged",
       workspaceOwnerId: m.id,
     });
@@ -538,9 +553,9 @@ describe("origin-bound approval lifecycle", () => {
     );
     const path = join((await k.host.scope(child.actor)).scratch, "pixel.png");
     await writeFile(path, png);
-    expect(
-      (await child.call("read", { target: { kind: "path", path }, mode: "text" })).result.isError,
-    ).toBe(true);
+    const metadata = await child.call("read", { target: { kind: "path", path }, mode: "text" });
+    expect(metadata.result.isError).not.toBe(true);
+    expect(metadata.result.content.every((p) => p.type !== "image")).toBe(true);
     const automaticImage = await child.call("read", { target: { kind: "path", path } });
     expect(automaticImage.result.isError).not.toBe(true);
     expect(automaticImage.result.content.some((p) => p.type === "image")).toBe(true);

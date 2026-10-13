@@ -318,3 +318,45 @@
 .agent-inbox-list small {
   color: var(--text-secondary);
 }
+
+.agent-event.agent-event-expedited {
+  border-inline-start: 3px solid #b97712;
+  background: var(--latest-bg);
+}
+.message-priority {
+  display: inline-flex;
+  margin-inline-end: 6px;
+  color: #98620c;
+  font-size: 11px;
+  font-weight: 600;
+}
+.collaboration-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--card-border);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.delivery-receipts {
+  font-size: 11px;
+  margin-top: 8px;
+  color: var(--text-secondary);
+}
+.delivery-receipts ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.delivery-receipt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.delivery-receipts summary {
+  cursor: pointer;
+}

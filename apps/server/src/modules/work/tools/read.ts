@@ -29,8 +29,8 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
   const definition = tool(
     "read",
     text(
-      "Read a path (file or directory), canvas node, or indexed skillId (its catalog path). Permissions are separate for each target. Follow nextCursor to finish. line is one-based for file text; page is one-based for PDFs; frame is zero-based and supported only for path images; use mode=auto for image nodes. Omit positions with cursor. mode=text omits images; image requires vision. Results preserve images and node revisions. No OCR.",
-      "读取路径（文件或目录）、画布节点或已索引 skillId（目录索引中的路径）。各目标分别检查权限。沿 nextCursor 续读。文件 line 和 PDF page 从 1 开始，frame 从 0 开始且仅用于 path 图片；图像节点使用 mode=auto；cursor 不能与定位字段混用。text 不渲染图片；image 需要视觉能力。保留图片及节点版本，不执行 OCR。",
+      "Read a path (file or directory), canvas node, or indexed skillId (its catalog path). Permissions are separate for each target. Follow nextCursor to finish. line is one-based for file text; page is one-based for PDFs; frame is zero-based for path or node images; node reads use immutable published bytes. mode=text returns image metadata, GIF frame durations and loop count. Use node targets for version-specific review. Omit positions with cursor. mode=text omits images; image requires vision. Results preserve images and node revisions. No OCR.",
+      "读取路径（文件或目录）、画布节点或已索引 skillId（目录索引中的路径）。各目标分别检查权限。沿 nextCursor 续读。文件 line 和 PDF page 从 1 开始，frame 从 0 开始，可用于 path 或 node 图片；节点读取不可变发布快照。mode=text 返回图片元数据、GIF 帧时长与循环次数。按版本质检使用 node 目标；cursor 不能与定位字段混用。text 不渲染图片；image 需要视觉能力。保留图片及节点版本，不执行 OCR。",
     ),
     object({
       target: Type.Union([
@@ -51,7 +51,7 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
         Type.Integer({
           minimum: 0,
           maximum: 10000,
-          description: "Only for target.kind=path images; image nodes use mode=auto.",
+          description: "Zero-based image frame for path or node targets.",
         }),
       ),
       mode: Type.Optional(
@@ -68,12 +68,8 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
     const kind: Kind = args.target.kind;
     if (args.cursor && [args.line, args.page, args.frame].some((v) => v !== undefined))
       throw new DomainError("VALIDATION", "cursor 不能与定位字段同时使用");
-    if (kind !== "path" && args.frame !== undefined)
-      throw new DomainError(
-        "VALIDATION",
-        "frame 仅适用于 path 图像；读取 GIF 节点请移除 frame 并使用 mode=auto",
-        { path: "frame", nextAction: "移除 frame；保留原 nodeId 和 mode=auto。" },
-      );
+    if (kind === "skill" && args.frame !== undefined)
+      throw new DomainError("VALIDATION", "skill 不接受 frame", { path: "frame" });
     if (kind !== "path" && args.line !== undefined)
       throw new DomainError(
         "VALIDATION",

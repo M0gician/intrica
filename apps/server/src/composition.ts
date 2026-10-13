@@ -76,7 +76,7 @@ export async function createKernel(config: ApiConfig) {
           attemptId: ctx.run.attemptId,
           canvasId: ctx.run.canvas_id,
           conversationId: ctx.run.frozen_input.conversationId,
-          requestId: ctx.run.frozen_input.requestId,
+          requestId: ctx.run.frozen_input.traceId,
         },
         action,
       );

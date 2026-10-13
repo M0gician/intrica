@@ -86,7 +86,7 @@ export class HostExecutor {
         ])
       ).rows[0];
       const resource = row?.body.resource;
-      if (!resource) continue;
+      if (!resource || resource.snapshot) continue;
       const path = await canonicalPath(resource.path);
       if (await this.protectedPath(path)) continue;
       roots.push({
@@ -472,7 +472,7 @@ export class HostExecutor {
           }
         },
       },
-      ...capabilityTools(language),
+      ...capabilityTools(language, async () => (await this.scope(actor)).scratch),
     ];
   }
 }

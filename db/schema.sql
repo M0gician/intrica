@@ -1,6 +1,6 @@
 -- Intrica protocol 2. This schema never reads or alters the previous public tables.
-CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=14), models_initialized boolean NOT NULL DEFAULT false);
-INSERT INTO schema_info(version) VALUES (14) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=15), models_initialized boolean NOT NULL DEFAULT false);
+INSERT INTO schema_info(version) VALUES (15) ON CONFLICT DO NOTHING;
 CREATE TABLE canvases (
  id text PRIMARY KEY, title text NOT NULL, graph_revision integer NOT NULL DEFAULT 0,
  event_seq bigint NOT NULL DEFAULT 0,
@@ -50,7 +50,7 @@ CREATE TABLE canvas_events (
 );
 CREATE TABLE agent_configs (
  node_id text PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
- config jsonb NOT NULL, enabled boolean NOT NULL DEFAULT false
+ config jsonb NOT NULL, enabled boolean NOT NULL DEFAULT true, paused boolean NOT NULL DEFAULT false
 );
 CREATE TABLE conversations (
  id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id), agent_id text UNIQUE REFERENCES agent_configs(node_id) ON DELETE SET NULL,
@@ -96,7 +96,7 @@ CREATE TABLE proposals (
 CREATE INDEX proposals_canvas ON proposals(canvas_id,created_at DESC);
 CREATE TABLE tool_calls (
  id text PRIMARY KEY, run_id text NOT NULL REFERENCES runs(id), attempt_id text NOT NULL REFERENCES attempts(id),
- schema_version integer NOT NULL DEFAULT 3,
+ schema_version integer NOT NULL DEFAULT 4,
  logical_call_id text NOT NULL, name text NOT NULL, args jsonb NOT NULL, args_hash text NOT NULL,
  effect_class text NOT NULL CHECK(effect_class IN ('read','graph','external')),
  state text NOT NULL CHECK(state IN ('prepared','dispatching','succeeded','failed','unknown','waiting')),
@@ -172,21 +172,27 @@ CREATE TABLE media_references (
 );
 CREATE INDEX media_references_scope ON media_references(conversation_id);
 
-CREATE TABLE message_requests (
+CREATE TABLE message_deliveries (
  id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id),
  sender_conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
  recipient_conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
  sender_agent_id text, recipient_agent_id text NOT NULL,
- origin_call_id text NOT NULL REFERENCES tool_calls(id), inbox_message_id text NOT NULL,
+ origin_call_id text REFERENCES tool_calls(id), inbox_message_id text NOT NULL,
+ source_message_id text NOT NULL, cause_id text NOT NULL REFERENCES runs(id),
+ expect_reply boolean NOT NULL DEFAULT false, unread_deadline_at timestamptz NOT NULL,
+ unread_notified_at timestamptz, snoozed_until timestamptz, tracking_stopped boolean NOT NULL DEFAULT false,
+ expedited_at timestamptz, expedited_by text, expedite_message_id text,
  state text NOT NULL DEFAULT 'open' CHECK(state IN ('open','replied','cancelled')),
  deadline_at timestamptz NOT NULL, notified_at timestamptz,
  version integer NOT NULL DEFAULT 1, notice_count integer NOT NULL DEFAULT 0,
  reply_call_id text REFERENCES tool_calls(id),
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
- UNIQUE(origin_call_id,recipient_conversation_id)
+ UNIQUE(sender_conversation_id,source_message_id,recipient_conversation_id)
 );
-CREATE INDEX message_requests_due ON message_requests(deadline_at) WHERE state='open' AND notified_at IS NULL;
+CREATE INDEX message_deliveries_due ON message_deliveries(deadline_at) WHERE state='open' AND notified_at IS NULL;
 CREATE TABLE inbox_reviews (
  conversation_id text PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
- token text NOT NULL, fingerprint text NOT NULL, inspection_token text, inspection_fingerprint text, reviewed_seq bigint NOT NULL DEFAULT 0, reviewed_at timestamptz NOT NULL DEFAULT now()
+ token text NOT NULL, fingerprint text NOT NULL, inspection_token text, inspection_fingerprint text, reviewed_seq bigint NOT NULL DEFAULT 0, reviewed_at timestamptz NOT NULL DEFAULT now(), decisions jsonb NOT NULL DEFAULT '[]'
 );
+
+CREATE INDEX message_deliveries_unread_due ON message_deliveries(unread_deadline_at) WHERE state='open' AND NOT tracking_stopped AND unread_notified_at IS NULL;

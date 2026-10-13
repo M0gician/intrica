@@ -7,7 +7,7 @@ import {
 } from "../../access/collaboration.js";
 import { agentIdentity, authorize } from "../../access/policy.js";
 import { result } from "../../execution/tool-calls.js";
-import { replyAddress } from "../message-hooks.js";
+import { replyAddress } from "../messaging/deliveries.js";
 import {
   idParameter,
   messageParameter,
@@ -22,12 +22,12 @@ export function collaborationTools(context: ToolContext) {
   const send = tool(
     "send_message",
     text(
-      "Send a message or result using flat fields. to selects agent/id, agents/ids, team, canvas, manager, user, request/id or resource_readers/ids. kind defaults to message; result submits results. expectReply=true creates tracked requests; replyWithinSeconds defaults to 120. Reply using the received replyTo address. Files need published fileIds; sending never grants resource access.",
-      "用扁平字段发送消息或结果。to 选择 agent/id、agents/ids、team、canvas、manager、user、request/id 或 resource_readers/ids。kind 默认为 message；result 用于提交结果。expectReply=true 开启回复跟踪；replyWithinSeconds 默认 120 秒。回复时复制来信的 replyTo 地址。文件使用已发布的 fileIds；发送不授予资源权限。",
+      "Send a message or result using flat fields. to selects agent/id, agents/ids, team, canvas, manager, user, reply/id or resource_readers/ids. kind defaults to message; result submits results. Every Agent delivery tracks reading; readWithinSeconds defaults to 60. expectReply=true also tracks a reply; replyWithinSeconds defaults to 120. Reply using the received replyTo address. Files need published fileIds; sending never grants resource access.",
+      "用扁平字段发送消息或结果。to 选择 agent/id、agents/ids、team、canvas、manager、user、reply/id 或 resource_readers/ids。kind 默认为 message；result 用于提交结果。成员消息均跟踪已读状态；readWithinSeconds 默认 60 秒。expectReply=true 同时开启回复跟踪；replyWithinSeconds 默认 120 秒。回复时复制来信的 replyTo 地址。文件使用已发布的 fileIds；发送不授予资源权限。",
     ),
     object({
       to: Type.Union(
-        ["agent", "agents", "team", "canvas", "manager", "user", "request", "resource_readers"].map(
+        ["agent", "agents", "team", "canvas", "manager", "user", "reply", "resource_readers"].map(
           (v) => Type.Literal(v),
         ),
       ),
@@ -38,6 +38,7 @@ export function collaborationTools(context: ToolContext) {
       ),
       message: messageParameter,
       expectReply: Type.Optional(Type.Boolean()),
+      readWithinSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 604800 })),
       replyWithinSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 604800 })),
       fileIds: Type.Optional(
         Type.Array(idParameter, { minItems: 1, maxItems: 20, uniqueItems: true }),
@@ -47,39 +48,30 @@ export function collaborationTools(context: ToolContext) {
     "graph",
     preflightOnly,
   );
-  send.restore = (args) =>
-    args?.target
-      ? {
-          to: args.target.kind,
-          id: args.target.agentId,
-          ids: args.target.agentIds ?? args.target.resourceIds,
-          message: args.message,
-        }
-      : args;
   send.normalize = async (args) => {
-    const single = ["agent", "request"].includes(args.to),
+    const single = ["agent", "reply"].includes(args.to),
       multiple = ["agents", "resource_readers"].includes(args.to);
     const invalid = (field: string, message: string): never => {
       throw new DomainError("MESSAGE_INPUT", message, { path: field, executed: false });
     };
     if (single && !args.id) invalid("id", `${args.to} 目标需要 id`);
     if (!single && args.id !== undefined)
-      invalid("id", "此目标不接受 id；单个 Agent 使用 to=agent");
+      invalid("id", "此目标不接受 id；使用 manager 时移除 id，指定成员时使用 to=agent 和 id");
     if (multiple && !args.ids?.length) invalid("ids", `${args.to} 目标需要非空 ids`);
     if (!multiple && args.ids !== undefined) invalid("ids", "此目标不接受 ids");
     if (args.replyWithinSeconds !== undefined && args.expectReply !== true)
       invalid("replyWithinSeconds", "设置回复时间时必须 expectReply=true");
-    if (args.expectReply && ["request", "user"].includes(args.to))
+    if (args.expectReply && ["reply", "user"].includes(args.to))
       invalid("expectReply", "回复及面向用户的结果不建立新的成员回复请求");
     if (args.resourceIds && (!capabilities.manageTeam || args.kind !== "result"))
       invalid("resourceIds", "仅管理者的 result 可交付已接管工作的资源");
-    if (args.kind === "reply" && args.to !== "request")
-      invalid("to", "kind=reply 需要 to=request，并使用来信 replyTo 中的 id");
+    if (args.kind === "reply" && args.to !== "reply")
+      invalid("to", "kind=reply 需要 to=reply，并使用来信 replyTo 中的 id");
     const ids = [...new Set<string>(args.ids ?? [])];
     let recipients: string[] = [],
       targetKind: Delivery["targetKind"];
     let replyTo: string | undefined;
-    if (args.to === "request") {
+    if (args.to === "reply") {
       const request = await replyAddress(registry.graph.db.pool, input.conversationId, args.id);
       recipients = request.sender_agent_id ? [request.sender_agent_id] : [];
       targetKind = recipients.length ? "agent" : "user";
@@ -93,7 +85,7 @@ export function collaborationTools(context: ToolContext) {
       targetKind = "agent";
     } else if (args.to === "user") {
       if (input.agentId && (await agentIdentity(registry.graph.db.pool, input.agentId)).manager_id)
-        invalid("to", "成员应向 manager 或 request 回复；直接面向用户需要根 Agent");
+        invalid("to", "成员应向 manager 交付，或复制 replyTo 地址回复；直接面向用户需要根 Agent");
       targetKind = "user";
     } else {
       const target =
@@ -132,6 +124,7 @@ export function collaborationTools(context: ToolContext) {
       ...(replyTo ? { replyTo } : {}),
       expectReply: args.expectReply ?? false,
       replyWithinSeconds: args.replyWithinSeconds ?? 120,
+      readWithinSeconds: args.readWithinSeconds ?? 60,
     };
   };
   send.prepare = async (tx, callId, _logical, args) => {

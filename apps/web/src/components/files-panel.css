@@ -124,16 +124,20 @@
 
 .file-source-shortcuts {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   margin: 8px -6px 12px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--card-border);
 }
 
-.file-source-shortcuts > button {
+.file-source-shortcuts button {
   display: grid;
   gap: 3px;
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
   padding: 7px 6px;
   border: 0;
   border-radius: 6px;
@@ -144,11 +148,11 @@
   cursor: pointer;
 }
 
-.file-source-shortcuts > button:hover {
+.file-source-shortcuts button:hover {
   background: var(--control-hover);
 }
 
-.file-source-shortcuts > button:focus-visible {
+.file-source-shortcuts button:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
 }
@@ -157,6 +161,11 @@
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.5;
+}
+
+.file-source-shortcuts summary {
+  padding: 7px 6px;
+  cursor: pointer;
 }
 
 .file-source-popover dl {

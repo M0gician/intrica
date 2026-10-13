@@ -1,15 +1,22 @@
 # Resource responses
 
-Continuous collaboration responds to content changes in resources an Agent can
-read. Text, summaries, image descriptions, task state, resource references and
+Automatic resource response is enabled by default for new UI/API Agents.
+Hired Agents inherit their manager's setting unless explicitly configured;
+copies preserve it. The UI names this setting “自动响应资源变化”. A separate
+persistent pause controls all automatic collaboration, including inbox and cron
+activation. Resource response watches resources an Agent can read.
+Text, summaries, image descriptions, task state, resource references and
 attachments use the same change detector. Unchanged values, titles and layout
 changes do not restart the response timer. An Agent's own changes do not trigger
 that same Agent.
 
-Each Agent has one resource-change schedule. New changes replace its pending
-source and start a ten-second stability period. The deadline uses the current
+Each Agent has one resource-change schedule. Changes merge affected resource IDs
+and restart a ten-second stability period, bounded at thirty seconds from the
+first pending change so continuous edits cannot postpone delivery indefinitely.
+The deadline uses the current
 database clock after the canvas lock and content mutation. Time spent waiting
-for the lock does not count toward this period.
+for the lock does not count toward this period. Delivery rechecks resource grants
+and includes current authorized resource IDs, revisions and snapshot hashes.
 
 ## State and delivery
 
@@ -50,24 +57,27 @@ edits already hold their canvas lock. Success, cancellation and failure updates
 cannot apply to a newer schedule revision. A rolled-back transaction leaves the
 current work intact; the outer error handler never writes by schedule ID alone.
 
-Stopping an Agent or a team cancels pending and blocked resource responses. It
-also marks delivered but unread inputs cancelled as the stop discards those
-inputs. It preserves consumed receipts, the continuous-collaboration setting and
-independent cron settings. Disabling continuous collaboration cancels only
-undelivered resource responses; it does not stop an active run. Permission
-reductions use the same cancellation boundary before the next dispatch.
+Pausing an Agent or a team cancels pending and blocked resource responses and
+marks delivered but unread resource inputs cancelled. It retains unread
+collaboration/user messages, detaches them from cancelled runs and preserves
+delivery tracking, consumed receipts, the resource-response setting and cron
+settings. Paused Agents admit no automatic message, resource or cron activation.
+An explicit user submission or the UI resume action resumes collaboration.
+Disabling resource response cancels only undelivered resource responses; it
+does not stop an active run. Permission reductions use the same resource
+cancellation boundary before the next dispatch.
 
 Model edits recover only live `model_not_configured` blocks whose corresponding
 resource-response or cron setting remains enabled. They cannot revive cancelled
-responses. A later authorized resource change can create a new response when
-continuous collaboration remains enabled.
+responses. A later authorized resource change creates a response only when
+resource response is enabled and the Agent is not paused.
 
 ## Retry and limits
 
 The owner endpoint is
 `POST /api/v2/canvas-agents/:id/resource-response/retry`. It requires the displayed
-`expectedRevision` and an `idempotencyKey`. Only a blocked response with continuous
-collaboration enabled can be retried. The request retains its original source
+`expectedRevision` and an `idempotencyKey`. Only a blocked response with resource
+response enabled can be retried. Paused Agents cannot dispatch it. The request retains its original source
 identity and activation budget. Stale revisions conflict; already delivered or
 cancelled inputs cannot be retried. Replayed requests return the original result.
 
@@ -94,7 +104,8 @@ An unread input already discarded by stop remains cancelled.
 `resource-response.test.ts` uses disposable PostgreSQL databases, independent
 connections and explicit barriers for snapshot, model and canvas-lock races. It
 checks actual trigger delivery after the ten-second deadline, context receipt,
-stop and team-stop recovery, activation counts, queue failures, API idempotency
-and migration. Browser tests cover a real Worker flow and both languages in a
+pause and explicit resume, activation counts, queue failures, API idempotency
+and migration. `collaboration-lifecycle.test.ts` also checks default settings,
+merged resource IDs and the thirty-second delivery bound. Browser tests cover a real Worker flow and both languages in a
 narrow panel. Model replies are controlled test inputs; production model quality
 and remote deployments are outside these checks.

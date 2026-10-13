@@ -17,6 +17,7 @@ import {
   result,
 } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { type ExecutionContext, Worker } from "../../apps/server/dist/modules/execution/worker.js";
+import { finishReview, replyAddresses } from "./helpers/collaboration-model.js";
 
 // Only model decisions and the duration of the controlled read are simulated.
 // Inbox, approval, tool persistence, checkpoints and Worker lifecycle use production code.
@@ -69,13 +70,16 @@ function reviewedWait(model: Agent): Reply {
       : undefined;
   if (value?.reviewToken && !(last?.role === "toolResult" && last.isError))
     return toolReply("wait_for_message", { confirmed: true, reviewToken: value.reviewToken });
-  if (value?.reviewKey)
+  if (value?.reviewId)
     return toolReply("review_inbox", {
-      reviewKey: value.reviewKey,
-      handledMessageIds: value.messages.map((m: any) => m.id),
-      trackRequestIds: [...value.incoming, ...value.outgoing].map((q: any) => q.id),
+      action: "confirm",
+      reviewId: value.reviewId,
+      decisions: value.items.map((item: any) => ({
+        itemId: item.id,
+        action: item.kind === "message" ? "handled" : "wait",
+      })),
     });
-  return toolReply("review_inbox", {});
+  return toolReply("review_inbox", { action: "inspect" });
 }
 const seen = (a: Node) => inputs.get(a.agent!.persona) ?? [];
 const received = (a: Node, text: string) =>
@@ -345,7 +349,8 @@ it("related work keeps its original context while a new member works in parallel
       });
     if (existingPhase === 3)
       return toolReply("send_message", { to: "manager", kind: "result", message: existingReport });
-    return { text: "Related work delivered" };
+    const decision = finishReview(model.state.messages, "Related work delivered");
+    return "tool" in decision ? toolReply(decision.tool, decision.args) : decision;
   });
   programs.set(newPersona, async (model) => {
     expect(contains(model, handoff)).toBe(true);
@@ -366,8 +371,13 @@ it("related work keeps its original context while a new member works in parallel
         content: `${handoff}: ${evidence}`,
       });
     if (newPhase === 3)
-      return toolReply("send_message", { to: "manager", kind: "result", message: newReport });
-    return { text: "Independent work delivered" };
+      return toolReply("send_message", {
+        ...replyAddresses(model.state.messages)[0],
+        kind: "result",
+        message: newReport,
+      });
+    const decision = finishReview(model.state.messages, "Independent work delivered");
+    return "tool" in decision ? toolReply(decision.tool, decision.args) : decision;
   });
   const request = await submit(
     manager,

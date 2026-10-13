@@ -46,6 +46,7 @@ export type AccessIntent =
       resourceIds?: string[];
       fileIds?: string[];
       expectReply?: boolean;
+      readWithinSeconds?: number;
       replyWithinSeconds?: number;
       replyTo?: string;
       priority?: "normal" | "expedite";

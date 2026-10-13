@@ -204,7 +204,7 @@ export class GraphMutation {
     this.beforeNodes.set(nodeId, null);
     this.affectedScopes.add(input.parentId);
     if (input.kind === "agent") {
-      const supplied = input.agent ?? { persona: "", role: "read", enabled: false };
+      const supplied = input.agent ?? { persona: "", role: "read", enabled: true };
       const existing = (
         await this.tx.query(
           "select a.node_id,a.config from agent_configs a join nodes n on n.id=a.node_id where n.canvas_id=$1",
@@ -628,11 +628,27 @@ export class GraphMutation {
       )
       .map((n) => n.id);
     if (changed.length) {
+      const resourcesByAgent = Object.fromEntries(
+        [...effective].map(([agentId, grants]) => [
+          agentId,
+          [
+            ...new Set(
+              grants.filter((g) => changed.includes(g.resource_id)).map((g) => g.resource_id),
+            ),
+          ],
+        ]),
+      );
       const scheduled = await this.tx.query(
         `insert into schedules(id,canvas_id,agent_id,kind,next_due_at,spec,dedupe_key)
-      select 'change-'||a.node_id,$1,a.node_id,'resource_change',clock_timestamp()+interval '10 seconds',jsonb_build_object('sourceSeq',$3::text,'causeId',(select cause_id from runs where id=$5)),'change-'||a.node_id
-      from agent_configs a join nodes n on n.id=a.node_id where n.canvas_id=$1 and a.enabled and a.node_id<>$4 and a.node_id=any($2::text[])
-      on conflict(dedupe_key) do update set next_due_at=excluded.next_due_at,spec=excluded.spec,enabled=true,
+      select 'change-'||a.node_id,$1,a.node_id,'resource_change',clock_timestamp()+interval '10 seconds',jsonb_build_object('sourceSeq',$3::text,'causeId',(select cause_id from runs where id=$5),'firstChangeAt',clock_timestamp(),'resourceIds',$6::jsonb->a.node_id),'change-'||a.node_id
+      from agent_configs a join nodes n on n.id=a.node_id where n.canvas_id=$1 and a.enabled and not a.paused and a.node_id<>$4 and a.node_id=any($2::text[])
+      on conflict(dedupe_key) do update set
+        next_due_at=least(excluded.next_due_at,case when schedules.dispatch_state='pending' then
+          (schedules.spec->>'firstChangeAt')::timestamptz+interval '30 seconds' else excluded.next_due_at end),
+        spec=case when schedules.dispatch_state='pending' then excluded.spec||jsonb_build_object(
+          'firstChangeAt',schedules.spec->'firstChangeAt',
+          'resourceIds',(select jsonb_agg(distinct v) from jsonb_array_elements(coalesce(schedules.spec->'resourceIds','[]')||(excluded.spec->'resourceIds')) v))
+          else excluded.spec end,enabled=true,
         dispatch_state='pending',blocked_reason=null,delivery_seq=null,delivery_run_id=null,revision=schedules.revision+1 returning schedules.*`,
         [
           this.canvasId,
@@ -642,6 +658,7 @@ export class GraphMutation {
           seq,
           source?.agentId ?? "",
           source?.runId ?? null,
+          JSON.stringify(resourcesByAgent),
         ],
       );
       await scheduleChanged(this.tx, scheduled.rows);

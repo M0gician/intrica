@@ -1,4 +1,4 @@
-import type { Node } from "@intrica/contracts";
+import type { CollaborationReceipt, Node } from "@intrica/contracts";
 import type { ReactNode } from "react";
 import { DeferredDetails } from "../../components/DeferredDetails";
 import { MarkdownLite } from "../../components/MarkdownLite";
@@ -6,9 +6,11 @@ import { ToolCallDetails } from "../../components/ToolCallDetails";
 import i18n, { tr } from "../../i18n";
 import { Button } from "../../ui/button";
 import { FileReferenceView } from "../files/FileReferenceView";
+import { DeliveryReceipts } from "./DeliveryReceipts";
 import { isContentTruncated, recordVersion } from "./full-records";
 import { InputReceipt, type Receipt } from "./InputReceipt";
 import { MessageNotice } from "./MessageNotice";
+import { isExpedited } from "./message-priority";
 import { type Activity, activityKey } from "./model";
 import { ReadMore } from "./ReadMore";
 export function EventTime({ value }: { value: Activity["createdAt"] }) {
@@ -77,6 +79,7 @@ export function TimelineEvent({
     name(id, (event.data.recipientNames as Record<string, string> | undefined)?.[id]);
   return (
     <>
+      {isExpedited(event) && <span className="message-priority">⚡ {tr("加急")}</span>}
       {event.kind !== "user" && (
         <small>
           {["team_notice", "run_status", "context_notice", "message_notice"].includes(event.kind)
@@ -169,8 +172,11 @@ export function TimelineEvent({
                   : ""),
             )}
           />
-          {event.kind === "message_notice" && typeof event.data.requestId === "string" && (
-            <MessageNotice requestId={event.data.requestId} conversationId={event.conversationId} />
+          {event.kind === "message_notice" && Array.isArray(event.data.deliveries) && (
+            <MessageNotice
+              deliveryIds={event.data.deliveries.map((d: { deliveryId: string }) => d.deliveryId)}
+              conversationId={event.conversationId}
+            />
           )}
           {load && isContentTruncated(event, "text") && <ReadMore load={load} version={version} />}
           {Array.isArray(event.data.fileIds) &&
@@ -195,6 +201,12 @@ export function TimelineEvent({
               </Button>
             )}
         </>
+      )}
+      {Array.isArray(event.data.deliveryReceipts) && (
+        <DeliveryReceipts
+          receipts={event.data.deliveryReceipts as CollaborationReceipt[]}
+          conversationId={event.conversationId}
+        />
       )}
       {event.kind === "user" && (
         <InputReceipt

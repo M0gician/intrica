@@ -5,6 +5,8 @@ import { Button } from "../../ui/button";
 import "./input-receipt.css";
 
 export type Receipt = {
+  expeditedAt?: string | null;
+  consumedAt?: string | null;
   messageId: string;
   state: "sending" | "unread" | "expediting" | "read" | "closed" | "stopped" | "failed";
   consumedRunId?: string | null;

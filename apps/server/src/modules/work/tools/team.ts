@@ -23,7 +23,7 @@ export function teamTools(context: ToolContext) {
       persona: Type.String({ maxLength: 8000 }),
       task: Type.String({ minLength: 1, maxLength: 8000, pattern: "\\S" }),
       role,
-      respondToResources: Type.Boolean(),
+      respondToResources: Type.Optional(Type.Boolean()),
       inheritResources: Type.Optional(Type.Boolean()),
       resourceIds: Type.Optional(Type.Array(string, { maxItems: 100, uniqueItems: true })),
     }),
@@ -78,10 +78,16 @@ export function teamTools(context: ToolContext) {
     const resourceIds = args.inheritResources
       ? [...new Set(grants.map((g) => g.root_resource_id))]
       : (args.resourceIds ?? []);
+    const respondToResources =
+      args.respondToResources ??
+      (input.agentId
+        ? ((await registry.graph.queries.node(input.agentId)).agent?.enabled ?? true)
+        : true);
     return {
       ...args,
+      respondToResources,
       language: input.language ?? "en",
-      enabled: args.respondToResources,
+      enabled: respondToResources,
       inheritResources: false,
       resourceIds,
       resourceModes: Object.fromEntries(

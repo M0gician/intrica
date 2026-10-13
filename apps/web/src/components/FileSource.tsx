@@ -23,11 +23,15 @@ export function FileSource({
   path,
   preview = false,
   workspacePath,
+  sharedPath,
+  agentDirectories,
   onNavigate,
 }: {
   path: string;
   preview?: boolean;
   workspacePath?: string | undefined;
+  sharedPath?: string | undefined;
+  agentDirectories?: Array<{ agentId: string; path: string; name: string }> | undefined;
   onNavigate: (path: string) => void;
 }) {
   const { t } = useTranslation();
@@ -121,9 +125,41 @@ export function FileSource({
                     }}
                   >
                     <span>{tr("画布工作目录")}</span>
-                    <small>{tr("当前画布的共享目录，Agent 可能使用各自的工作目录。")}</small>
+                    <small>{tr("包含共享目录和所有成员工作目录。")}</small>
                   </button>
                 )}
+                {sharedPath && (
+                  <button
+                    type="button"
+                    aria-label={tr("共享目录")}
+                    title={sharedPath}
+                    onClick={() => {
+                      onNavigate(sharedPath);
+                      setOpen(false);
+                    }}
+                  >
+                    <span>{tr("共享目录")}</span>
+                    <small>{sharedPath}</small>
+                  </button>
+                )}
+                {agentDirectories?.length ? (
+                  <details>
+                    <summary>{tr("成员工作目录")}</summary>
+                    {agentDirectories.map((a) => (
+                      <button
+                        key={a.agentId}
+                        type="button"
+                        title={a.path}
+                        onClick={() => {
+                          onNavigate(a.path);
+                          setOpen(false);
+                        }}
+                      >
+                        {a.name}
+                      </button>
+                    ))}
+                  </details>
+                ) : null}
               </nav>
               <dl>
                 <div>

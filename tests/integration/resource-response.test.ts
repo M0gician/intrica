@@ -294,6 +294,15 @@ it.each(["single", "team"] as const)(
     expect(await triggers(untouched)).toHaveLength(1);
     await change(r, { summary: key() });
     await deliver(parent);
+    expect(await triggers(parent)).toHaveLength(0);
+    await k.conversations.submit({
+      canvasId: board,
+      agentId: parent.id,
+      message: "resume",
+      key: key(),
+    });
+    await change(r, { summary: key() });
+    await deliver(parent);
     expect(await triggers(parent)).toHaveLength(1);
   },
 );
@@ -312,6 +321,10 @@ it("Agent model changes recover only live blocked work and never a stopped trigg
   await deliver(a);
   await config(a, { model: null });
   await Promise.all([tickSchedules(k.tools), tickSchedules(k.tools)]);
+  expect(await triggers(a)).toHaveLength(0);
+  await k.conversations.submit({ canvasId: board, agentId: a.id, message: "resume", key: key() });
+  await change(r, { summary: key() });
+  await deliver(a);
   expect(await triggers(a)).toHaveLength(1);
 });
 
@@ -486,7 +499,7 @@ it.each(["toggle", "stop", "revoke"] as const)(
       expect(await schedule(a)).toEqual(current);
       expect(await triggers(a)).toHaveLength(0);
       await deliver(a);
-      expect(await triggers(a)).toHaveLength(action === "revoke" ? 0 : 1);
+      expect(await triggers(a)).toHaveLength(action === "revoke" || action === "stop" ? 0 : 1);
     } finally {
       proceed.resolve();
       await ticking;
@@ -854,7 +867,7 @@ it("migrates ambiguous legacy blocks without reviving stopped work", async () =>
     }
     // Reconstruct v12, including removal of fields introduced by the v14 migration.
     await db.pool.query(
-      "drop table message_requests;drop table inbox_reviews;alter table tool_calls drop column schema_version",
+      "drop table message_deliveries;drop table inbox_reviews;alter table agent_configs drop column paused;alter table tool_calls drop column schema_version",
     );
     // Use the real migration runner.
     await db.pool.query(

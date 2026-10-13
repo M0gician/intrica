@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import type { CommandResult } from "@intrica/contracts";
 import { ProcessOutcomeError } from "./process-outcome.js";
 import { socketPath } from "./rpc.js";
+import { pythonRuntime } from "./runtime-programs.js";
 export async function canonicalPath(path: string, cwd = process.cwd()): Promise<string> {
   const absolute =
     path === "~"
@@ -46,24 +47,31 @@ export function cleanEnvironment(home: string): Record<string, string> {
     XDG_CACHE_HOME: join(home, ".cache"),
     XDG_CONFIG_HOME: join(home, ".config"),
     INTRICA_NODE: process.execPath,
+    PYTHONPATH: join(home, ".deps"),
+    PYTHONUSERBASE: join(home, ".python"),
     ELECTRON_RUN_AS_NODE: "1",
   };
 }
 /** Electron's bundled interpreter is callable as node without inheriting host secrets. */
 export async function prepareRuntime(home: string) {
   await mkdir(join(home, ".intrica-bin"), { recursive: true, mode: 0o700 });
-  const link = join(home, ".intrica-bin", "node");
-  const target = await readlink(link).catch(() => null);
-  if (target && target !== process.execPath) {
-    const temporary = join(home, ".intrica-bin", `node-${randomUUID()}`);
-    await symlink(process.execPath, temporary);
-    await rename(temporary, link);
-    return;
-  }
-  try {
-    await symlink(process.execPath, link);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  const programs: Array<[string, string]> = [["node", process.execPath]];
+  const python = await pythonRuntime(cleanEnvironment("").PATH!);
+  if (python) programs.push(["python3", python]);
+  for (const [name, executable] of programs) {
+    const link = join(home, ".intrica-bin", name);
+    const target = await readlink(link).catch(() => null);
+    if (target && target !== executable) {
+      const temporary = join(home, ".intrica-bin", `${name}-${randomUUID()}`);
+      await symlink(executable, temporary);
+      await rename(temporary, link);
+    } else if (!target) {
+      try {
+        await symlink(executable, link);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+    }
   }
 }
 

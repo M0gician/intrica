@@ -714,7 +714,7 @@ export class AccessService {
         `
       select c.id,c.canvas_id,c.agent_id,cfg.config from conversations c
       join agent_configs cfg on cfg.node_id=c.agent_id join canvases board on board.id=c.canvas_id
-      where board.deleted_at is null and c.context->>'modelBlocked' is distinct from 'true'
+      where board.deleted_at is null and not cfg.paused and c.context->>'modelBlocked' is distinct from 'true'
       and exists(select 1 from messages m where m.conversation_id=c.id and m.seq>c.consumed_message_seq and m.run_id is null and ${eligible})
       and not exists(select 1 from runs r where r.subject_id=c.id and r.state in('queued','running','waiting'))
       order by (c.id<=$1),c.id limit 128`,
@@ -727,7 +727,7 @@ export class AccessService {
         const model = await this.conversations.models.capture(c.config.model);
         await this.db.canvas(c.canvas_id, async (tx) => {
           const identity = await agentIdentity(tx, c.agent_id);
-          if (digest(identity.config) !== digest(c.config)) return;
+          if (identity.paused || digest(identity.config) !== digest(c.config)) return;
           if (
             (
               await tx.query(
@@ -768,7 +768,7 @@ export class AccessService {
               await tx.query(
                 `update messages set content=content||'{"activationBlocked":true}'::jsonb
                 where conversation_id=$1 and run_id is null and seq>(select consumed_message_seq from conversations where id=$1)
-                and role in ('message','team_notice') and content->>'causeId' is not distinct from $2`,
+                and role in ('message','team_notice','message_notice') and content->>'causeId' is not distinct from $2`,
                 [c.id, group.cause_id],
               );
               continue;

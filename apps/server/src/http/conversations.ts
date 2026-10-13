@@ -23,11 +23,20 @@ const activityFilter = (query: { selection?: string; groupId?: string }) => ({
   groupId: query.groupId,
 });
 export function registerConversations(app: AppInstance, k: Kernel) {
-  app.get("/api/v2/message-requests/:id", { schema: { params } }, (req) =>
+  app.get(
+    "/api/v2/message-deliveries",
+    {
+      schema: {
+        querystring: Type.Object({ ids: Type.String({ minLength: 1, maxLength: 16000 }) }),
+      },
+    },
+    async (req) => k.tools.messages.statuses([...new Set(req.query.ids.split(","))]),
+  );
+  app.get("/api/v2/message-deliveries/:id", { schema: { params } }, (req) =>
     k.tools.messages.status(req.params.id),
   );
   app.post(
-    "/api/v2/message-requests/:id",
+    "/api/v2/message-deliveries/:id",
     {
       schema: {
         params,

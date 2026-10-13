@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 export type Tx = pg.PoolClient;
 export type Sql = Pick<pg.Pool, "query">;
@@ -188,6 +188,15 @@ export class Database {
             await readFile(join(dirname(path), "migrations/0014-message-hooks.sql"), "utf8"),
           );
           version = 14;
+        }
+        if (version === 14) {
+          await tx.query(
+            await readFile(
+              join(dirname(path), "migrations/0015-collaboration-lifecycle.sql"),
+              "utf8",
+            ),
+          );
+          version = 15;
         }
         if (version !== SCHEMA_VERSION) throw new Error("不支持此数据库版本，请使用独立数据库");
         return;

@@ -1,5 +1,6 @@
 import { Value } from "typebox/value";
 import { DomainError } from "../../adapters/postgres/database.js";
+import { diagnosticSchema } from "./validation-schema.js";
 
 const typeName = (value: unknown) =>
   value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
@@ -23,7 +24,7 @@ export function validationFailure(name: string, schema: any, args: unknown) {
       .split("/")
       .slice(1)
       .reduce((v: any, key) => v?.[key.replaceAll("~1", "/").replaceAll("~0", "~")], args);
-  const all = [...Value.Errors(schema, args)];
+  const all = [...Value.Errors(diagnosticSchema(schema, args), args)];
   const issues: Array<{ path: string; expected: unknown; actual: string }> = [];
   for (const e of all) {
     if (["anyOf", "additionalProperties", "boolean"].includes(e.keyword)) continue;
@@ -60,7 +61,11 @@ export function validationFailure(name: string, schema: any, args: unknown) {
     nextAction:
       name === "send_message"
         ? '使用扁平字段，例如 {to:"agent",id:"当前成员ID",message:"正文",expectReply:true,replyWithinSeconds:120}。to 是字符串；不要使用 target 对象或 JSON 字符串。'
-        : "保持正确字段，只修正 issues 指出的字段；工具尚未执行。",
+        : name === "read" && (args as any)?.target?.frame !== undefined
+          ? '将 frame 移到顶层，例如 {target:{kind:"path",path:"file.gif"},frame:0,mode:"image"}。'
+          : name === "request_permission" && (args as any)?.scope?.access === "file"
+            ? "单文件只接受 execution=none；在自己的工作目录运行隔离命令即可读取已授权文件。"
+            : "保持正确字段，只修正 issues 指出的字段；工具尚未执行。",
   };
 }
 export function toolFailure(error: unknown, executed: boolean) {

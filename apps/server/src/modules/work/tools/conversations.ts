@@ -11,15 +11,43 @@ export function conversationTools(context: ToolContext) {
   const review = tool(
     "review_inbox",
     text(
-      "Review received messages and sent reply requests before waiting. First read the inbox, then reply or track each open request. Submit reviewKey, handledMessageIds and trackRequestIds to receive a reviewToken; use nextAfter for subsequent unreviewed entries.",
-      "等待前复核收发信箱。先查看信箱，再回复或跟踪每个未结请求。提交 reviewKey、handledMessageIds 和 trackRequestIds 后获得 reviewToken；沿 nextAfter 查看尚未复核的后续项。",
+      "Inspect before waiting or finishing: action=inspect returns reviewId and items with allowedActions. Reply first, then inspect again. action=confirm requires reviewId and a decision for every item. background requires a reason; wait keeps the current work open. Follow nextAfter for all items.",
+      "等待或结束前使用 action=inspect 检查信箱。返回 reviewId、items 和允许的 action。先回复必要来信再重新检查。action=confirm 必須提供 reviewId 和每项的 decisions；background 需要 reason，wait 表示当前工作仍需等待。沿 nextAfter 读取全部项目。",
     ),
-    object({
-      reviewKey: Type.Optional(string),
-      handledMessageIds: Type.Optional(Type.Array(string, { maxItems: 4000, uniqueItems: true })),
-      trackRequestIds: Type.Optional(Type.Array(string, { maxItems: 4000, uniqueItems: true })),
-      after: Type.Optional(Type.Integer({ minimum: 0 })),
-    }),
+    object(
+      {
+        action: Type.Union([Type.Literal("inspect"), Type.Literal("confirm")]),
+        reviewId: Type.Optional(string),
+        decisions: Type.Optional(
+          Type.Array(
+            object({
+              itemId: string,
+              action: Type.Union([
+                Type.Literal("handled"),
+                Type.Literal("wait"),
+                Type.Literal("background"),
+              ]),
+              reason: Type.Optional(Type.String({ minLength: 1, maxLength: 2000 })),
+            }),
+            { maxItems: 4000 },
+          ),
+        ),
+        after: Type.Optional(Type.Integer({ minimum: 0 })),
+      },
+      {
+        anyOf: [
+          {
+            properties: { action: { const: "inspect" } },
+            not: { anyOf: [{ required: ["reviewId"] }, { required: ["decisions"] }] },
+          },
+          {
+            properties: { action: { const: "confirm" } },
+            required: ["reviewId", "decisions"],
+            not: { required: ["after"] },
+          },
+        ],
+      },
+    ),
     "read",
     preflightOnly,
   );
@@ -48,11 +76,11 @@ export function conversationTools(context: ToolContext) {
   const update = tool(
     "update_message",
     text(
-      "Follow up your own unanswered request. wait extends its deadline without messaging the recipient; expedite asks the recipient to prioritize the original request; cancel stops tracking. Use requestId from the send receipt or review_inbox.",
-      "跟踪自己尚未收到回复的请求。wait 仅延长预期时间；expedite 要求接收者优先处理原请求；cancel 停止跟踪。requestId 来自发送回执或 review_inbox。",
+      "Follow up your own unread message or unanswered request. wait postpones reminders without changing the original deadlines; expedite asks the recipient to prioritize the original message; cancel stops tracking. Use deliveryId from the send receipt or review_inbox.",
+      "跟踪自己发送的未读消息或尚未收到回复的请求。wait 仅延后提醒，保留原始期限；expedite 要求接收者优先处理原消息；cancel 停止跟踪。deliveryId 来自发送回执或 review_inbox。",
     ),
     object({
-      requestId: string,
+      deliveryId: string,
       action: Type.Union([Type.Literal("wait"), Type.Literal("expedite"), Type.Literal("cancel")]),
       waitSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 604800 })),
       version: Type.Optional(Type.Integer({ minimum: 1 })),
@@ -65,7 +93,7 @@ export function conversationTools(context: ToolContext) {
       await registry.messages.update(
         tx,
         input.conversationId,
-        args.requestId,
+        args.deliveryId,
         args.action,
         args.waitSeconds,
         args.version,

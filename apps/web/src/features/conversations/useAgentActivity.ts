@@ -19,6 +19,7 @@ type AgentFeed = {
   runState?: string;
   runReason?: string | null;
   configurationBlocked?: boolean;
+  collaborationPaused?: boolean;
   resourceResponse?: ResourceResponseStatus | null;
   supersededByRunId?: string | null;
   unknownTools?: UnknownCall[];
@@ -87,9 +88,11 @@ export function useAgentActivity(
   const viewingHistory = history.scope === records && history.value;
   const setViewingHistory = (value: boolean) => setHistory({ scope: records, value });
   const pageGeneration = useRef(0);
+  const visibleQuery = useRef({ scope: records, query: "" });
   const cursor = data.nextBefore;
   const loadPage = async (query = "", signal?: AbortSignal) => {
     const generation = ++pageGeneration.current;
+    visibleQuery.current = { scope: records, query };
     setViewingHistory(Boolean(query));
     try {
       const next = await readPage(
@@ -165,13 +168,14 @@ export function useAgentActivity(
   const interrupted = data.interrupted;
   const conversationId = data.conversationId;
   useEffect(() => {
-    if (!active || viewingHistory) return;
+    if (!active) return;
     let closed = false;
     const poll = async () => {
       try {
         const generation = pageGeneration.current;
+        const query = visibleQuery.current.scope === records ? visibleQuery.current.query : "";
         const next = await readPage(
-          `canvas-agents/${nodeId}${focusRequest ? `?requestId=${encodeURIComponent(focusRequest.id)}` : ""}`,
+          `canvas-agents/${nodeId}${focusRequest || query ? `?${focusRequest ? `requestId=${encodeURIComponent(focusRequest.id)}` : ""}${query}` : ""}`,
         );
         if (closed || generation !== pageGeneration.current || scope.current !== records) return;
         acceptPage(next);
@@ -191,17 +195,7 @@ export function useAgentActivity(
       closed = true;
       unfollow();
     };
-  }, [
-    nodeId,
-    active,
-    viewingHistory,
-    readPage,
-    focusRequest,
-    activity,
-    conversationId,
-    records,
-    acceptPage,
-  ]);
+  }, [nodeId, active, readPage, focusRequest, activity, conversationId, records, acceptPage]);
   const act = async (path: string, body: unknown) => {
     setBusy(true);
     setError("");

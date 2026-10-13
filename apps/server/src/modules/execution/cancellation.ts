@@ -36,14 +36,22 @@ export async function cancelAgents(
   resourceReason: "stopped" | "permissions_changed" = "stopped",
 ) {
   await cancelResourceSchedules(tx, agentIds, resourceReason);
-  await tx.query(
-    "update message_requests set state='cancelled',version=version+1,updated_at=now() where sender_agent_id=any($1::text[]) and state='open'",
-    [agentIds],
-  );
-  await tx.query(
-    "update conversations c set consumed_message_seq=message_seq,context=context-'modelBlocked' where agent_id=any($1::text[]) and not exists(select 1 from runs r where r.subject_id=c.id and r.reason='tool_contract_upgrade')",
-    [agentIds],
-  );
+  if (resourceReason === "stopped") {
+    await tx.query("update agent_configs set paused=true where node_id=any($1::text[])", [
+      agentIds,
+    ]);
+    await tx.query(
+      `update messages m set run_id=null,expedite_run_id=null from conversations c
+      where c.id=m.conversation_id and c.agent_id=any($1::text[]) and m.seq>c.consumed_message_seq
+      and m.consumed_run_id is null and m.role in('message','message_notice','user')`,
+      [agentIds],
+    );
+  } else {
+    await tx.query(
+      "update conversations set consumed_message_seq=message_seq where agent_id=any($1::text[])",
+      [agentIds],
+    );
+  }
   const rows = (
     await tx.query(
       `update runs set cancel_requested_at=now(),state=case when state='running' then state else 'cancelled' end,reason=${cancellationReason},updated_at=now()
@@ -51,6 +59,16 @@ export async function cancelAgents(
       [agentIds],
     )
   ).rows;
+  for (const c of (
+    await tx.query(
+      "select id,canvas_id,agent_id from conversations where agent_id=any($1::text[])",
+      [agentIds],
+    )
+  ).rows)
+    await canvasEvent(tx, c.canvas_id, "conversation.changed", {
+      conversationId: c.id,
+      agentId: c.agent_id,
+    });
   await cancelApprovals(
     tx,
     rows.map((r) => r.id),

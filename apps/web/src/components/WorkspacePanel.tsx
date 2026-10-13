@@ -1,4 +1,5 @@
 import { newId } from "@intrica/client";
+import type { CanvasWorkspacePaths } from "@intrica/contracts";
 import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
 import { useSessionConnection } from "../api/connection";
 import type { WorkspaceEntry } from "../api/workspace";
@@ -60,18 +61,19 @@ export const WorkspacePanel = memo(function WorkspacePanel(props: Props) {
 
   const { transport, serverRequest, bindingId } = useSessionConnection();
   const scope = `${bindingId}:${props.canvasId}`;
-  const [workspace, setWorkspace] = useState({ scope: "", path: "" });
-  const workspacePath = workspace.scope === scope ? workspace.path : "";
+  const [workspace, setWorkspace] = useState<{ scope: string; paths?: CanvasWorkspacePaths }>({
+    scope: "",
+  });
+  const workspacePaths = workspace.scope === scope ? workspace.paths : undefined;
+  const workspacePath = workspacePaths?.canvasRoot ?? "";
   useEffect(() => {
     let current = true;
     void transport
-      .request<{
-        path: string;
-      }>(
+      .request<CanvasWorkspacePaths>(
         `/api/v2/workspace/root${props.canvasId ? `?canvasId=${encodeURIComponent(props.canvasId)}` : ""}`,
       )
       .then((value) => {
-        if (current) setWorkspace({ scope, path: value.path });
+        if (current) setWorkspace({ scope, paths: value });
       })
       .catch(() => {});
     return () => {
@@ -93,7 +95,7 @@ export const WorkspacePanel = memo(function WorkspacePanel(props: Props) {
   const directoryTarget =
     target?.type === "directory" && target.nonce !== currentLocation.nonce ? target.path : null;
   // "~" is resolved by the server's file API, never against this device's home.
-  const fileRoot = directoryTarget ?? currentLocation.path ?? "~";
+  const fileRoot = directoryTarget ?? currentLocation.path ?? (workspacePath || "~");
   const setFileRoot = (path: string) => {
     setOpenFileTarget(undefined);
     setFileLocation({ scope, path, nonce: target?.nonce ?? "" });
@@ -244,6 +246,11 @@ export const WorkspacePanel = memo(function WorkspacePanel(props: Props) {
                 key={`${scope}:${target?.type === "directory" ? target.nonce : currentLocation.nonce}`}
                 root={fileRoot}
                 workspacePath={workspacePath}
+                sharedPath={workspacePaths?.sharedRoot}
+                agentDirectories={workspacePaths?.agentRoots.map((a) => ({
+                  ...a,
+                  name: props.nodes.get(a.agentId)?.title ?? a.agentId,
+                }))}
                 active={props.open && props.mode === "files"}
                 openFileTarget={openFileTarget?.scope === scope ? openFileTarget : undefined}
                 onRoot={setFileRoot}
@@ -291,7 +298,12 @@ export const WorkspacePanel = memo(function WorkspacePanel(props: Props) {
           <div className="workspace-tool" hidden={props.mode !== "terminal"}>
             <Suspense fallback={<p role="status">{tr("加载终端\u2026")}</p>}>
               <TerminalPanel
-                cwd={directoryTarget ?? currentLocation.path ?? workspacePath}
+                cwd={
+                  directoryTarget ??
+                  currentLocation.path ??
+                  workspacePaths?.sharedRoot ??
+                  workspacePath
+                }
                 active={props.open && props.mode === "terminal"}
               />
             </Suspense>

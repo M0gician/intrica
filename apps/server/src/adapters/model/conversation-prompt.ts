@@ -101,14 +101,14 @@ export function buildConversationPrompt(
       : "",
     has("send_message")
       ? text(
-          'You use flat fields, for example send_message({to:"agent",id:"actual-member-id",message:"question",expectReply:true,replyWithinSeconds:120}). You pass to as a string and keep arguments as a structured object. list_agents lists members under your current administrator; they can communicate directly even with different resource grants. Reply deadline notices contain read and run status; update_message lets you wait, expedite or cancel tracking. You check a returned error\'s code and field path before retrying.',
-          '参数使用扁平字段，例如 send_message({to:"agent",id:"真实成员ID",message:"问题",expectReply:true,replyWithinSeconds:120})。to 使用字符串，参数保持结构化对象。list_agents 返回同一管理员下的成员；资源授权不同也可直接通信。超时通知包含已读和运行状态；用 update_message 选择继续等待、加急或取消跟踪。重试前检查错误码和字段路径。',
+          'You use flat fields, for example send_message({to:"agent",id:"actual-member-id",message:"question",expectReply:true,replyWithinSeconds:120}). You pass to as a string and keep arguments as a structured object. list_agents lists members under your current administrator; they can communicate directly even with different resource grants. All messages have unread reminders (default 60s), independently of expectReply. Reply deadline notices contain read and run status; update_message lets you wait, expedite or cancel tracking. You check a returned error\'s code and field path before retrying.',
+          '参数使用扁平字段，例如 send_message({to:"agent",id:"真实成员ID",message:"问题",expectReply:true,replyWithinSeconds:120})。to 使用字符串，参数保持结构化对象。list_agents 返回同一管理员下的成员；资源授权不同也可直接通信。所有消息默认 60 秒未读时提醒，与 expectReply 独立。超时通知包含已读和运行状态；用 update_message 选择继续等待、加急或取消跟踪。重试前检查错误码和字段路径。',
         )
       : "",
     has("wait_for_message")
       ? text(
-          "Advance independent work while replies are pending. Before waiting, call review_inbox, answer incoming requests or explicitly track them and review sent messages. You submit the inspection reviewKey, handledMessageIds and trackRequestIds, then call wait_for_message({confirmed:true,reviewToken}) with the returned token. A new message or request state change requires another review.",
-          "等待回复期间推进独立工作。等待前先调用 review_inbox，答复收到的请求或明确继续跟踪，并复核已发送消息。提交读取时的 reviewKey、handledMessageIds 与 trackRequestIds 后，将返回的凭据用于 wait_for_message({confirmed:true,reviewToken})。新输入或请求状态变化后重新复核。",
+          "Advance independent work while replies are pending. Before waiting, call review_inbox, answer incoming requests or explicitly track them and review sent messages. You use action=inspect, then action=confirm with reviewId and a decision for every returned item. wait retains work dependencies; background requires a reason. Normal completion uses the same review. Then call wait_for_message({confirmed:true,reviewToken}) with the returned token. A new message or request state change requires another review.",
+          "等待回复期间推进独立工作。等待前先调用 review_inbox，答复收到的请求或明确继续跟踪，并复核已发送消息。先用 action=inspect，再用 action=confirm 携带 reviewId 和每项 decisions；wait 保留工作依赖，background 需要说明原因。正常结束也执行同一检查。将确认凭据用于 wait_for_message({confirmed:true,reviewToken})。新输入或请求状态变化后重新复核。",
         )
       : "",
     has("get_agent_status")
@@ -119,8 +119,8 @@ export function buildConversationPrompt(
       : "",
     has("read")
       ? text(
-          "read retrieves nodes, file paths and indexed skills. You follow nextCursor through the full document until the cursor is null. PDF page starts at 1. PDF text comes from the existing text layer, and page images provide visual evidence. frame selects a path image frame, starting at 0; image nodes use mode=auto. Animation is verified through actual playback.",
-          "read 读取节点、文件路径和已索引 Skill。你沿 nextCursor 读取全文，直到游标为空。PDF 页码从 1 开始。PDF 文本来自现有文字层，页图提供视觉证据。frame 选择路径图像的静态帧，编号从 0 开始；图像节点使用 mode=auto。动画效果通过实际播放验证。",
+          "read retrieves nodes, file paths and indexed skills. You follow nextCursor through the full document until the cursor is null. PDF page starts at 1. PDF text comes from the existing text layer, and page images provide visual evidence. frame selects a path or immutable node image frame, starting at 0; mode=text returns GIF timing and loop metadata. Review published versions by node ID and hash; source paths may change. Animation is verified through actual playback.",
+          "read 读取节点、文件路径和已索引 Skill。你沿 nextCursor 读取全文，直到游标为空。PDF 页码从 1 开始。PDF 文本来自现有文字层，页图提供视觉证据。frame 可选择路径或不可变节点图像的静态帧，从 0 开始；mode=text 返回 GIF 时长和循环信息。质检以节点 ID 和 hash 为准，源路径可变化。动画效果通过实际播放验证。",
         )
       : "",
     has("rg")

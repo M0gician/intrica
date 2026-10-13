@@ -3,7 +3,7 @@ import { canvasEvent, DomainError, type Sql, type Tx } from "../../adapters/post
 import { collaborationIdentity } from "../execution/messages.js";
 import type { Run } from "../execution/store.js";
 import type { Conversations } from "../work/conversations.js";
-import { completeReply, expectReply, replyAddress } from "../work/message-hooks.js";
+import { completeReply, recordDelivery, replyAddress } from "../work/messaging/deliveries.js";
 import { agentIdentity, commonTeamManager, managementChain, teamMemberIds } from "./policy.js";
 import { canvasPermissions, coveringGrant } from "./resources.js";
 
@@ -175,15 +175,20 @@ export async function deliverCollaboration(
       fileIds: intent.fileIds,
       expectReply: intent.expectReply ?? false,
       replyWithinSeconds: intent.replyWithinSeconds,
+      readWithinSeconds: intent.readWithinSeconds,
       replyTo: intent.replyTo,
     },
     run.id,
   );
   for (const c of targets) {
-    const requestId =
-      intent.expectReply || intent.messageKind === "task"
-        ? await expectReply(tx, run, senderId, c, callId, intent.replyWithinSeconds ?? 120)
-        : undefined;
+    const deliveryId = await recordDelivery(
+      tx,
+      run,
+      senderId,
+      c,
+      { callId, messageId: `send-${callId}`, inboxId: `delivery-${callId}-${c.agent_id}` },
+      intent,
+    );
     const active = (
       await tx.query(
         "select * from runs where subject_id=$1 and state in('queued','running','waiting') and cancel_requested_at is null",
@@ -217,14 +222,11 @@ export async function deliverCollaboration(
         messageKind: intent.messageKind,
         resourceIds: intent.resourceIds,
         fileIds: intent.fileIds,
-        ...(requestId
-          ? {
-              requestId,
-              replyTo: { to: "request", id: requestId },
-              expectReply: true,
-              replyWithinSeconds: intent.replyWithinSeconds ?? 120,
-            }
-          : {}),
+        deliveryId,
+        replyTo: { to: "reply", id: deliveryId },
+        expectReply: intent.expectReply ?? false,
+        replyWithinSeconds: intent.replyWithinSeconds ?? 120,
+        readWithinSeconds: intent.readWithinSeconds ?? 60,
         language,
         causeId: run.cause_id,
         ...(blocked ? { activationBlocked: true } : {}),
@@ -286,15 +288,15 @@ export async function deliverCollaboration(
       conversationId: reply.sender_conversation_id,
     });
   }
-  const requests = (
+  const deliveries = (
     await tx.query(
-      'select id,recipient_agent_id as "recipientId",deadline_at as "deadlineAt" from message_requests where origin_call_id=$1 order by id',
+      'select id,recipient_agent_id as "recipientId",deadline_at as "deadlineAt" from message_deliveries where origin_call_id=$1 order by id',
       [callId],
     )
   ).rows;
   return {
     delivered: intent.targetKind === "user" ? 1 : intent.recipients.length,
     recipients: intent.recipients,
-    requests,
+    deliveries,
   };
 }

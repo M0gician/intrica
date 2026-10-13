@@ -68,6 +68,7 @@ export async function projectInputReceipts(db: Database, records: any[], convers
         state: r.state,
         consumedRunId: r.consumed_run_id,
         consumedAt: r.consumed_at,
+        expeditedAt: r.expedite_requested_at,
       },
     ]),
   );

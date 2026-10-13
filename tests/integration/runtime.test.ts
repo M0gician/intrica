@@ -693,7 +693,13 @@ describe("production graph and execution", () => {
       await current.invoke("write", { path: join(outside, "admin.txt"), content: "admin" });
       expect(await readFile(join(outside, "admin.txt"), "utf8")).toBe("admin");
       const connected = await current.invoke("request_permission", {
-        scope: { kind: "path", path: outside, access: "directory_and_commands" },
+        scope: {
+          kind: "path",
+          path: outside,
+          access: "directory",
+          mode: "write",
+          execution: "host",
+        },
         reason: "work here",
       });
       expect(connected.status).toBe("granted");

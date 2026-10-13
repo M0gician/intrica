@@ -1,8 +1,8 @@
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
-import sharp from "sharp";
-import { result, type ToolResult } from "../../modules/execution/tool-calls.js";
+import type { ToolResult } from "../../modules/execution/tool-calls.js";
 import { DomainError } from "../postgres/database.js";
+import { readImageBytes } from "./image-read.js";
 import { pdfToolResult, readPdf } from "./pdf-reader.js";
 
 export type ReadOptions = {
@@ -49,7 +49,7 @@ export async function readMedia(
     if (pdf && args.frame !== undefined)
       throw new DomainError("VALIDATION", "PDF 使用从 1 开始的 page，不使用 frame");
     if (!pdf && args.page !== undefined) throw new DomainError("VALIDATION", "page 仅适用于 PDF");
-    if (!pdf && args.mode === "text") {
+    if (!pdf && args.mode === "text" && !imageSignature(header)) {
       if (args.frame !== undefined)
         throw new DomainError("VALIDATION", "frame 仅适用于图片，文本分页请使用 offset/limit");
       return;
@@ -60,7 +60,7 @@ export async function readMedia(
       if (args.frame !== undefined) throw new DomainError("VALIDATION", "非图片文件不能指定 frame");
       return;
     }
-    if (!supportsVision && (!pdf || args.mode === "image"))
+    if (!supportsVision && args.mode === "image")
       throw new DomainError(
         "VALIDATION",
         "当前模型不支持图像输入；请选择支持视觉的模型，不能将图片当作 UTF-8 文本读取",
@@ -108,48 +108,5 @@ export async function readMedia(
       ),
       { path: args.path },
     );
-  try {
-    const metadata = await sharp(bytes, { limitInputPixels: 40_000_000 })
-      .timeout({ seconds: 10 })
-      .metadata();
-    if (!["png", "jpeg", "webp", "gif"].includes(metadata.format ?? ""))
-      throw new DomainError("VALIDATION", "图片只支持 PNG、JPEG、WebP 和 GIF；其他媒体请先转换");
-    const frames = metadata.pages ?? 1,
-      frame = args.frame ?? 0;
-    if (frame >= frames)
-      throw new DomainError("VALIDATION", `图片共 ${frames} 帧，frame 从 0 开始`);
-    const preview = await sharp(bytes, { page: frame, pages: 1, limitInputPixels: 40_000_000 })
-      .timeout({ seconds: 10 })
-      .rotate()
-      .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
-      .png()
-      .toBuffer({ resolveWithObject: true });
-    signal.throwIfAborted();
-    if (preview.data.length > 8 * 1024 * 1024)
-      throw new DomainError("VALIDATION", "图片预览过大，请裁剪后重试");
-    const details = {
-      mediaType: "image",
-      format: metadata.format,
-      width: metadata.width,
-      height: metadata.pageHeight ?? metadata.height,
-      previewWidth: preview.info.width,
-      previewHeight: preview.info.height,
-      frame,
-      frames,
-    };
-    return {
-      details,
-      content: [
-        ...result({
-          path: args.path,
-          ...details,
-          note: "Single still frame, orientation applied, resized to fit 1600px; animation playback is not verified.",
-        }).content,
-        { type: "image", data: preview.data.toString("base64"), mimeType: "image/png" },
-      ],
-    };
-  } catch (error) {
-    if (signal.aborted || error instanceof DomainError) throw error;
-    throw new DomainError("VALIDATION", "无法解码图片或图片超过预览限制");
-  }
+  return readImageBytes(bytes, args, signal, supportsVision, { path: args.path });
 }

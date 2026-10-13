@@ -1,6 +1,12 @@
 import { tr } from "../../i18n";
 
 export function ConversationPause({ reason }: { reason?: string | null | undefined }) {
+  if (reason === "inbox_review")
+    return (
+      <p role="status" className="conversation-pause">
+        {tr("结束检查尚未完成，请检查未读消息和未结请求后继续。")}
+      </p>
+    );
   if (reason !== "tool_contract_upgrade") return null;
   return (
     <p role="status" className="tool-summary-note conversation-pause">

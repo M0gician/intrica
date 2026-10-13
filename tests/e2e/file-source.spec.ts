@@ -35,15 +35,18 @@ test("文件目录导航单行显示，主目录与画布目录可直达，窄�
     const homeResponse = await page.request.get("/api/v2/workspace/files?path=~");
     expect(homeResponse.ok()).toBe(true);
     const home = (await homeResponse.json()).path;
-    await expect(files.locator("button.file-location")).toHaveAttribute("title", home);
-    await expect(files.locator("button.file-location")).toHaveText("用户主目录");
+    await expect(files.locator("button.file-location")).toHaveText("画布工作目录");
     await files.getByRole("button", { name: "查看文件位置", exact: true }).click();
     const initialDetails = page.getByRole("dialog", { name: "文件位置", exact: true });
     const workspace = initialDetails.getByRole("button", { name: "画布工作目录", exact: true });
     await expect(workspace).toBeVisible();
     const workspacePath = await workspace.getAttribute("title");
     expect(workspacePath).toBeTruthy();
-    await expect(initialDetails).toContainText("Agent 可能使用各自的工作目录");
+    expect(workspacePath!.endsWith("/shared")).toBe(false);
+    await expect(initialDetails).toContainText("包含共享目录和所有成员工作目录");
+    await expect(
+      initialDetails.getByRole("button", { name: "共享目录", exact: true }),
+    ).toHaveAttribute("title", `${workspacePath}/shared`);
     await workspace.click();
     await expect(initialDetails).toHaveCount(0);
     await expect(files.locator("button.file-location")).toHaveAttribute("title", workspacePath!);
@@ -242,19 +245,17 @@ test("切换画布后不继承上一画布的目录节点目标", async ({ page,
       .getByRole("navigation", { name: "侧栏工具", exact: true })
       .getByRole("button", { name: "文件", exact: true })
       .click();
-    const home = await request.get(`${API_URL}/api/v2/workspace/files?path=~`);
-    expect(home.ok()).toBe(true);
-    await expect(page.locator("button.file-location")).toHaveAttribute(
-      "title",
-      (await home.json()).path,
-    );
-    await expect(page.locator("button.file-location")).toHaveText("用户主目录");
+    const root = await request.get(`${API_URL}/api/v2/workspace/root?canvasId=${canvases[1]!.id}`);
+    expect(root.ok()).toBe(true);
+    const paths = await root.json();
+    await expect(page.locator("button.file-location")).toHaveAttribute("title", paths.canvasRoot);
+    await expect(page.locator("button.file-location")).toHaveText("画布工作目录");
     await page.getByRole("button", { name: "查看文件位置", exact: true }).click();
     await expect(
       page
         .getByRole("dialog", { name: "文件位置", exact: true })
         .getByRole("button", { name: "画布工作目录", exact: true }),
-    ).toHaveAttribute("title", new RegExp(`/${canvases[1]!.id}/shared$`));
+    ).toHaveAttribute("title", new RegExp(`/${canvases[1]!.id}$`));
   } finally {
     await page.close();
     rmSync(fixture, { recursive: true, force: true });

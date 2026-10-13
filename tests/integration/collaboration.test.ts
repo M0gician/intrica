@@ -13,6 +13,7 @@ import { AccessService } from "../../apps/server/dist/modules/access/service.js"
 import { DEFAULT_LIMITS } from "../../apps/server/dist/modules/execution/limits.js";
 import type { Lease } from "../../apps/server/dist/modules/execution/store.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
+import { finishReview, replyAddresses } from "./helpers/collaboration-model.js";
 
 // Model decisions alone are scripted. Tools, permissions, inboxes, transactions and
 // conversation execution all use production code. Failed contracts are not skipped/xfail.
@@ -80,7 +81,20 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   requests = [];
-  respond = () => ({ text: "acknowledged" });
+  const answered = new Set<string>();
+  respond = ({ messages }) => {
+    const address = replyAddresses(messages).find((a) => !answered.has(a.id));
+    if (address) {
+      answered.add(address.id);
+      return {
+        tool: "send_message",
+        args: { ...address, kind: "result", message: "acknowledged" },
+      };
+    }
+    if (messages.some((m) => m.role === "user" && m.content.includes('"hook":"review_inbox"')))
+      return finishReview(messages);
+    return { text: "acknowledged" };
+  };
   board = (await k.graph.createCanvas({ title: "collaboration", idempotencyKey: key() })).node.id;
 });
 afterEach(async () => {
@@ -680,7 +694,7 @@ it("C18 stop between inbox scan and transaction must not create an empty run", a
   expect(await runs(to)).toHaveLength(0);
 });
 
-it("C19 stop consumes old messages but permits a genuinely new authorized message", async () => {
+it("C19 pause retains old and new messages until explicit resume", async () => {
   const from = await agent(),
     to = await agent(),
     s = await start(from);
@@ -690,11 +704,13 @@ it("C19 stop consumes old messages but permits a genuinely new authorized messag
   expect(await runs(to)).toHaveLength(0);
   await s.call("send_message", { to: "agent", id: to.id, message: "new" });
   await k.access.maintain();
+  expect(await runs(to)).toHaveLength(0);
+  await k.conversations.submit({ canvasId: board, agentId: to.id, message: "resume", key: key() });
   await consume(to, "new");
   const inputs = requests.flatMap((r) =>
     r.messages.filter((m) => m.role === "user").map((m) => m.content),
   );
-  expect(inputs.some((text) => text === "old")).toBe(false);
+  expect(inputs.some((text) => text.includes("old"))).toBe(true);
 });
 
 it("C20 failed recipient execution cannot reactivate forever from the same delivery", async () => {
@@ -807,16 +823,19 @@ it("C24 a real model-tool journey recruits, delegates, waits, reports and finish
         };
       if (managerTurn === 2) {
         hired = JSON.parse(messages.at(-1)!.content).id;
-        return { tool: "review_inbox", args: {} };
+        return { tool: "review_inbox", args: { action: "inspect" } };
       }
       if (managerTurn === 3) {
         const inbox = JSON.parse(messages.at(-1)!.content);
         return {
           tool: "review_inbox",
           args: {
-            reviewKey: inbox.reviewKey,
-            handledMessageIds: inbox.messages.map((m: any) => m.id),
-            trackRequestIds: [...inbox.incoming, ...inbox.outgoing].map((q: any) => q.id),
+            action: "confirm",
+            reviewId: inbox.reviewId,
+            decisions: inbox.items.map((item: any) => ({
+              itemId: item.id,
+              action: item.kind === "message" ? "handled" : "wait",
+            })),
           },
         };
       }
@@ -833,9 +852,9 @@ it("C24 a real model-tool journey recruits, delegates, waits, reports and finish
     return childTurn === 1
       ? {
           tool: "send_message",
-          args: { to: "manager", kind: "result", message: "review-result-marker" },
+          args: { ...replyAddresses(messages)[0], kind: "result", message: "review-result-marker" },
         }
-      : { text: "member-finished-marker" };
+      : finishReview(messages, "member-finished-marker");
   };
   await k.conversations.execute(s.ctx, (ctx, input) => k.tools.create(ctx, input));
   expect((await k.runs.get(s.run.id)).reason).toBe("message");
@@ -845,7 +864,7 @@ it("C24 a real model-tool journey recruits, delegates, waits, reports and finish
   await consume(child, "review-task-marker");
   await consume(manager, "review-result-marker");
   expect(managerTurn).toBe(5);
-  expect(childTurn).toBe(2);
+  expect(childTurn).toBe(4);
   expect(await incoming(manager)).toHaveLength(1);
   expect(await incoming(child)).toHaveLength(1);
 });
@@ -902,7 +921,7 @@ it("C27 an invalid recipient model does not starve a healthy recipient or lose i
   await consume(broken, "not lost");
 });
 
-it("C28 a delivery after stop waits for cancellation to settle, then starts one new run", async () => {
+it("C28 a delivery after pause waits for explicit resume after cancellation settles", async () => {
   const from = await agent(),
     to = await agent(),
     s = await start(from),
@@ -914,12 +933,14 @@ it("C28 a delivery after stop waits for cancellation to settle, then starts one 
   expect(await runs(to)).toHaveLength(1);
   await k.runs.fail(target.run, new Error("cancellation acknowledged"));
   await k.access.maintain();
+  expect((await runs(to)).filter((r) => r.state !== "cancelled")).toHaveLength(0);
+  await k.conversations.submit({ canvasId: board, agentId: to.id, message: "resume", key: key() });
   await consume(to, "new work");
   expect((await runs(to)).map((r) => r.state).sort()).toEqual(["cancelled", "succeeded"]);
   const inputs = requests.flatMap((r) =>
     r.messages.filter((m) => m.role === "user").map((m) => m.content),
   );
-  expect(inputs.some((text) => text === "old work")).toBe(false);
+  expect(inputs.some((text) => text.includes("old work"))).toBe(true);
 });
 
 it("C29 a broadcast append failure rolls back every delivery and the sender's broadcast record", async () => {

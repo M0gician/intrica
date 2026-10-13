@@ -73,6 +73,12 @@ accepts their node IDs and checks accessible published snapshots. Text reports
 can omit attachments. Clients resolve `intrica-file:NODE_ID` within the owning
 server and conversation. Hashes and file references never grant access.
 
+Node reads use the immutable snapshot. `sourcePath` identifies its mutable
+origin, which can have different bytes and requires its own filesystem grant.
+Image metadata includes the content hash, dimensions and animation timing;
+GIF frames are read by zero-based `frame` against that same snapshot. Text mode
+exposes metadata even when the model has no image capability.
+
 Saving an artifact does not submit a report or certify task completion.
 Command results retain raw exit code, signal, timeout, cancellation and start
 failure. Task outcome remains unverified until separately checked. Nonzero
@@ -80,23 +86,22 @@ exit codes and SIGPIPE are not silently converted to success.
 
 ## Collaboration and permissions
 
-`send_message` uses flat structured arguments. `report_result` is retired and has no
-execution alias. Tool schema version 3 is persisted in each new receipt; old
-completed receipts remain readable, and persisted version 2 sends retain their
-original argument hashes when adapted during recovery.
+`send_message` uses flat structured arguments. `report_result` is retired and has
+no execution alias. Tool schema version 4 is persisted in each new receipt.
+Completed historical receipts retain their original result and argument digest.
 
 ```json
-{"to":"agent","id":"member-id","message":"Please verify the result","expectReply":true,"replyWithinSeconds":120}
-{"to":"request","id":"received-request-id","kind":"result","message":"Verified result","fileIds":["snapshot-node-id"]}
+{"to":"agent","id":"member-id","message":"Please verify the result","expectReply":true,"readWithinSeconds":60,"replyWithinSeconds":120}
+{"to":"reply","id":"received-delivery-id","kind":"result","message":"Verified result","fileIds":["snapshot-node-id"]}
 {"to":"manager","kind":"result","message":"Independent progress report"}
 {"to":"user","kind":"result","message":"Root Agent delivery"}
 ```
 
 `to` is `agent`/`id`, `agents`/`ids`, `team`, `canvas`, `manager`, `user`,
-`request`/`id`, or `resource_readers`/`ids`. `kind` defaults to `message`;
+`reply`/`id`, or `resource_readers`/`ids`. `kind` defaults to `message`;
 `result` saves a report and supports authorized handoff resources. A root
 Agent has no `manager`, and uses `user` for its final delivery. A tracked
-reply copies the incoming `replyTo` address to close exactly that request.
+reply copies the incoming `replyTo` address to close exactly that delivery.
 `fileIds` identifies accessible published snapshots; `resourceIds` is
 restricted to authorized manager results for taken-over work.
 
@@ -108,27 +113,54 @@ canvas broadcasts require administrator or owner authority. Resource-reader
 broadcasts still intersect all specified resource grants. Recipients are frozen
 and revalidated before any write. Duplicate recipient IDs are deduplicated.
 
-`expectReply` defaults to false. When true, each recipient receives a durable
-request and reply address; `replyWithinSeconds` defaults to 120 (range 1 to
-604800). A missed deadline emits one `message_notice` for that request version,
-with read and run status. It wakes a message-waiting sender and steers active
-inference. It never restarts an already dispatched tool. `update_message` takes
-`requestId`, `action` (`wait`, `expedite`, `cancel`), optional `waitSeconds` and
-`version`. Waiting extends the deadline without sending another message;
-expediting sends a follow-up tied to the original request, checks current
-communication authority and has a recipient-wide 30 second cooldown. Cancelling
-stops reply tracking. Stop cancels the sender's open requests; paused, unknown
-and deleted contexts retain their execution barriers.
+Every Agent delivery, including an informational message and a new hire's initial
+task, has a durable `deliveryId`, read receipt and `replyTo` address. Send receipts
+return `deliveries`. Initial tasks expect a reply; `send_message.expectReply`
+defaults to false. `readWithinSeconds` defaults to 60 and `replyWithinSeconds`
+defaults to 120; each accepts 1–604800 seconds. A reply deadline requires
+`expectReply:true`. HTTP `traceId` is diagnostic metadata and is never a reply ID.
 
-Before `wait_for_message`, call `review_inbox({})` and follow `nextAfter` for
-remaining messages. Reply to outstanding requests, or explicitly track them.
-Read the updated mailbox after replying, then submit its `reviewKey`,
-`handledMessageIds` and `trackRequestIds`. Only complete coverage produces a
-`reviewToken`; unknown IDs fail. Then call
-`wait_for_message({confirmed:true,reviewToken})`. New messages, replies, deadline
-notices and request changes invalidate the token. These tools are sequential.
-The server verifies coverage and state, while the model remains responsible for
-judging whether its answers and follow-up decisions are sufficient.
+Unread and expected-reply deadlines are independent. Maintenance groups due
+deliveries by sender and original activation cause in each bounded batch, emits
+one `message_notice` with a `deliveries` array, and coalesces simultaneous
+conditions. Durable flags suppress repeats of the same condition and version.
+Consumed or superseded notices stop being actionable. Notices can wake completed
+or message-waiting senders and steer active inference; dispatched tools retain
+their existing call IDs. Pause, approval, activation budgets, unknown outcomes
+and deleted contexts remain execution barriers.
+
+`update_message({deliveryId,action,waitSeconds?,version?})` supports `wait`,
+`expedite` and `cancel`. Waiting postpones reminders, preserving the original
+deadlines. Expediting adds a priority follow-up linked to the original delivery,
+checks current communication authority and has a recipient-wide 30 second
+cooldown. Cancelling stops tracking while preserving read status and permitting
+a late reply. Pausing an Agent preserves its inbox and tracking. Direct run
+cancellation cancels the sender's open deliveries.
+
+Before `wait_for_message`, call `review_inbox({action:"inspect"})` and follow
+`nextAfter` for all `items`. Reply to required incoming requests using `replyTo`,
+then inspect again. Confirm with:
+
+```json
+{"action":"confirm","reviewId":"review-id","decisions":[{"itemId":"message:message-id","action":"handled"},{"itemId":"delivery:delivery-id","action":"background","reason":"This informational update does not block the current task"}]}
+```
+
+Each item lists its `allowedActions`. Messages require `handled`; outstanding
+incoming requests require a reply or `wait`; outgoing deliveries accept `wait`
+or `background` with a reason. Complete coverage produces `reviewToken` for
+`wait_for_message({confirmed:true,reviewToken})`. Missing fields, unknown IDs,
+duplicate decisions, incomplete coverage and stale inspections return corrective
+errors. New messages, read receipts, replies, notices and delivery changes
+invalidate confirmation. These tools are sequential.
+
+Natural completion uses the same review when collaboration obligations remain.
+An up-to-date `background` disposition permits completion; `wait` keeps the run
+waiting for messages. Missing or stale review adds a durable `completion_review`
+hook. Two ignored hooks for the same snapshot pause at `inbox_review`, avoiding
+an inference loop. Conversations without pending deliveries finish normally.
+The final decision is rechecked under the run fence in the canvas transaction.
+The server verifies coverage and state; the model judges the adequacy of its
+answers and whether a pending reply blocks the task.
 
 Argument failures persist a failed receipt before dispatch and return
 `{error:{code,message,issues?,nextAction?},executed:false}`. Schema issues identify
@@ -141,14 +173,16 @@ correct the indicated field instead of repeating an ambiguous operation.
 
 - `{kind:"role",role}`
 - `{kind:"resource",nodeId,mode:"read"|"write"}`
-- `{kind:"path",path,access:"file"|"directory",mode:"read"|"write",execution:"none"|"isolated"|"host"}`
+- `{kind:"path",path,access:"file",mode:"read"|"write",execution:"none"}`
+- `{kind:"path",path,access:"directory",mode:"read"|"write",execution:"none"|"isolated"|"host"}`
 
 New file and directory connections grant file access only. Execution is a
 separate capability. Host execution runs under the service account and does
-not imply a process filesystem boundary at `cwd`. Legacy
-`directory_and_commands` explicitly requests write plus host execution;
-migration retains it only when the original grant records that intent.
-Persistent requests remain distinct from one-time approval of a frozen call.
+not imply a process filesystem boundary at `cwd`. The tool schema admits only
+valid access/execution combinations. Diagnostics select the relevant typed
+branch while retaining outer constraints, so models see the incorrect field
+instead of errors from unrelated branches. Persistent requests remain distinct
+from one-time approval of a frozen call.
 
 Isolated commands use the host network by default, including DNS and HTTPS.
 macOS permits network traffic and the DNS/certificate services; Linux shares the
@@ -179,19 +213,23 @@ Tool approval does not cancel inference or create a second dispatch owner.
 
 ## Configuration and execution
 
-`hire_agent({persona,task,role,respondToResources,resourceIds?,inheritResources?})`
+`hire_agent({persona,task,role,respondToResources?,resourceIds?,inheritResources?})`
 creates the member, grants selected resources and submits its first task in one
 canvas transaction. Agent callers cannot grant admin; workspace owners specify
 resourceIds instead of inheritance. The server randomly selects a name from the
 shared language pool, excludes existing canvas names and adds numeric suffixes
 when the pool is exhausted. Chinese languages use the Chinese pool; all others
 fall back to English. UI creation uses the same server transaction and rules.
+New UI/API Agents respond to resource changes by default. Omitted
+`respondToResources` inherits the manager's setting, defaulting to true;
+copies retain the source setting. The first task has a tracked delivery so its
+manager can review, wait for or expedite the expected result.
 
 New hire calls reject `title`, `name`, `displayName` and other unknown fields.
 The saved node ID and name are returned on replay; the first task is not submitted
 again. Old durable calls and version-1 conversation checkpoints remove only the
 obsolete title before validation. The original argument digest is preserved.
-New assistant turns persist tool schema version 2. Completed receipts keep their
+New assistant turns persist tool schema version 4. Completed receipts keep their
 historical result. Existing names and human renaming remain supported; Agent
 tools cannot rename Agent nodes.
 
@@ -206,10 +244,12 @@ itself may omit `agentId`. An Agent can change its own schedule; mixed
 patches still require authority for every field. Schedules use
 `{cron,timezone,prompt,enabled}`; `null` clears a schedule.
 
-Resource response, cron activation, message delivery and stopping a run
-are independent. The stored `AgentConfig.enabled` field represents
-resource-change response. Unchanged schedule configuration preserves its
-next due time.
+The stored `AgentConfig.enabled` field represents resource-change response.
+The separate persisted `agent_configs.paused` flag blocks automatic message,
+resource and cron activation. Pausing retains unread collaboration inputs and
+their tracking; an explicit user submission resumes collaboration. Unknown
+outcomes and upgrade pauses still require their own resolution. Unchanged
+schedule configuration preserves its next due time.
 
 The registry composes domain definitions from `modules/work/tools/`.
 Normalization freezes inputs; preflight holds the canvas lock and run
@@ -247,10 +287,20 @@ ablation checks run separately with `node tests/integration/ablate-interactions.
 
 ## Sandbox runtime support
 
-Schema 14 adds message request and inbox review persistence. Runtime discovery
+Schema 15 stores delivery lifecycle, inbox decisions and Agent pause state.
+Runtime discovery
 reports the actual bundled Node interpreter (including Electron's Node mode)
 and readable Chromium distributions. Agent workspaces have a `node` command
-shim and private HOME, TMPDIR and XDG cache/config locations. macOS grants
+shim and private HOME, TMPDIR and XDG cache/config locations. Python discovery
+resolves the executable behind the macOS system launcher; workspace shims avoid
+the launcher's protected xcrun cache writes. `PYTHONPATH` and `PYTHONUSERBASE`
+target per-workspace dependencies. Capabilities report the selected interpreter,
+workspace Pillow directory presence and an explicit install command.
+
+Browser capabilities include a discovered executable, fresh profile path and
+launch arguments. Disabling Chromium's nested sandbox is recommended only
+inside available OS isolation. Animation guidance uses a persistent CDP session
+and elapsed-time frame comparisons. macOS grants
 application distribution reads, executable mappings, same-sandbox process
 signals, limited system IPC and Chromium's Mach port rendezvous. Browser profile
 and user credential directories remain outside those grants. macOS also denies

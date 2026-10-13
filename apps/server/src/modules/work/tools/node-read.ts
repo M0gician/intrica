@@ -1,4 +1,5 @@
 import { nodeContent } from "../../../adapters/host/agent-context.js";
+import { readImageBytes } from "../../../adapters/host/image-read.js";
 import { readMedia } from "../../../adapters/host/media-read.js";
 import { pdfToolResult, readPdf } from "../../../adapters/host/pdf-reader.js";
 import { canonicalPath } from "../../../adapters/host/sandbox.js";
@@ -14,6 +15,8 @@ export function nodeReader(context: ToolContext): Pick<ExecutionTool, "prepare" 
     execute: async (_call, args, signal) => {
       await requireResource(args.nodeId, "read");
       const node = await registry.graph.queries.node(args.nodeId);
+      if (args.frame !== undefined && !node.assetId)
+        throw new DomainError("VALIDATION", "frame 需要已发布的图片节点", { path: "frame" });
       if (node.kind === "pdf" || node.resource?.snapshot?.mime === "application/pdf") {
         if (args.mode === "image" && !supportsVision)
           throw new DomainError("VALIDATION", "当前模型不支持图像输入");
@@ -101,19 +104,19 @@ export function nodeReader(context: ToolContext): Pick<ExecutionTool, "prepare" 
       }
       if (args.mode === "image" && !node.assetId)
         throw new DomainError("VALIDATION", "此节点没有图像内容");
-      const data = result(nodeContent(node, args.offset, args.limit));
-      if (node.assetId && args.mode !== "text") {
+      let data = result(nodeContent(node, args.offset, args.limit));
+      if (node.assetId) {
         const asset = await registry.assets.resolve(node.assetId);
-        if (asset) {
-          if (!asset.mime.startsWith("image/"))
-            throw new DomainError("VALIDATION", "非图片附件不能作为图片读取，请使用 PDF 节点");
-          if (!supportsVision) throw new DomainError("VALIDATION", "当前模型不支持图像输入");
-          data.content.push({
-            type: "image",
-            mimeType: asset.mime,
-            data: asset.data.toString("base64"),
+        if (asset?.mime.startsWith("image/")) {
+          data = await readImageBytes(asset.data, args, signal, supportsVision, {
+            ...nodeContent(node),
+            nodeId: node.id,
+            attachment: node.resource?.snapshot,
           });
-        }
+        } else if (asset && args.mode !== "text")
+          throw new DomainError("VALIDATION", "节点类型与附件不一致；PDF 附件使用 PDF 节点读取");
+        else if (args.frame !== undefined)
+          throw new DomainError("VALIDATION", "frame 仅适用于图像节点", { path: "frame" });
       }
       await requireResource(args.nodeId, "read");
       return data;

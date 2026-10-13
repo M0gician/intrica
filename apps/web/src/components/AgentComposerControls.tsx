@@ -121,14 +121,14 @@ export function AgentComposerControls({
         )}
         <label className="agent-collaboration-choice">
           <span>
-            {tr("持续协作")}
-            <small>{tr("资源稳定 10 秒后统一处理")}</small>
+            {tr("自动响应资源变化")}
+            <small>{tr("默认开启；资源稳定 10 秒后合并处理，消息接收独立运行。")}</small>
           </span>
           <input
             type="checkbox"
             role="switch"
             aria-checked={config.enabled}
-            aria-label={tr("持续协作")}
+            aria-label={tr("自动响应资源变化")}
             checked={config.enabled}
             onChange={(event) => void onSave({ enabled: event.target.checked })}
           />

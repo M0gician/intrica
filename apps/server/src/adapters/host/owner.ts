@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { mkdir, open, readdir, stat } from "node:fs/promises";
+import { open, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { spawn } from "node-pty";
@@ -8,6 +8,7 @@ import { DomainError, id } from "../postgres/database.js";
 import { canonicalPath, cleanEnvironment } from "./executor.js";
 import { readFilePreview } from "./file-preview.js";
 import { readMedia } from "./media-read.js";
+import { canvasWorkspacePaths } from "./workspace-paths.js";
 
 type Terminal = {
   pty: ReturnType<typeof spawn>;
@@ -59,13 +60,8 @@ export class OwnerHost {
       const image = content.content.find((p) => p.type === "image");
       return { ...content.details, ...(image?.type === "image" ? { image: image.data } : {}) };
     }
-    if (method === "workspace.root") {
-      const canvasId = args.canvasId ?? "shared";
-      if (!/^[a-zA-Z0-9_-]+$/.test(canvasId)) throw new DomainError("VALIDATION", "画布标识无效");
-      const path = join(this.directory, "workspaces", canvasId, "shared");
-      await mkdir(path, { recursive: true, mode: 0o700 });
-      return { path: await canonicalPath(path) };
-    }
+    if (method === "workspace.root")
+      return canvasWorkspacePaths(this.directory, args.canvasId ?? "shared");
     if (method === "ping") return { ready: true, terminals: this.terminals.size };
     if (method === "files") {
       const path = await canonicalPath(

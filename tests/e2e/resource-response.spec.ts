@@ -94,7 +94,13 @@ test("resource status survives refresh; explicit retry, stop and later changes u
   await expect(status).toContainText("旧资源响应已停止");
   expect((await feed()).events.filter((e: any) => e.kind === "trigger")).toHaveLength(0);
   await expect(status.getByRole("button")).toHaveCount(0);
-  await patch(request, r, { summary: "new evidence" });
+  await patch(request, r, { summary: "new evidence while paused" });
+  await expect(status).toContainText("旧资源响应已停止");
+  await page
+    .locator(".agent-inspector")
+    .getByRole("button", { name: "恢复协作", exact: true })
+    .click();
+  await patch(request, r, { summary: "new evidence after explicit resume" });
   await expect(status).toContainText("资源响应等待处理");
   await expect(status).toContainText("Agent 已读取", { timeout: 25_000 });
   expect((await feed()).events.filter((e: any) => e.kind === "trigger")).toHaveLength(1);

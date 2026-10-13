@@ -129,7 +129,7 @@ export function AgentProfile({
             }}
           />
           <span className="agent-profile-mode">
-            {roleLabels[draft.role]} · {draft.enabled ? tr("持续协作") : tr("按需运行")}
+            {roleLabels[draft.role]} · {draft.enabled ? tr("自动响应资源") : tr("手动响应资源")}
           </span>
         </div>
       </section>

@@ -77,13 +77,23 @@ test("returns undefined for ordinary text even with a misleading image extension
   });
 });
 
-test("explicit text mode defers binary rejection to the text reader but forbids frame", async () => {
+test("text mode provides bounded image metadata without image content", async () => {
   const path = await save(png);
-  await expect(readMedia({ path, mode: "text" }, signal(), true)).resolves.toBeUndefined();
-  await expect(readMedia({ path, mode: "text", frame: 0 }, signal(), true)).rejects.toMatchObject({
-    code: "VALIDATION",
-    message: expect.stringContaining("frame"),
-  });
+  for (const frame of [undefined, 0]) {
+    const output = await readMedia(
+      { path, mode: "text", ...(frame === undefined ? {} : { frame }) },
+      signal(),
+      false,
+    );
+    expect(output?.content.every((p) => p.type === "text")).toBe(true);
+    expect(JSON.parse((output!.content[0] as { text: string }).text)).toMatchObject({
+      format: "png",
+      frames: 1,
+      frame: 0,
+      width: 16,
+      height: 12,
+    });
+  }
 });
 
 test.each([{ offset: 1 }, { column: 0 }, { limit: 10 }])(
@@ -101,6 +111,11 @@ test.each(["auto", "image"] as const)(
   "does not return image content to a text-only model in %s mode",
   async (mode) => {
     const path = await save(png);
+    if (mode === "auto") {
+      const output = await readMedia({ path, mode }, signal(), false);
+      expect(output?.content.every((p) => p.type === "text")).toBe(true);
+      return;
+    }
     await expect(readMedia({ path, mode }, signal(), false)).rejects.toMatchObject({
       code: "VALIDATION",
       message: expect.stringContaining("不支持图像"),
@@ -117,7 +132,16 @@ test("reads distinct GIF still frames and rejects frame boundaries", async () =>
   );
   const first = await readMedia({ path }, signal(), true);
   const last = await readMedia({ path, frame: 1 }, signal(), true);
-  expect(first?.details).toMatchObject({ format: "gif", frame: 0, frames: 2, width: 1, height: 1 });
+  expect(first?.details).toMatchObject({
+    format: "gif",
+    frame: 0,
+    frames: 2,
+    width: 1,
+    height: 1,
+    delays: [100, 100],
+    durationMs: 200,
+    loop: 0,
+  });
   expect(last?.details).toMatchObject({ format: "gif", frame: 1, frames: 2, width: 1, height: 1 });
   expect(last?.content[1]).not.toEqual(first?.content[1]);
   await expect(readMedia({ path, frame: 2 }, signal(), true)).rejects.toMatchObject({

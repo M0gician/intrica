@@ -653,7 +653,7 @@ it("binds pending inbox input when the owner starts a run before maintenance", a
   expect(JSON.stringify(inputs.at(-1))).toContain("Work on the assigned task.");
 });
 
-it("distinguishes closed inbox entries from input persisted in model context", async () => {
+it("preserves paused inbox entries and distinguishes them from consumed input", async () => {
   const manager = await agent(board, "admin"),
     member = await agent(manager.id);
   const managerRun = await start(manager);
@@ -666,23 +666,29 @@ it("distinguishes closed inbox entries from input persisted in model context", a
   expect(before.events.at(-1).receipt.status).toBe("queued");
   await k.conversations.stop(member.id);
   const stopped = (await call(managerRun, "read_conversation", { agentId: member.id })).value;
-  expect(stopped.events.at(-1).receipt.status).toBe("closed");
+  expect(stopped.events.at(-1).receipt.status).toBe("queued");
   await call(managerRun, "send_message", {
     to: "agent",
     id: member.id,
     message: "Second assignment",
   });
   await k.access.maintain();
+  await k.conversations.submit({
+    canvasId: board,
+    agentId: member.id,
+    message: "resume",
+    key: key(),
+  });
   const memberRun = (await k.runs.claim("member"))!;
   await k.worker.handlers.conversation(context(memberRun));
   const after = (await call(managerRun, "read_conversation", { agentId: member.id })).value;
   const second = after.events.find((e: any) => e.data.text === "Second assignment");
   expect(second.receipt).toMatchObject({ status: "consumed", runId: memberRun.id });
   expect(after.events.find((e: any) => e.data.text === "First assignment").receipt.status).toBe(
-    "closed",
+    "consumed",
   );
   expect(JSON.stringify(inputs.at(-1))).toContain("Second assignment");
-  expect(JSON.stringify(inputs.at(-1))).not.toContain("First assignment");
+  expect(JSON.stringify(inputs.at(-1))).toContain("First assignment");
 });
 
 it("writes one status for a stopped turn-limited run and notifies only its current manager", async () => {

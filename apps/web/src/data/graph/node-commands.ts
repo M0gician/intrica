@@ -176,7 +176,7 @@ export function createNodeCommands(context: CommandContext) {
           kind: "agent",
           parentId,
           position,
-          agent: { persona: "", role, enabled: false },
+          agent: { persona: "", role, enabled: true },
         },
         tr("新建 Agent 失败"),
       );

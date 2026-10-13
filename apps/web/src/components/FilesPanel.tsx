@@ -14,6 +14,8 @@ import "./files-panel.css";
 export function FilesPanel({
   root,
   workspacePath,
+  sharedPath,
+  agentDirectories,
   active = true,
   openFileTarget,
   onRoot,
@@ -21,6 +23,8 @@ export function FilesPanel({
 }: {
   root: string;
   workspacePath?: string | undefined;
+  sharedPath?: string | undefined;
+  agentDirectories?: Array<{ agentId: string; path: string; name: string }> | undefined;
   active?: boolean;
   openFileTarget?:
     | {
@@ -195,6 +199,8 @@ export function FilesPanel({
             path={file?.path || listing?.path || root}
             preview={Boolean(file)}
             workspacePath={workspacePath}
+            sharedPath={sharedPath}
+            agentDirectories={agentDirectories}
             onNavigate={navigate}
           />
           <button
