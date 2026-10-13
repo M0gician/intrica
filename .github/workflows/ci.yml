@@ -47,8 +47,7 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: >-
       ${{ matrix.name == 'macOS' && fromJSON('["self-hosted", "macOS", "ARM64", "intrica"]')
-        || github.event_name == 'pull_request' && fromJSON('["ubuntu-22.04"]')
-        || fromJSON('["self-hosted", "Linux", "X64", "intrica"]') }}
+        || fromJSON('["ubuntu-22.04"]') }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
