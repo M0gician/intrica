@@ -230,10 +230,10 @@ const cases = [
     "L09 progress-only pages",
   ],
   [
-    "completion transaction input recheck",
+    "completion transaction input and review rechecks",
     "work/conversation-runtime/finish.js",
-    "if ((await hasUnread(tx)) ||",
-    "if (false ||",
+    'return ctx.store.finish(ctx.run, reason ? "waiting" : "succeeded", async (tx) => {',
+    'return ctx.store.finish(ctx.run, reason ? "waiting" : "succeeded", async (tx) => { await persist(tx); return;',
     "L11 input arriving before",
   ],
   [
@@ -482,10 +482,10 @@ const cases = [
     "T35 missing attachments",
   ],
   [
-    "safe approval routing summary",
+    "safe resource approval routing summary",
     "access/intents.js",
-    "return { operation: intent.messageKind, recipients: intent.recipients };",
-    "return { operation: intent.messageKind, recipients: [] };",
+    "resourceIds: [intent.nodeId],",
+    "resourceIds: [],",
     "T36 an unauthorized reviewer",
   ],
   [

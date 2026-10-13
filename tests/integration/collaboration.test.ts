@@ -692,6 +692,24 @@ it("C18 stop between inbox scan and transaction must not create an empty run", a
   await s.call("send_message", { to: "agent", id: to.id, message: "cancelled" });
   await pausedCapture(() => k.conversations.stop(to.id));
   expect(await runs(to)).toHaveLength(0);
+  // A different consumer can also advance the inbox while model capture is
+  // outside the canvas lock. This case must not depend on the pause guard.
+  const consumed = await agent();
+  const sent = await s.call("send_message", {
+    to: "agent",
+    id: consumed.id,
+    message: "already handled",
+  });
+  expect(sent.result.isError).not.toBe(true);
+  await pausedCapture(() =>
+    k.db.canvas(board, async (tx) => {
+      await tx.query(
+        "update conversations set consumed_message_seq=message_seq where agent_id=$1",
+        [consumed.id],
+      );
+    }),
+  );
+  expect(await runs(consumed)).toHaveLength(0);
 });
 
 it("C19 pause retains old and new messages until explicit resume", async () => {
@@ -1080,6 +1098,13 @@ it("C32 concurrent recruitment reserves distinct positions and Stop drains old r
     ).rows[0].n,
   ).toBe(1);
   await k.conversations.controlTeams([manager.id], "stop", key(), "en");
+  const stoppedSchedule = (
+    await k.db.pool.query(
+      "select enabled,dispatch_state from schedules where agent_id=$1 and kind='resource_change'",
+      [manager.id],
+    )
+  ).rows;
+  expect(stoppedSchedule).toEqual([{ enabled: false, dispatch_state: "cancelled" }]);
   await k.runs.fail(s.run, new Error("stopped"));
   await k.db.pool.query(
     "update schedules set next_due_at=now()-interval '1 second' where canvas_id=$1",
@@ -1191,8 +1216,15 @@ it("C36 collaboration activity retains deleted identities and applies team and s
     id: child.id,
     message: "team-message",
   });
-  for (let i = 0; i < 101; i++)
-    await p.call("send_message", { to: "manager", kind: "result", message: `unrelated-${i}` });
+  for (let i = 0; i < 101; i++) {
+    const unrelated = await p.call("send_message", {
+      to: "user",
+      kind: "result",
+      message: `unrelated-${i}`,
+    });
+    expect(unrelated.result.isError).not.toBe(true);
+  }
+  expect((await k.activity.board(board)).events).toHaveLength(100);
   const filtered = await app.inject({
     method: "GET",
     url: `/api/v2/canvas-activity?canvasId=${board}&groupId=${manager.id}`,
