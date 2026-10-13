@@ -1,0 +1,132 @@
+.collaboration-state-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+.collaboration-state {
+  container-type: inline-size;
+  container-name: collaboration-state;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--card-border);
+  background: var(--card-bg);
+  font-size: 13px;
+}
+.collaboration-state-description {
+  flex: 1;
+  min-width: 0;
+}
+.collaboration-state-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.collaboration-state-avatar {
+  display: flex;
+  flex: none;
+}
+.collaboration-state-avatar .agent-portrait {
+  width: 32px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+.collaboration-state strong {
+  display: block;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.collaboration-state-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.collaboration-state-label > :last-child,
+.collaboration-state-name,
+.collaboration-state p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.collaboration-state > button {
+  flex: none;
+}
+.collaboration-state-action-icon {
+  display: none;
+}
+@container collaboration-state (max-width: 360px) {
+  .collaboration-state-action {
+    width: 32px;
+    height: 32px;
+    padding: 6px;
+  }
+  .collaboration-state-action-icon {
+    display: block;
+  }
+  .collaboration-state-action-label {
+    display: none;
+  }
+}
+.collaboration-state .collaboration-state-dot {
+  color: var(--status-positive);
+}
+.collaboration-state[data-paused="true"] .collaboration-state-dot {
+  color: var(--status-warning);
+}
+.collaboration-state p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.message-action-error {
+  color: var(--status-error);
+  margin: 8px 0 0;
+}
+
+.delivery-recipients-list {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  padding: 12px 0 0;
+  margin: 12px 0 8px;
+  border-top: 1px solid var(--card-border);
+}
+.delivery-recipients-list > li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.delivery-recipient-identity {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.delivery-recipient-identity strong {
+  font-size: 12px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.delivery-recipient-identity small {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.delivery-recipient-icons {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-secondary);
+}

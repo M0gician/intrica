@@ -229,8 +229,9 @@ export async function verifyMatrixMedia(page, label) {
 export async function verifyMatrixTerminal(page, canvasId) {
   const call = matrixClient(page);
   const workspace = await call(`workspace/root?canvasId=${canvasId}`);
+  assert.equal(typeof workspace.canvasRoot, "string", "Canvas root must be explicit");
   const session = await call("workspace/terminals", "POST", {
-    cwd: workspace.path,
+    cwd: workspace.canvasRoot,
     cols: 80,
     rows: 24,
   });
@@ -244,7 +245,8 @@ export async function verifyMatrixTerminal(page, canvasId) {
         const abort = new AbortController();
         const timer = setTimeout(() => abort.abort(), 10000);
         const decoder = new TextDecoder();
-        let output = "";
+        let output = "",
+          pending = "";
         try {
           const response = await fetch(`${base}/api/v2/workspace/terminals/${id}/output`, {
             signal: abort.signal,
@@ -254,20 +256,31 @@ export async function verifyMatrixTerminal(page, canvasId) {
           for (;;) {
             const chunk = await reader.read();
             if (chunk.done) break;
-            output += decoder.decode(chunk.value);
+            pending += decoder.decode(chunk.value, { stream: true });
+            const lines = pending.split("\n");
+            pending = lines.pop();
+            for (const line of lines) {
+              const event = JSON.parse(line);
+              if (event.type === "stream.error") throw new Error(event.message);
+              if (event.type === "output") output += event.data;
+            }
             if (output.includes(path)) break;
           }
           return output;
+        } catch (error) {
+          throw new Error(
+            `Terminal output did not include ${path}: ${JSON.stringify(output)} (${error.message})`,
+          );
         } finally {
           abort.abort();
           clearTimeout(timer);
         }
       },
-      { id: session.id, path: workspace.path },
+      { id: session.id, path: workspace.canvasRoot },
     );
     assert.ok(
-      output.includes(workspace.path),
-      "Terminal must execute in the active server's workspace",
+      output.includes(workspace.canvasRoot),
+      `Terminal must execute in the active server's workspace: ${JSON.stringify(output)}`,
     );
   } finally {
     await call(`workspace/terminals/${session.id}`, "DELETE");

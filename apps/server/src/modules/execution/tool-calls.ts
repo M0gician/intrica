@@ -1,7 +1,12 @@
-import { Value } from "typebox/value";
+import { ProcessOutcomeError } from "../../adapters/host/process-outcome.js";
 import { assertFence, DomainError, digest, id, type Tx } from "../../adapters/postgres/database.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
+import { actionableMessage } from "./messages.js";
+import { toolFailure, validationFailure } from "./tool-validation.js";
 import type { ExecutionContext } from "./worker.js";
+
+// Version 5 separates handoff resources and requires a reason for prospective waits.
+export const TOOL_SCHEMA_VERSION = 5;
 
 export type ToolResult = {
   content: Array<
@@ -34,6 +39,8 @@ export type ExecutionTool = {
   name: string;
   /** Discovery only; handlers still enforce identity and current permissions. */
   modelVisible?: boolean;
+  /** A narrowed discovery schema; durable recovery retains the original execution schema. */
+  modelParameters?: any;
   label: string;
   description: string;
   parameters: any;
@@ -41,6 +48,8 @@ export type ExecutionTool = {
   /** Opt in only for independent reads; permission/message/control tools remain sequential. */
   parallel?: boolean;
   normalize?: (args: any) => Promise<any>;
+  /** Adapt only persisted calls from an earlier schema; their input hash stays unchanged. */
+  restore?: (args: any, version?: number) => any;
   prepare?: (
     tx: Tx,
     callId: string,
@@ -116,7 +125,11 @@ async function executeWithDeadline(
   const interrupted = new Promise<never>((_, reject) => {
     rejectAbort = reject;
   });
-  const abort = () => rejectAbort(signal.reason ?? new Error("工具已停止"));
+  let abortTimer: ReturnType<typeof setTimeout> | undefined;
+  // Give cooperative process supervisors a bounded interval to return termination evidence.
+  const abort = () => {
+    abortTimer = setTimeout(() => rejectAbort(signal.reason ?? new Error("工具已停止")), 500);
+  };
   signal.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(
     () => deadline.abort(new Error("工具执行超过总时限")),
@@ -127,6 +140,7 @@ async function executeWithDeadline(
     return await Promise.race([tool.execute(logicalId, args, signal), interrupted]);
   } finally {
     clearTimeout(timer);
+    clearTimeout(abortTimer);
     signal.removeEventListener("abort", abort);
   }
 }
@@ -141,11 +155,12 @@ export async function invokeTool(
     afterMs: number;
     detach: (callId: string, completion: Promise<ToolExecution>) => void;
   },
+  inputVersion = TOOL_SCHEMA_VERSION,
 ): Promise<ToolExecution> {
   const name = typeof tool === "string" ? tool : tool.name;
   const definition = typeof tool === "string" ? undefined : tool;
   const store = ctx.store;
-  const hash = digest(args);
+  const hash = digest(args ?? null);
   let callId = "";
   let executionArgs: any = args;
   const emit = async (tx: Tx, event: Record<string, unknown>) => {
@@ -172,54 +187,76 @@ export async function invokeTool(
     }
     const barrier = await store.conversationBarrier(ctx.run.subject_id, tx);
     if (barrier.paused || barrier.unknown) return { state: "unknown", result: null };
-    if (!definition)
-      return { state: "failed", result: { ...result(`未知工具 ${name}`), isError: true } };
-    const parameters =
-      definition.parameters.type === "object"
-        ? {
-            ...definition.parameters,
-            additionalProperties: definition.parameters.additionalProperties ?? false,
-          }
-        : definition.parameters;
-    const unknown =
-      args && typeof args === "object" && parameters.additionalProperties === false
-        ? Object.keys(args).filter((key) => !(key in (parameters.properties ?? {})))
-        : [];
-    if (!Value.Check(parameters, args))
-      return {
-        state: "failed",
-        result: {
-          ...result(
-            promptText(
-              ctx.run.frozen_input.language,
-              `Tool arguments do not match the schema.${unknown.length ? ` Unknown fields: ${unknown.join(", ")}.` : ""} Check the tool's parameters before retrying.`,
-              `工具参数不符合 schema。${unknown.length ? `未知字段：${unknown.join("、")}。` : ""}请检查工具参数后重试。`,
-            ),
-          ),
-          isError: true,
-        },
-      };
-
     if (!row) {
       callId = id("tool");
       await tx.query(
-        "insert into tool_calls(id,run_id,attempt_id,logical_call_id,name,args,args_hash,effect_class,state) values($1,$2,$3,$4,$5,$6,$7,$8,'prepared')",
+        "insert into tool_calls(id,run_id,attempt_id,logical_call_id,name,args,args_hash,effect_class,state,schema_version) values($1,$2,$3,$4,$5,$6,$7,$8,'prepared',$9)",
         [
           callId,
           ctx.run.id,
           ctx.run.attemptId,
           logicalId,
           name,
-          JSON.stringify(args),
+          JSON.stringify(args ?? null),
           hash,
-          definition.effect,
+          definition?.effect ?? "read",
+          inputVersion,
         ],
       );
     }
+    const sourceVersion = Number(row?.schema_version ?? inputVersion);
+    const restoring = sourceVersion < TOOL_SCHEMA_VERSION;
+    const validationArgs =
+      restoring && definition?.restore ? definition.restore(args, sourceVersion) : args;
+    const parameters =
+      definition?.parameters.type === "object"
+        ? {
+            ...definition.parameters,
+            additionalProperties: definition.parameters.additionalProperties ?? false,
+          }
+        : definition?.parameters;
+    const invalid = validationFailure(name, parameters, validationArgs);
+    if (invalid) {
+      const { executed, ...error } = invalid;
+      const output = { ...result({ error, executed }), isError: true };
+      await tx.query(
+        "update tool_calls set state='failed',result=$2,completed_at=now(),updated_at=now() where id=$1",
+        [callId, JSON.stringify(output)],
+      );
+      await emit(tx, { id: logicalId, callId, name, args, status: "error", result: output });
+      return { state: "failed", result: output };
+    }
+    if (!definition) throw new Error("Validated tool definition is missing");
     await tx.query("savepoint tool_preflight");
     try {
+      const expedited = (
+        await tx.query(
+          `select 1 from messages m join conversations c on c.id=m.conversation_id where m.conversation_id=$1 and m.seq>c.consumed_message_seq and m.expedite_run_id=$2 and m.consumed_run_id is null and ${actionableMessage} limit 1`,
+          [ctx.run.subject_id, ctx.run.id],
+        )
+      ).rowCount;
+      if (expedited) {
+        if (row?.is_async) return { state: "prepared", result: null };
+        const output = {
+          ...result({
+            executed: false,
+            reason: "expedited_input",
+            nextAction: "Read the new input before choosing the next operation.",
+          }),
+          isError: true,
+        };
+        await tx.query(
+          "update tool_calls set state='failed',result=$2,updated_at=now() where id=$1",
+          [callId, JSON.stringify(output)],
+        );
+        await emit(tx, { id: logicalId, callId, name, args, status: "error", result: output });
+        return { state: "failed", result: output };
+      }
       executionArgs =
-        row?.execution_input ?? (definition.normalize ? await definition.normalize(args) : args);
+        row?.execution_input ??
+        (definition.normalize ? await definition.normalize(validationArgs) : validationArgs);
+      if (restoring && row?.execution_input && definition.restore)
+        executionArgs = definition.restore(executionArgs, sourceVersion);
       await tx.query("update tool_calls set execution_input=$2 where id=$1", [
         callId,
         JSON.stringify(executionArgs),
@@ -247,9 +284,8 @@ export async function invokeTool(
         return { state, result: output };
       }
     } catch (error) {
-      if (!(error instanceof DomainError)) throw error;
       await tx.query("rollback to savepoint tool_preflight");
-      const output = { ...result(error.message), isError: true };
+      const output = { ...result(toolFailure(error, false)), isError: true };
       await tx.query("update tool_calls set state='failed',result=$2 where id=$1", [
         callId,
         JSON.stringify(output),
@@ -276,6 +312,8 @@ export async function invokeTool(
       name !== "get_tool_result" &&
       (counts.total >= limits.tools || counts.own >= limits.toolsPerAgent)
     ) {
+      if (row?.is_async && row.state === "prepared")
+        return { state: "prepared", result: null, id: callId };
       const busy = {
         ...result(
           promptText(
@@ -301,12 +339,13 @@ export async function invokeTool(
       return { state: "failed", result: busy };
     }
     await tx.query(
-      "update tool_calls set state='dispatching',attempt_id=$2,updated_at=now() where id=$1",
+      "update tool_calls set state='dispatching',attempt_id=$2,dispatched_at=now(),updated_at=now() where id=$1",
       [callId, ctx.run.attemptId],
     );
     await emit(tx, { id: logicalId, callId, name, status: "running", args });
     return null;
   });
+  if (prior?.state === "prepared") return backgroundResult(callId, ctx.run.frozen_input.language);
   if (prior?.state === "unknown")
     return {
       result: prior.result ?? {
@@ -339,18 +378,47 @@ export async function invokeTool(
     try {
       ctx.signal.throwIfAborted();
       output = await executeWithDeadline(ctx, definition!, logicalId, executionArgs);
+      if (store.media && ctx.run.kind === "conversation") {
+        try {
+          output = await store.media.pack(output, ctx.run.subject_id, callId);
+        } catch {
+          output = {
+            ...output,
+            content: output.content.map((part) =>
+              part.type === "image"
+                ? {
+                    type: "text",
+                    text: "[The tool finished, but its image could not be stored. Do not repeat a completed external operation to recover the image.]",
+                  }
+                : part,
+            ),
+            details: { ...output.details, mediaUnavailable: true },
+          };
+        }
+      }
       failed = Boolean(output.isError);
       ctx.progress();
     } catch (error) {
-      if (ctx.signal.aborted) throw error;
+      if (ctx.signal.aborted) {
+        if (error instanceof ProcessOutcomeError)
+          await store.db.pool.query(
+            "update tool_calls t set result=$4 from runs r where t.id=$1 and t.run_id=r.id and r.epoch=$2 and t.attempt_id=$3 and r.state='running' and r.lease_until>clock_timestamp() and t.state='dispatching'",
+            [
+              callId,
+              ctx.run.epoch,
+              ctx.run.attemptId,
+              JSON.stringify({ ...result(error.outcome), isError: true }),
+            ],
+          );
+        throw error;
+      }
       failed = true;
-      ambiguous = definition!.effect !== "read" && !(error instanceof DomainError);
+      ambiguous =
+        definition!.effect !== "read" &&
+        !(error instanceof DomainError) &&
+        !(error instanceof ProcessOutcomeError && error.outcome.termination === "start_failed");
       output = {
-        ...result(
-          error instanceof DomainError
-            ? error.message
-            : "工具执行失败或超时；有副作用的操作需要核实结果",
-        ),
+        ...result(error instanceof ProcessOutcomeError ? error.outcome : toolFailure(error, true)),
         isError: true,
       };
     }
@@ -367,17 +435,20 @@ export async function invokeTool(
         waiting = current.state === "waiting" ? "approval" : undefined;
         return;
       }
-      await tx.query("update tool_calls set state=$2,result=$3,updated_at=now() where id=$1", [
-        callId,
-        waiting === "unknown"
-          ? "unknown"
-          : waiting === "approval"
-            ? "waiting"
-            : failed
-              ? "failed"
-              : "succeeded",
-        JSON.stringify(output),
-      ]);
+      await tx.query(
+        "update tool_calls set state=$2,result=$3,completed_at=now(),updated_at=now() where id=$1",
+        [
+          callId,
+          waiting === "unknown"
+            ? "unknown"
+            : waiting === "approval"
+              ? "waiting"
+              : failed
+                ? "failed"
+                : "succeeded",
+          JSON.stringify(output),
+        ],
+      );
       await emit(tx, {
         id: logicalId,
         callId,

@@ -1,5 +1,6 @@
 import type { AgentContextUsage } from "@intrica/contracts";
 import { tr } from "../../i18n";
+import type { Receipt } from "./InputReceipt";
 import { coalesceToolEvents } from "./tool-display";
 import type { UnknownCall } from "./UnknownTools";
 export type Tool = {
@@ -14,12 +15,14 @@ export type Turn = {
   id: string;
   seq?: number;
   question: string;
+  receipt?: Receipt;
   role?: string;
   messages: Record<
     string,
     {
       text: string;
       thinking: string;
+      receipt?: Receipt;
     }
   >;
   tools: Record<string, Tool>;
@@ -73,6 +76,7 @@ export function restoreTurns(value: ConversationSnapshot, sessionId: string): Tu
         seq: message.seq,
         question: anchor ? String(message.data.text ?? message.data.reason ?? "") : tr("此前会话"),
         role: message.kind,
+        ...(message.data.inputReceipt ? { receipt: message.data.inputReceipt as Receipt } : {}),
         messages: {},
         tools: {},
         timeline: [],

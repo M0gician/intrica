@@ -31,7 +31,13 @@ export async function downloadAsset(
     signal,
     fetchImpl = fetch,
     onProgress,
-  }: { signal?: AbortSignal; fetchImpl?: typeof fetch; onProgress?: (bytes: number) => void } = {},
+    onVerification,
+  }: {
+    signal?: AbortSignal;
+    fetchImpl?: typeof fetch;
+    onProgress?: (bytes: number) => void;
+    onVerification?: () => void;
+  } = {},
 ): Promise<void> {
   const partial = `${path}.${randomUUID()}.part`;
   let file: FileHandle | undefined;
@@ -49,6 +55,7 @@ export async function downloadAsset(
       await file.writeFile(chunk);
       onProgress?.(size);
     }
+    onVerification?.();
     if (size !== asset.size || hash.digest("hex") !== asset.sha256)
       throw new UpdateError("UPDATE_CHECKSUM_FAILED");
     signal?.throwIfAborted();

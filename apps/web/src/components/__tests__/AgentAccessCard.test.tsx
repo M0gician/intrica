@@ -244,7 +244,7 @@ it("keeps the directory execution scope visible before granting a connection", (
     request({
       kind: "path",
       summary: { path },
-      action: { kind: "path", path, directory: true },
+      action: { kind: "path", path, directory: true, execution: "host" },
     }),
   );
   const warning = screen.getByText(

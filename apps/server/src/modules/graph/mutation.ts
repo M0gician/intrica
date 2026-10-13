@@ -1,5 +1,5 @@
 import type { GraphDelta, Node } from "@intrica/contracts";
-import { nextPortraitVariant, portraitVariant, schemas } from "@intrica/contracts";
+import { nextAgentName, nextPortraitVariant, portraitVariant, schemas } from "@intrica/contracts";
 import { CronExpressionParser } from "cron-parser";
 import { Value } from "typebox/value";
 import { canonicalPath } from "../../adapters/host/sandbox.js";
@@ -15,6 +15,12 @@ import {
   reducedPermissions,
 } from "../access/resources.js";
 import { cancelAgents } from "../execution/cancellation.js";
+import { notifyMemberRemoval } from "../execution/member-removal.js";
+import {
+  cancelResourceSchedules,
+  recoverModelSchedules,
+  scheduleChanged,
+} from "../execution/schedules.js";
 import { agentPosition } from "./placement.js";
 import {
   edgeView,
@@ -27,6 +33,7 @@ import {
 
 export type Change = { id: string; before: any; after: any };
 export type UndoPatch = { nodes: Change[]; edges: Change[]; grants: Change[] };
+const resourceContentFields = ["text", "summary", "resource", "todo", "alt"] as const;
 /** The only mutable graph boundary. Callers must already hold the canvas row. */
 export class GraphMutation {
   private beforeNodes = new Map<string, NodeRow | null>();
@@ -55,7 +62,7 @@ export class GraphMutation {
         await this.removeEdge(g.source_link_id);
     }
     const reduced = this.accessBefore ? reducedPermissions(this.accessBefore, after) : [];
-    if (reduced.length) await cancelAgents(this.tx, reduced);
+    if (reduced.length) await cancelAgents(this.tx, reduced, "permissions_changed");
     return after;
   }
   constructor(
@@ -99,6 +106,7 @@ export class GraphMutation {
     kind: Node["kind"];
     parentId: string;
     title?: string;
+    nameLanguage?: string;
     text?: string;
     summary?: string;
     position: Node["position"];
@@ -120,8 +128,8 @@ export class GraphMutation {
     if (input.kind === "pdf" && !input.assetId && input.resource?.type !== "file")
       throw new DomainError("VALIDATION", "PDF 节点需要 PDF 附件或服务器文件");
     if (input.assetId) {
-      if (!["image", "pdf"].includes(input.kind))
-        throw new DomainError("VALIDATION", "只有图片和 PDF 节点可以使用附件");
+      if (!["image", "pdf"].includes(input.kind) && input.resource?.type !== "file")
+        throw new DomainError("VALIDATION", "文件附件需要文件资源");
       const asset = (
         await this.tx.query("select mime from assets where id=$1 and state='ready'", [
           input.assetId,
@@ -129,7 +137,8 @@ export class GraphMutation {
       ).rows[0];
       if (
         !asset ||
-        (input.kind === "pdf" ? asset.mime !== "application/pdf" : !asset.mime.startsWith("image/"))
+        (input.kind === "pdf" && asset.mime !== "application/pdf") ||
+        (input.kind === "image" && !asset?.mime.startsWith("image/"))
       )
         throw new DomainError("VALIDATION", "节点类型与附件类型不匹配");
     }
@@ -143,9 +152,21 @@ export class GraphMutation {
     const canonicalResource = input.resource
       ? { ...input.resource, path: await canonicalPath(input.resource.path) }
       : undefined;
+    const title =
+      input.kind === "agent" && input.title === undefined
+        ? nextAgentName(
+            (
+              await this.tx.query(
+                "select body->>'title' as title from nodes where canvas_id=$1 and kind='agent'",
+                [this.canvasId],
+              )
+            ).rows.map((row) => row.title ?? ""),
+            input.nameLanguage,
+          )
+        : (input.title ?? "");
     const body = Object.fromEntries(
       Object.entries({
-        title: input.title ?? "",
+        title,
         text: input.text ?? "",
         summary: input.summary,
         resource: canonicalResource,
@@ -162,6 +183,8 @@ export class GraphMutation {
       throw new DomainError("VALIDATION", "Agent 配置无效");
     if (input.resource && !Value.Check(schemas.LocalResourceSchema, input.resource))
       throw new DomainError("VALIDATION", "资源路径无效");
+    if (input.resource?.snapshot && input.resource.snapshot.assetId !== input.assetId)
+      throw new DomainError("VALIDATION", "文件版本与附件不一致");
     await this.tx.query(
       "insert into nodes(id,canvas_id,parent_id,sort_key,kind,body,x,y,w,h,origin,asset_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
       [
@@ -182,7 +205,7 @@ export class GraphMutation {
     this.beforeNodes.set(nodeId, null);
     this.affectedScopes.add(input.parentId);
     if (input.kind === "agent") {
-      const supplied = input.agent ?? { persona: "", role: "read", enabled: false };
+      const supplied = input.agent ?? { persona: "", role: "read", enabled: true };
       const existing = (
         await this.tx.query(
           "select a.node_id,a.config from agent_configs a join nodes n on n.id=a.node_id where n.canvas_id=$1",
@@ -221,7 +244,9 @@ export class GraphMutation {
           !input.publishFile &&
           !(await coveringGrant(
             await grantsFor(this.tx, manager),
-            { resource: input.resource },
+            // Sharing newly published bytes may follow an existing source-path
+            // read grant, but the resulting snapshot never grants that path back.
+            { resource: { type: input.resource.type, path: input.resource.path } },
             "read",
           ))
         )
@@ -275,22 +300,23 @@ export class GraphMutation {
         patch.agent.enabled,
       ]);
       await this.syncSchedule(nodeId, patch.agent);
+      if (JSON.stringify(row.agent?.model) !== JSON.stringify(patch.agent.model)) {
+        await recoverModelSchedules(this.tx, nodeId);
+      }
       if (roleRank[patch.agent.role as keyof typeof roleRank] < roleRank[row.agent!.role])
-        await cancelAgents(this.tx, [nodeId]);
+        await cancelAgents(this.tx, [nodeId], "permissions_changed");
     }
   }
   async syncSchedule(nodeId: string, config: NonNullable<Node["agent"]>) {
     const schedule = config.schedule;
     if (!config.enabled) {
-      await this.tx.query(
-        "update schedules set enabled=false where agent_id=$1 and kind='resource_change'",
-        [nodeId],
-      );
+      await cancelResourceSchedules(this.tx, [nodeId], "disabled");
     }
     if (!schedule?.enabled) {
-      await this.tx.query("update schedules set enabled=false where agent_id=$1 and kind='cron'", [
-        nodeId,
-      ]);
+      await this.tx.query(
+        "update schedules set enabled=false,dispatch_state='cancelled',blocked_reason='disabled',revision=revision+1 where agent_id=$1 and kind='cron' and dispatch_state<>'cancelled'",
+        [nodeId],
+      );
       return;
     }
     let next: Date;
@@ -302,7 +328,7 @@ export class GraphMutation {
       throw new DomainError("VALIDATION", "定时计划或时区无效");
     }
     await this.tx.query(
-      "insert into schedules(id,canvas_id,agent_id,kind,next_due_at,timezone,spec,dedupe_key,enabled) values($1,$2,$3,'cron',$4,$5,$6,$1,true) on conflict(dedupe_key) do update set next_due_at=excluded.next_due_at,timezone=excluded.timezone,spec=excluded.spec,enabled=true where not schedules.enabled or schedules.spec is distinct from excluded.spec",
+      "insert into schedules(id,canvas_id,agent_id,kind,next_due_at,timezone,spec,dedupe_key,enabled) values($1,$2,$3,'cron',$4,$5,$6,$1,true) on conflict(dedupe_key) do update set next_due_at=excluded.next_due_at,timezone=excluded.timezone,spec=excluded.spec,enabled=true,dispatch_state='pending',blocked_reason=null,revision=schedules.revision+1 where schedules.dispatch_state='cancelled' or schedules.spec is distinct from excluded.spec",
       [
         `cron-${nodeId}`,
         this.canvasId,
@@ -428,6 +454,7 @@ export class GraphMutation {
     mode: "read" | "write",
     edgeId: string,
     delegatedBy: string | null = null,
+    execution: import("@intrica/contracts").CommandPermission = "none",
   ) {
     const before = (
       await this.tx.query(
@@ -438,9 +465,9 @@ export class GraphMutation {
     const grantId = before?.id ?? id("grant");
     if (!this.beforeGrants.has(grantId)) this.beforeGrants.set(grantId, before ?? null);
     await this.tx.query(
-      `insert into grants(id,canvas_id,subject_id,resource_id,mode,source_link_id,delegated_by) values($1,$2,$3,$4,$5,$6,$7)
-      on conflict(subject_id,resource_id,delegated_by) do update set mode=excluded.mode,source_link_id=excluded.source_link_id,version=grants.version+1`,
-      [grantId, this.canvasId, subject, resource, mode, edgeId, delegatedBy],
+      `insert into grants(id,canvas_id,subject_id,resource_id,mode,source_link_id,delegated_by,execution_mode) values($1,$2,$3,$4,$5,$6,$7,$8)
+      on conflict(subject_id,resource_id,delegated_by) do update set mode=excluded.mode,execution_mode=excluded.execution_mode,source_link_id=excluded.source_link_id,version=grants.version+1`,
+      [grantId, this.canvasId, subject, resource, mode, edgeId, delegatedBy, execution],
     );
   }
   async connectGrant(
@@ -450,6 +477,7 @@ export class GraphMutation {
     kind = "user_link",
     sourceRunId?: string,
     delegatedBy: string | null = null,
+    execution: import("@intrica/contracts").CommandPermission = "none",
   ) {
     // Agent callers can grant only an artifact created in this mutation to themselves.
     if (
@@ -474,7 +502,8 @@ export class GraphMutation {
       source,
       kind === "derived_from" ? (await this.row(subject)).content_version : undefined,
     );
-    await this.grant(subject, resource, mode, edge.id, delegatedBy);
+    await this.capturePermissions();
+    await this.grant(subject, resource, mode, edge.id, delegatedBy, execution);
   }
   async deleteEdge(edgeId: string, expectedVersion?: number) {
     if (this.actor.kind !== "owner") throw new DomainError("FORBIDDEN", "删除连接需要用户操作");
@@ -514,6 +543,7 @@ export class GraphMutation {
       this.affectedScopes.add(row.parent_id ?? this.canvasId);
     }
     const ids = rows.map((r) => r.id);
+    await notifyMemberRemoval(this.tx, this.canvasId, ids);
     const removed = (
       await this.tx.query(
         "delete from grants where resource_id=any($1::text[]) or subject_id=any($1::text[]) returning *",
@@ -521,7 +551,9 @@ export class GraphMutation {
       )
     ).rows;
     for (const g of removed) if (!this.beforeGrants.has(g.id)) this.beforeGrants.set(g.id, g);
-    await cancelAgents(this.tx, [...ids, ...removed.map((g) => g.subject_id)]);
+    // Removing a managed member does not revoke the manager's execution authority.
+    // Actual resource reductions are reconciled after the mutation is complete.
+    await cancelAgents(this.tx, ids);
     const edges = (
       await this.tx.query(
         "select id from edges where from_id=any($1::text[]) or to_id=any($1::text[])",
@@ -596,17 +628,34 @@ export class GraphMutation {
           n.after &&
           (!n.before ||
             n.before.asset_id !== n.after.asset_id ||
-            ["text", "resource", "todo", "alt"].some(
+            resourceContentFields.some(
               (key) => JSON.stringify(n.before.body[key]) !== JSON.stringify(n.after.body[key]),
             )),
       )
       .map((n) => n.id);
-    if (changed.length)
-      await this.tx.query(
+    if (changed.length) {
+      const resourcesByAgent = Object.fromEntries(
+        [...effective].map(([agentId, grants]) => [
+          agentId,
+          [
+            ...new Set(
+              grants.filter((g) => changed.includes(g.resource_id)).map((g) => g.resource_id),
+            ),
+          ],
+        ]),
+      );
+      const scheduled = await this.tx.query(
         `insert into schedules(id,canvas_id,agent_id,kind,next_due_at,spec,dedupe_key)
-      select 'change-'||a.node_id,$1,a.node_id,'resource_change',now()+interval '10 seconds',jsonb_build_object('sourceSeq',$3::text,'causeId',(select cause_id from runs where id=$5)),'change-'||a.node_id
-      from agent_configs a join nodes n on n.id=a.node_id where n.canvas_id=$1 and a.enabled and a.node_id<>$4 and a.node_id=any($2::text[])
-      on conflict(dedupe_key) do update set next_due_at=excluded.next_due_at,spec=excluded.spec,enabled=true`,
+      select 'change-'||a.node_id,$1,a.node_id,'resource_change',clock_timestamp()+interval '10 seconds',jsonb_build_object('sourceSeq',$3::text,'causeId',(select cause_id from runs where id=$5),'firstChangeAt',clock_timestamp(),'resourceIds',$6::jsonb->a.node_id),'change-'||a.node_id
+      from agent_configs a join nodes n on n.id=a.node_id where n.canvas_id=$1 and a.enabled and not a.paused and a.node_id<>$4 and a.node_id=any($2::text[])
+      on conflict(dedupe_key) do update set
+        next_due_at=least(excluded.next_due_at,case when schedules.dispatch_state='pending' then
+          (schedules.spec->>'firstChangeAt')::timestamptz+interval '30 seconds' else excluded.next_due_at end),
+        spec=case when schedules.dispatch_state='pending' then excluded.spec||jsonb_build_object(
+          'firstChangeAt',schedules.spec->'firstChangeAt',
+          'resourceIds',(select jsonb_agg(distinct v) from jsonb_array_elements(coalesce(schedules.spec->'resourceIds','[]')||(excluded.spec->'resourceIds')) v))
+          else excluded.spec end,enabled=true,
+        dispatch_state='pending',blocked_reason=null,delivery_seq=null,delivery_run_id=null,revision=schedules.revision+1 returning schedules.*`,
         [
           this.canvasId,
           [...effective]
@@ -615,8 +664,11 @@ export class GraphMutation {
           seq,
           source?.agentId ?? "",
           source?.runId ?? null,
+          JSON.stringify(resourcesByAgent),
         ],
       );
+      await scheduleChanged(this.tx, scheduled.rows);
+    }
     return {
       graphRevision: updated.graph_revision as number,
       canvasSeq: seq,

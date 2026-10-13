@@ -5,24 +5,77 @@ import { HostClient } from "../adapters/host/rpc.js";
 import { DomainError } from "../adapters/postgres/database.js";
 import type { AppInstance } from "../app.js";
 import type { Kernel } from "../composition.js";
+import { FileReferences } from "../modules/work/file-references.js";
 import { createStream } from "./streams.js";
 
 const path = Type.String({ maxLength: 4096 });
-export function registerWorkspace(app: AppInstance, k: Kernel) {
+export function registerWorkspace(app: AppInstance, k: Kernel, serverId: string) {
+  app.get(
+    "/api/v2/media/:id",
+    { schema: { params: Type.Object({ id: Type.String({ maxLength: 200 }) }) } },
+    async (req, reply) => {
+      const media = await k.runs.media!.ownerStream(req.params.id);
+      return reply
+        .type(media.mime)
+        .header("Content-Security-Policy", "sandbox; default-src 'none'")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Cache-Control", "private, no-store")
+        .send(media.stream);
+    },
+  );
   const host = new HostClient(k.config.dataDir);
+  const files = new FileReferences(k, serverId);
+  const reference = Type.String({ minLength: 1, maxLength: 24000 });
   const pdfQuery = Type.Object({
     page: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000 })),
     render: Type.Optional(Type.Boolean()),
     characterOffset: Type.Optional(Type.Integer({ minimum: 0, maximum: 10000000 })),
     characterLimit: Type.Optional(Type.Integer({ minimum: 1, maximum: 48000 })),
   });
+  app.get("/api/v2/files/preview", { schema: { querystring: Type.Object({ reference }) } }, (req) =>
+    files.preview(req.query.reference),
+  );
+  app.get(
+    "/api/v2/files/pdf",
+    { schema: { querystring: Type.Object({ reference, ...pdfQuery.properties }) } },
+    async (req) => {
+      const source = await files.resolve(req.query.reference);
+      if (!source.assetId) return host.call("pdf", { ...req.query, path: source.path });
+      const asset = await k.assets.resolve(source.assetId);
+      if (asset?.mime !== "application/pdf") throw new DomainError("VALIDATION", "此文件不是 PDF");
+      return readPdf(asset.data, {
+        ...req.query,
+        page: req.query.page ?? 1,
+        render: req.query.render ?? true,
+      });
+    },
+  );
+  app.get(
+    "/api/v2/files/download",
+    { schema: { querystring: Type.Object({ reference }) } },
+    async (req, reply) => {
+      const abort = new AbortController();
+      reply.raw.once("close", () => abort.abort());
+      const file = await files.download(req.query.reference, abort.signal);
+      if ("hash" in file) reply.header("ETag", `"sha256-${file.hash}"`);
+      return reply
+        .header(
+          "Content-Disposition",
+          `attachment; filename="download"; filename*=UTF-8''${encodeURIComponent(file.name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16)}`)}`,
+        )
+        .header("Content-Length", file.size)
+        .header("X-Content-Type-Options", "nosniff")
+        .type("application/octet-stream")
+        .send(file.stream);
+    },
+  );
   app.get(
     "/api/v2/nodes/:id/pdf",
     { schema: { params: Type.Object({ id: Type.String() }), querystring: pdfQuery } },
     async (req) => {
       const node = await k.graph.queries.node(req.params.id);
       if (node.kind !== "pdf") throw new DomainError("VALIDATION", "此节点不是 PDF");
-      if (node.resource?.type === "file")
+      if (node.resource?.type === "file" && !node.resource.snapshot)
         return host.call("pdf", { path: node.resource.path, ...req.query });
       const asset = node.assetId ? await k.assets.resolve(node.assetId) : null;
       if (asset?.mime !== "application/pdf") throw new DomainError("NOT_FOUND", "PDF 附件不存在");
@@ -89,7 +142,7 @@ export function registerWorkspace(app: AppInstance, k: Kernel) {
   app.get(
     "/api/v2/workspace/file",
     { schema: { querystring: Type.Object({ path }) } },
-    async (req) => host.call("file", req.query),
+    async (req) => ({ ...(await host.call("file", req.query)), serverId }),
   );
   app.get(
     "/api/v2/workspace/image",
@@ -179,8 +232,12 @@ export function registerWorkspace(app: AppInstance, k: Kernel) {
     },
     async (req, reply) => {
       const asset = await k.assets.stream(req.params.id, req.query.variant === "thumb");
+      if (asset.size !== undefined)
+        reply.header("Content-Length", asset.size).header("ETag", `"sha256-${asset.hash}"`);
       return reply
         .type(asset.mime)
+        .header("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:")
+        .header("X-Content-Type-Options", "nosniff")
         .header("Cache-Control", "private, max-age=31536000, immutable")
         .send(asset.stream);
     },

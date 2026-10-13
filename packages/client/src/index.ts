@@ -62,6 +62,7 @@ export {
   ApiError,
   createTransport,
   newId,
+  parseError,
   readJsonLines,
   type StreamHandle,
   type StreamRecord,

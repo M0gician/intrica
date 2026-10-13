@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { type AssistantMessage, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { type Database, id } from "../postgres/database.js";
+import { modelProgress } from "./progress.js";
 import type { FrozenModel } from "./registry.js";
 
 type Scope = {
@@ -12,6 +13,7 @@ type Scope = {
   attemptId?: string;
   canvasId?: string;
   conversationId?: string;
+  requestId?: string;
 };
 const scope = new AsyncLocalStorage<Scope>();
 export const withModelUsage = <T>(context: Scope, action: () => T): T => scope.run(context, action);
@@ -25,7 +27,7 @@ export async function startModelCall() {
   const callId = id("model-call"),
     config = current.model.config;
   await current.db.pool.query(
-    `insert into model_calls(id,run_id,attempt_id,canvas_id,conversation_id,endpoint_id,profile_id,provider,model_id,protocol,purpose,simulated) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    `insert into model_calls(id,run_id,attempt_id,canvas_id,conversation_id,endpoint_id,profile_id,provider,model_id,protocol,purpose,simulated,request_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [
       callId,
       current.runId,
@@ -39,6 +41,7 @@ export async function startModelCall() {
       config.kind === "mock" ? "mock" : (config.api ?? "default"),
       current.purpose,
       config.kind === "mock",
+      current.requestId,
     ],
   );
   return { callId, db: current.db };
@@ -56,7 +59,7 @@ export async function finishModelCall(
       u.input + u.output + u.cacheRead + u.cacheWrite > 0,
   );
   await call.db.pool.query(
-    `update model_calls set finished_at=now(),outcome=$2,usage_status=$3,input_tokens=$4,output_tokens=$5,cache_read_tokens=$6,cache_write_tokens=$7 where id=$1 and finished_at is null`,
+    `update model_calls set finished_at=now(),outcome=$2,usage_status=$3,input_tokens=$4,output_tokens=$5,cache_read_tokens=$6,cache_write_tokens=$7,response_id=$8 where id=$1 and finished_at is null`,
     [
       call.callId,
       outcome,
@@ -65,6 +68,7 @@ export async function finishModelCall(
       available ? u!.output : null,
       available ? u!.cacheRead : null,
       available ? u!.cacheWrite : null,
+      message?.responseId?.slice(0, 200) ?? null,
     ],
   );
 }
@@ -74,6 +78,7 @@ export function meteredStream(source: StreamFn): StreamFn {
     const output = createAssistantMessageEventStream();
     void (async () => {
       let call: Awaited<ReturnType<typeof startModelCall>> = null;
+      let progress = modelProgress(null);
       let partial: AssistantMessage = {
         role: "assistant",
         content: [],
@@ -101,9 +106,31 @@ export function meteredStream(source: StreamFn): StreamFn {
       options?.signal?.addEventListener("abort", stop, { once: true });
       try {
         call = await startModelCall();
+        progress = modelProgress(call);
         if (options?.signal?.aborted) throw new Error("Model request aborted");
         const stream = await Promise.race([
-          Promise.resolve(source(model, context, options)),
+          Promise.resolve(
+            source(model, context, {
+              ...options,
+              onResponse: async (response, responseModel) => {
+                const headers = Object.fromEntries(
+                  Object.entries(response.headers).map(([k, v]) => [k.toLowerCase(), v]),
+                );
+                const requestId =
+                  headers["x-request-id"] ?? headers["request-id"] ?? headers["x-amzn-requestid"];
+                if (call)
+                  await call.db.pool.query(
+                    "update model_calls set provider_request_id=$2,first_response_at=coalesce(first_response_at,now()) where id=$1",
+                    [
+                      call.callId,
+                      requestId && /^[\w.:/-]{1,200}$/.test(requestId) ? requestId : null,
+                    ],
+                  );
+                await progress.observe("response");
+                await options?.onResponse?.(response, responseModel);
+              },
+            }),
+          ),
           cancelled,
         ]);
         const iterator = stream[Symbol.asyncIterator]();
@@ -111,8 +138,10 @@ export function meteredStream(source: StreamFn): StreamFn {
           const event = await Promise.race([iterator.next(), cancelled]);
           if (event.done) throw new Error("Model stream ended without result");
           const value = event.value;
+          if (value.type !== "start" && value.type !== "error") await progress.observe(value.type);
           if (value.type === "done" || value.type === "error") {
             partial = value.type === "done" ? value.message : value.error;
+            await progress.flush();
             await finishModelCall(
               call,
               value.type === "done" ? "succeeded" : value.reason,
@@ -126,6 +155,7 @@ export function meteredStream(source: StreamFn): StreamFn {
         }
       } catch (error) {
         const reason = options?.signal?.aborted ? "aborted" : "error";
+        await progress.flush().catch(() => {});
         await finishModelCall(call, reason, partial).catch(() => {});
         output.push({
           type: "error",

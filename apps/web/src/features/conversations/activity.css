@@ -17,18 +17,19 @@
   font-size: 11px;
   color: var(--text-secondary);
 }
-.chat-user {
-  background: #f6f5f2;
-  border-radius: 10px;
-  padding: 10px 14px;
-}
 .chat-turn {
   margin: 0 0 22px;
 }
-.chat-user {
-  margin-left: 28px;
-  border-radius: 14px;
-  padding: 10px 14px;
+.chat-user,
+.agent-transcript .chat-user,
+.agent-event-user {
+  width: fit-content;
+  max-width: calc(100% - 28px);
+  margin-left: auto;
+  margin-right: 0;
+  justify-self: end;
+  border-radius: 18px;
+  padding: 12px 16px 22px;
   background: #f1f0ed;
   font-size: 14px;
 }
@@ -102,6 +103,14 @@
 .agent-event .markdown-lite {
   font-size: 13px;
 }
+.chat-user .markdown-lite,
+.agent-event-user .markdown-lite {
+  font-size: 14px;
+}
+.chat-user .markdown-lite > :last-child,
+.agent-event-user .markdown-lite > :last-child {
+  margin-bottom: 0;
+}
 .agent-event pre {
   font-size: 11px;
   white-space: pre-wrap;
@@ -128,21 +137,25 @@
 .agent-inbox {
   right: calc(var(--workspace-width, 0px) + 24px);
 }
-.agent-event-user {
-  background: var(--primary-soft);
-  border-radius: 10px;
-  padding: 12px;
-  margin-left: 32px;
-}
 .agent-event-trigger {
   color: var(--text-secondary);
   font-size: 11px;
   border-left: 2px solid var(--card-border);
   padding-left: 10px;
 }
-.agent-event-message {
-  border-left: 2px solid #7f9b91;
-  padding-left: 12px;
+.agent-event-message,
+.agent-event-broadcast,
+.agent-event-report {
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 12px 16px 22px;
+  background: var(--card-bg);
+}
+.agent-event-message_notice {
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--card-bg);
 }
 .agent-event-tool {
   font-size: 12px;
@@ -246,19 +259,27 @@
   min-width: 0;
   padding: 4px;
 }
-.agent-event-broadcast {
-  border-left: 2px solid #7f9b91;
-  padding-left: 12px;
-}
+
 .agent-event-time {
   margin-left: 7px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
   opacity: 0;
   transition: opacity 120ms ease;
   font-variant-numeric: tabular-nums;
 }
-.agent-collaboration .agent-event-time,
-.agent-event:hover .agent-event-time,
-.agent-event:focus-within .agent-event-time {
+.agent-collaboration
+  :where(
+    .agent-event-user,
+    .agent-event-message,
+    .agent-event-report,
+    .agent-event-broadcast,
+    .agent-event-message_notice
+  )
+  .agent-event-time,
+:where(.agent-event):hover .agent-event-time,
+:where(.agent-event):focus-within .agent-event-time {
   opacity: 1;
 }
 .broadcast-scope {
@@ -314,4 +335,81 @@
 }
 .agent-inbox-list small {
   color: var(--text-secondary);
+}
+
+.agent-event.agent-event-expedited {
+  background: var(--status-warning-bg);
+}
+
+.activity-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 5px 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.activity-participants {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.activity-header-compact {
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+.activity-participants strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.activity-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.activity-header .agent-event-time {
+  margin: 0;
+}
+:is(.agent-event-message, .agent-event-report, .agent-event-broadcast, .agent-event-message_notice)
+  .activity-header
+  .agent-event-time {
+  opacity: 1;
+}
+:where(
+    .agent-event:not(
+      :is(
+        .agent-event-user,
+        .agent-event-message,
+        .agent-event-report,
+        .agent-event-broadcast,
+        .agent-event-message_notice
+      )
+    )
+  )
+  > .activity-header {
+  justify-content: flex-start;
+}
+.agent-event-message > .markdown-lite,
+.agent-event-report > .markdown-lite,
+.agent-event-broadcast > .markdown-lite {
+  font-size: 14px;
+  line-height: 1.65;
+}
+.agent-event > .markdown-lite > :first-child {
+  margin-top: 0;
+}
+.agent-event > .markdown-lite > :last-child {
+  margin-bottom: 0;
+}
+.agent-event-message_notice .activity-header {
+  margin-bottom: 12px;
 }

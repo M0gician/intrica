@@ -1,4 +1,5 @@
 import { canvasEvent, type Tx } from "../../adapters/postgres/database.js";
+import { cancelResourceSchedules } from "./schedules.js";
 import { result } from "./tool-calls.js";
 
 // The upgrade reason is an execution barrier and survives a stop.
@@ -29,13 +30,22 @@ export async function cancelApprovals(tx: Tx, runIds: string[]) {
     });
   }
 }
-export async function cancelAgents(tx: Tx, agentIds: string[]) {
+export async function cancelAgents(
+  tx: Tx,
+  agentIds: string[],
+  resourceReason: "stopped" | "permissions_changed" = "stopped",
+) {
+  await cancelResourceSchedules(tx, agentIds, resourceReason);
+  if (resourceReason === "stopped") {
+    await tx.query("update agent_configs set paused=true where node_id=any($1::text[])", [
+      agentIds,
+    ]);
+  }
+  // Cancellation never consumes an unread input. A later run must still receive it.
   await tx.query(
-    "update schedules set enabled=false where agent_id=any($1::text[]) and kind='resource_change'",
-    [agentIds],
-  );
-  await tx.query(
-    "update conversations c set consumed_message_seq=message_seq where agent_id=any($1::text[]) and not exists(select 1 from runs r where r.subject_id=c.id and r.reason='tool_contract_upgrade')",
+    `update messages m set run_id=null,expedite_run_id=null from conversations c
+    where c.id=m.conversation_id and c.agent_id=any($1::text[]) and m.seq>c.consumed_message_seq
+    and m.consumed_run_id is null and m.role in('message','message_notice','team_notice','user')`,
     [agentIds],
   );
   const rows = (
@@ -45,6 +55,16 @@ export async function cancelAgents(tx: Tx, agentIds: string[]) {
       [agentIds],
     )
   ).rows;
+  for (const c of (
+    await tx.query(
+      "select id,canvas_id,agent_id from conversations where agent_id=any($1::text[])",
+      [agentIds],
+    )
+  ).rows)
+    await canvasEvent(tx, c.canvas_id, "conversation.changed", {
+      conversationId: c.id,
+      agentId: c.agent_id,
+    });
   await cancelApprovals(
     tx,
     rows.map((r) => r.id),

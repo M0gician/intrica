@@ -51,6 +51,17 @@ export function useCanvasSelection(controller: WorkspaceController, closeSurface
           nonce: newId(),
         });
         setSidebarMode("files");
+      } else if (
+        node?.resource?.type === "file" &&
+        (node.resource.snapshot?.mime === "text/html" || /\.html?$/i.test(node.resource.path))
+      ) {
+        setResourceTarget({
+          type: "html",
+          nodeId,
+          name: node.resource.snapshot?.name ?? node.title ?? "HTML",
+          nonce: newId(),
+        });
+        setSidebarMode("browser");
       } else if (bookmark) {
         void controller.refreshBookmarkTitle(nodeId);
         setResourceTarget({ type: "web", url: bookmark.url, nodeId, nonce: newId() });

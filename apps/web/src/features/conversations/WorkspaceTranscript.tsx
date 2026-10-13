@@ -6,6 +6,7 @@ import { MarkdownLite } from "../../components/MarkdownLite";
 import { ToolCallDetails } from "../../components/ToolCallDetails";
 import { tr } from "../../i18n";
 import { Button } from "../../ui/button";
+import { InputReceipt } from "./InputReceipt";
 import { useTranscriptScroll } from "./navigation/use-transcript-scroll";
 import { type ConversationSnapshot, restoreTurns, type Turn } from "./workspace-model";
 
@@ -93,14 +94,25 @@ export function WorkspaceTranscript({
               tabIndex={-1}
             >
               <article className={turn.role && turn.role !== "user" ? "chat-notice" : "chat-user"}>
-                <MarkdownLite text={turn.question} />
+                <MarkdownLite
+                  text={turn.question}
+                  origin={{ kind: "conversation", id: conversationId }}
+                />
+                <InputReceipt conversationId={conversationId} receipt={turn.receipt} />
               </article>
               <article className="chat-assistant">
                 {turn.timeline.map((item) => {
                   if (item.kind === "user")
                     return (
                       <article className="chat-user" key={item.id}>
-                        <MarkdownLite text={turn.messages[item.id]!.text} />
+                        <MarkdownLite
+                          text={turn.messages[item.id]!.text}
+                          origin={{ kind: "conversation", id: conversationId }}
+                        />
+                        <InputReceipt
+                          conversationId={conversationId}
+                          receipt={turn.messages[item.id]!.receipt}
+                        />
                       </article>
                     );
                   if (item.kind === "tool") {
@@ -121,10 +133,20 @@ export function WorkspaceTranscript({
                     <div key={`message-${item.id}`}>
                       {message.thinking && (
                         <DeferredDetails className="agent-thinking" summary={tr("思考过程")}>
-                          {() => <MarkdownLite text={message.thinking} />}
+                          {() => (
+                            <MarkdownLite
+                              text={message.thinking}
+                              origin={{ kind: "conversation", id: conversationId }}
+                            />
+                          )}
                         </DeferredDetails>
                       )}
-                      {message.text && <MarkdownLite text={message.text} />}
+                      {message.text && (
+                        <MarkdownLite
+                          text={message.text}
+                          origin={{ kind: "conversation", id: conversationId }}
+                        />
+                      )}
                     </div>
                   );
                 })}

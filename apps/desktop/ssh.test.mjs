@@ -58,6 +58,7 @@ function fixture() {
   };
   const manager = createSshManager({
     engine,
+    version: "0.2.5",
     now: () => clock,
     aliases: async () => ["beta"],
     saveManaged: async (input) => {
@@ -97,17 +98,18 @@ function fixture() {
   };
 }
 
-test("Desktop reuses deployment plan, requires confirmation once, privately imports token and saves a tunnel profile", async () => {
+test("Desktop installs its own version, privately imports credentials and saves a tunnel profile", async () => {
   const f = fixture();
-  const plan = await f.manager.plan({ target: "beta", release: "v0.2.5" });
+  const started = f.manager.install({ target: "beta", sandbox: "required" });
   assert.equal(f.saved.length, 0);
   assert.equal(f.opened.length, 0);
-  const result = await f.manager.apply({ id: plan.id, confirm: true });
+  await f.manager.settle();
+  const result = f.manager.state().operation.profile;
   assert.equal(f.calls.find((call) => call.options?.apply).hooks.expectedPlan.alias, "beta");
   assert.equal(f.saved[0].token, "private-token");
   assert.equal(result.sshAlias, "beta");
   assert.ok(!JSON.stringify(result).includes("private-token"));
-  await assert.rejects(f.manager.apply({ id: plan.id, confirm: true }), /Preflight expired/);
+  f.manager.install({ target: "beta", sandbox: "required", operationId: started.operation.id });
   assert.equal(f.saved.length, 1);
   await f.manager.target("beta");
   assert.equal(f.opened.length, 1);
@@ -123,13 +125,12 @@ test("Desktop reuses deployment plan, requires confirmation once, privately impo
   await assert.rejects(f.manager.target("beta"), /closed/);
 });
 
-test("expired/unconfirmed plans and hostile aliases never change a server", async () => {
+test("renderer cannot select a release and invalid targets never change a server", async () => {
   const f = fixture();
-  let plan = await f.manager.plan({ target: "beta", release: "v0.2.5" });
-  await assert.rejects(f.manager.apply({ id: plan.id, confirm: false }), /Preflight expired/);
-  plan = await f.manager.plan({ target: "beta", release: "v0.2.5" });
-  f.advance();
-  await assert.rejects(f.manager.apply({ id: plan.id, confirm: true }), /Preflight expired/);
+  assert.throws(
+    () => f.manager.install({ target: "beta", sandbox: "required", release: "v9.9.9" }),
+    /Invalid/,
+  );
   for (const alias of ["-oProxyCommand=sh", "a;id", "a\nb"])
     await assert.rejects(f.manager.inspect(alias), /valid SSH alias/);
   await assert.rejects(f.manager.restart({ target: "beta", confirm: false }), /Confirm/);
@@ -155,11 +156,13 @@ test("SSH preflight failures are actionable and block access before any credenti
 
 test("deployment failure cannot import credentials or manufacture a successful connection", async () => {
   const f = fixture();
-  const plan = await f.manager.plan({ target: "beta", release: "v0.2.5" });
   f.engine.deployServer = async () => {
     throw new Error("host changed since preflight");
   };
-  await assert.rejects(f.manager.apply({ id: plan.id, confirm: true }), /host changed/);
+  f.manager.install({ target: "beta", sandbox: "required" });
+  await f.manager.settle();
+  assert.equal(f.manager.state().operation.phase, "failed");
+  assert.match(f.manager.state().operation.error.message, /host changed/);
   assert.equal(f.saved.length, 0);
   assert.equal(f.opened.length, 0);
 });

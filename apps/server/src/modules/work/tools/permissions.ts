@@ -16,8 +16,8 @@ export function permissionTools(context: ToolContext) {
   const request = tool(
     "request_permission",
     text(
-      "Request ongoing role, canvas resource, or path permission. Each scope accepts only its own fields. A directory_and_commands connection includes repeated host command execution, not just file reading. This differs from a one-time operation approval.",
-      "申请持续的角色、画布资源或路径权限。scope 各类型只接受自己的字段。directory_and_commands 包含持续宿主命令执行权限，并非仅文件读取。该申请与具体操作的一次性审批不同。",
+      "Request ongoing role, canvas resource, or path permission. Each scope accepts only its own fields. access=file accepts only execution=none. access=directory supports none/isolated/host. Run isolated commands in your own workspace to read granted files; command cwd and readable file scope are separate. This differs from a one-time operation approval.",
+      "申请持续的角色、画布资源或路径权限。scope 各类型只接受自己的字段。access=file 仅接受 execution=none；directory 可选择 none/isolated/host。在自己的工作目录执行隔离命令即可读取已授权文件，无需为文件申请命令执行权。该申请与具体操作的一次性审批不同。",
     ),
     object({
       scope: Type.Union([
@@ -27,11 +27,23 @@ export function permissionTools(context: ToolContext) {
           nodeId: idParameter,
           mode: Type.Union([Type.Literal("read"), Type.Literal("write")]),
         }),
-        object({
-          kind: Type.Literal("path"),
-          path: Type.String({ minLength: 1, maxLength: 4096 }),
-          access: Type.Union([Type.Literal("file"), Type.Literal("directory_and_commands")]),
-        }),
+        ...["file", "directory"].map((access) =>
+          object({
+            kind: Type.Literal("path"),
+            path: Type.String({ minLength: 1, maxLength: 4096 }),
+            access: Type.Literal(access),
+            mode: Type.Optional(Type.Union([Type.Literal("read"), Type.Literal("write")])),
+            execution: Type.Optional(
+              access === "file"
+                ? Type.Literal("none")
+                : Type.Union([
+                    Type.Literal("none"),
+                    Type.Literal("isolated"),
+                    Type.Literal("host"),
+                  ]),
+            ),
+          }),
+        ),
       ]),
       reason: messageParameter,
     }),
@@ -69,7 +81,9 @@ export function permissionTools(context: ToolContext) {
     return registry.host.requestPath(tx, actor, callId, {
       path: scope.path,
       reason: args.reason,
-      directory: scope.access === "directory_and_commands",
+      directory: scope.access !== "file",
+      mode: scope.mode ?? "read",
+      execution: scope.execution ?? "none",
     });
   };
   return [request];

@@ -3,8 +3,10 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { useSessionConnection } from "../api/connection";
 import { AgentProfile } from "../features/conversations/AgentProfile";
 import { AgentTimeline } from "../features/conversations/AgentTimeline";
+import { CollaborationState } from "../features/conversations/CollaborationState";
 import { ConversationPause } from "../features/conversations/ConversationPause";
 import { activityRecipient } from "../features/conversations/model";
+import { ResourceResponse } from "../features/conversations/ResourceResponse";
 import { UnknownTools } from "../features/conversations/UnknownTools";
 import { useAgentActivity } from "../features/conversations/useAgentActivity";
 import { useAgentProfile } from "../features/conversations/useAgentProfile";
@@ -18,6 +20,7 @@ import { ComposerAction } from "./ComposerAction";
 import { ContextUsageRing } from "./ContextUsageRing";
 import { MentionComposerInput } from "./MentionComposerInput";
 import { ModelPicker } from "./ModelPicker";
+import { ModelRequired, useModelReady } from "./ModelRequired";
 export function AgentNodePanel({
   node,
   nodes,
@@ -76,9 +79,12 @@ export function AgentNodePanel({
     saveConfig,
     titleSave,
   } = profile;
+  const modelReady = useModelReady(draft.model);
   const [message, setMessage] = useState(() => readAgentDraft(storageKey(node.id)));
   const [draftPersistent, setDraftPersistent] = useState(true);
   const panel = useRef<HTMLDivElement>(null);
+  const profileIdentity = useRef<HTMLInputElement>(null);
+  const [profileVisible, setProfileVisible] = useState(true);
   const focusedRequest = useRef<number | undefined>(undefined);
   const revealRequest = (id: string) => {
     const element = Array.from(
@@ -103,6 +109,39 @@ export function AgentNodePanel({
   return (
     <div className="agent-node-panel" ref={panel}>
       <ConversationPause reason={data.runReason} />
+      <CollaborationState
+        identity={
+          profileVisible
+            ? undefined
+            : {
+                id: node.id,
+                name: node.title || tr("未命名元素"),
+                variant: draft.portraitVariant,
+                ...(draft.portraitAssetId ? { assetId: draft.portraitAssetId } : {}),
+              }
+        }
+        paused={data.collaborationPaused}
+        respondsToResources={draft.enabled}
+        busy={busy}
+        onToggle={() =>
+          void act(
+            `canvas-agents/${node.id}/${data.collaborationPaused ? "run" : "stop"}`,
+            data.collaborationPaused
+              ? { message: tr("恢复协作，检查未完成的请求和已授权资源。") }
+              : {},
+          )
+        }
+      />
+      {data.configurationBlocked && data.resourceResponse?.reason !== "model_not_configured" && (
+        <p role="status">{tr("自动任务等待模型配置。")}</p>
+      )}
+      <ResourceResponse
+        status={data.resourceResponse}
+        busy={busy}
+        onRetry={(expectedRevision) => {
+          void act(`canvas-agents/${node.id}/resource-response/retry`, { expectedRevision });
+        }}
+      />
       <UnknownTools
         calls={data.unknownTools ?? []}
         busy={busy}
@@ -117,6 +156,9 @@ export function AgentNodePanel({
         }
       />
       <AgentTimeline
+        currentAgentId={node.id}
+        profileRef={profileIdentity}
+        onProfileVisibilityChange={setProfileVisible}
         navigationRef={navigation}
         onLoadEarlier={cursor ? loadEarlier : undefined}
         onLoadLater={
@@ -157,6 +199,7 @@ export function AgentNodePanel({
         before={
           <>
             <AgentProfile
+              identityRef={profileIdentity}
               node={node}
               nodes={nodes}
               linkedCount={linkedCount}
@@ -191,7 +234,7 @@ export function AgentNodePanel({
         className="agent-compose"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (data.unknownTools?.length) return;
+          if (busy || !modelReady || data.unknownTools?.length) return;
           if (!message.trim() && data.supersededByRunId) return;
           const sent = message;
           if (!(await titleSave.current) || !(await saveConfig())) return;
@@ -236,6 +279,7 @@ export function AgentNodePanel({
           }}
           placeholder={tr("给这个 Agent 一个任务\u2026")}
         />
+        <ModelRequired selection={draft.model} />
         {!draftPersistent && (
           <small role="status">{tr("浏览器存储不可用，草稿仅保留在当前窗口。")}</small>
         )}
@@ -284,6 +328,7 @@ export function AgentNodePanel({
             onSelectionChange={(model) => saveConfig({ model })}
           />
           <ComposerAction
+            modelReady={modelReady}
             hasText={Boolean(message.trim())}
             running={data.running}
             interrupted={

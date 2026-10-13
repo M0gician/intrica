@@ -25,7 +25,11 @@ export type AgentConfig = {
   };
 };
 
-export type LocalResource = { type: "directory" | "file"; path: string };
+export type LocalResource = {
+  type: "directory" | "file";
+  path: string;
+  snapshot?: { assetId: string; hash: string; bytes: number; mime: string; name: string };
+};
 
 export type Node = {
   canvasId: string;

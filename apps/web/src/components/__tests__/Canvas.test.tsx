@@ -7,6 +7,28 @@ import type { OverlaySpaceState } from "../../state/types";
 import { makeNode, makeOperation } from "../../test/factories";
 import { Canvas } from "../Canvas";
 
+vi.mock("../../data/models", () => ({
+  useOptionalModels: () => ({
+    data: {
+      selectedId: "configured",
+      endpoints: [{ id: "endpoint", baseUrl: "http://127.0.0.1/v1" }],
+      profiles: [
+        {
+          id: "configured",
+          endpointId: "endpoint",
+          modelId: "acceptance",
+          provider: "custom",
+          api: "openai-completions",
+          thinkingLevel: "off",
+          thinkingLevels: ["off"],
+        },
+      ],
+      active: { modelId: "acceptance" },
+    },
+    refresh: async () => {},
+  }),
+}));
+
 vi.mock("../../api/client", async (importOriginal) => {
   const mod = await importOriginal<typeof import("../../api/client")>();
   return {

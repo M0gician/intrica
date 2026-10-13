@@ -1,5 +1,6 @@
 export type Activity = {
   conversationId?: string;
+  recordVersion?: string;
   seq: number;
   agentId: string;
   kind: string;

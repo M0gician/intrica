@@ -148,13 +148,19 @@ it("labels a local server only from its explicit profile, never from a loopback 
   );
 });
 
-it("resolves the home directory on the server and exposes the shared canvas directory without claiming all Agent files live there", async () => {
+it("resolves the home directory on the server and distinguishes the canvas root from its shared directory", async () => {
   const remote = host("beta", "beta");
   remote.request.mockResolvedValue({ ...listing, name: "reviewer", path: "/home/reviewer" });
   const onRoot = vi.fn();
   render(
     remote.wrap(
-      <FilesPanel root="~" workspacePath={listing.path} onRoot={onRoot} onAdd={vi.fn()} />,
+      <FilesPanel
+        root="~"
+        workspacePath={listing.parent}
+        sharedPath={listing.path}
+        onRoot={onRoot}
+        onAdd={vi.fn()}
+      />,
     ),
   );
   await waitFor(() => expect(remote.request).toHaveBeenCalled());
@@ -165,12 +171,10 @@ it("resolves the home directory on the server and exposes the shared canvas dire
   fireEvent.click(screen.getByRole("button", { name: "查看文件位置" }));
   const dialog = await screen.findByRole("dialog", { name: "文件位置" });
   expect(within(dialog).getByText("服务器账户的主目录")).toBeTruthy();
-  expect(
-    within(dialog).getByText("当前画布的共享目录，Agent 可能使用各自的工作目录。"),
-  ).toBeTruthy();
-  expect(within(dialog).getByText(listing.path)).toBeTruthy();
+  expect(within(dialog).getByText("包含共享目录和所有成员工作目录。")).toBeTruthy();
+  expect(within(dialog).getByRole("button", { name: "共享目录" }).title).toBe(listing.path);
   fireEvent.click(within(dialog).getByRole("button", { name: "画布工作目录" }));
-  expect(onRoot).toHaveBeenCalledWith(listing.path);
+  expect(onRoot).toHaveBeenCalledWith(listing.parent);
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   fireEvent.click(screen.getByRole("button", { name: "查看文件位置" }));
   fireEvent.click(
@@ -221,6 +225,11 @@ it("cancels a late file read when navigating to the current directory again", as
 
 it("consumes direct file targets once so a dismissed preview stays closed after switching tools", async () => {
   const remote = host("beta", "beta");
+  remote.request.mockImplementation(async (url: string) =>
+    url.startsWith("file?")
+      ? { name: "report.pdf", path: "/srv/workspace/shared/report.pdf", mime: "application/pdf" }
+      : listing,
+  );
   const props = {
     root: listing.path,
     openFileTarget: { path: "/srv/workspace/shared/report.pdf", nonce: "open-1" },
@@ -253,7 +262,7 @@ it.each(["txt", "pdf"])(
         : {
             path,
             name: `report.${extension}`,
-            mime: "text/plain",
+            mime: extension === "pdf" ? "application/pdf" : "text/plain",
             text: "report",
           },
     );

@@ -29,6 +29,7 @@ function bridgeFixture() {
   let state: DesktopUpdateState = {
     version: "0.2.0",
     packaged: true,
+    manualInstallRequired: false,
     phase: "idle",
     downloadedBytes: 0,
     asset: null,
@@ -41,6 +42,7 @@ function bridgeFixture() {
   };
   const passive = vi.fn(async () => state);
   const bridge: DesktopUpdates = {
+    install: vi.fn(async () => state),
     state: vi.fn(async () => state),
     check: vi.fn(() => passive()),
     download: vi.fn(() => passive()),

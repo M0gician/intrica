@@ -77,9 +77,16 @@ it("encodes server file paths, uses the current connection and does not embed ra
 
 it("the files panel previews server PDFs without downloading binary file content or showing image-copy controls", async () => {
   const { value, request } = connection();
-  const files = vi
-    .fn()
-    .mockResolvedValue({ name: "docs", path: "/docs", parent: "/", entries: [], truncated: false });
+  const files = vi.fn().mockImplementation(async (url: string) =>
+    url.startsWith("file?")
+      ? {
+          name: "Reference.pdf",
+          path: "/docs/Reference.pdf",
+          mime: "application/pdf",
+          serverId: value.serverId,
+        }
+      : { name: "docs", path: "/docs", parent: "/", entries: [], truncated: false },
+  );
   value.serverRequest = files;
   render(
     <ConnectionServices.Provider value={value}>
@@ -97,7 +104,7 @@ it("the files panel previews server PDFs without downloading binary file content
     expect.stringContaining("/api/v2/workspace/pdf?path="),
     expect.any(Object),
   );
-  expect(files.mock.calls.some(([url]) => String(url).startsWith("file?"))).toBe(false);
+  expect(files.mock.calls.some(([url]) => String(url).startsWith("file?"))).toBe(true);
   expect(screen.queryByRole("button", { name: "复制图片" })).toBeNull();
   expect(document.querySelector('img[src^="data:application/pdf"]')).toBeNull();
 });

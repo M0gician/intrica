@@ -90,7 +90,18 @@ export function nodeContent(node: Node, offset = 0, limit = 6000) {
     content: content.slice(start, end),
     totalChars: content.length,
     nextOffset: end < content.length ? end : null,
-    ...(node.resource ? { resource: node.resource } : {}),
+    ...(node.resource
+      ? {
+          resource: node.resource.snapshot
+            ? {
+                type: "file",
+                sourcePath: node.resource.path,
+                snapshot: node.resource.snapshot,
+                note: "Read this node to inspect the immutable version. sourcePath is mutable and may now contain another version.",
+              }
+            : node.resource,
+        }
+      : {}),
     ...(node.todo ? { todo: node.todo } : {}),
     ...(node.childOrder.length
       ? { childIds: node.childOrder.slice(0, 40), childCount: node.childOrder.length }

@@ -99,6 +99,7 @@ export function NodeContent({
     case "path-image":
       return (
         <WorkspaceImagePreview
+          assetId={node.resource?.snapshot?.assetId}
           path={presentation.path}
           alt={node.title ?? presentation.path}
           className="node-card-image"

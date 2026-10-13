@@ -16,7 +16,7 @@ export async function requireArtifactFile(path: string) {
     );
 }
 export async function createArtifact(
-  registry: Pick<ToolRegistry, "graph" | "host">,
+  registry: Pick<ToolRegistry, "graph" | "host" | "assets">,
   ctx: ExecutionContext,
   actor: Actor,
   call: string,
@@ -34,7 +34,7 @@ export async function createArtifact(
     );
     if (actor.kind === "agent") await registry.host.assertPath(actor, path, false);
     await requireArtifactFile(path);
-    resource = { type: "file" as const, path };
+    resource = { type: "file" as const, path, snapshot: await registry.assets.snapshot(path) };
   }
   const response = await registry.graph.command(
     ctx.run.canvas_id,
@@ -43,6 +43,8 @@ export async function createArtifact(
     args,
     actor,
     async (m) => {
+      if (resource && actor.kind === "agent")
+        await registry.host.assertPath(actor, resource.path, false, m.tx);
       const nodeId = await m.insert({
         kind,
         parentId: ctx.run.canvas_id,
@@ -50,6 +52,7 @@ export async function createArtifact(
         text: args.text ?? args.path ?? "",
         ...(kind === "todo" ? { todo: { completed: args.completed ?? false } } : {}),
         ...(resource ? { resource } : {}),
+        ...(resource?.snapshot ? { assetId: resource.snapshot.assetId } : {}),
         shareWithManagers: args.shareWithManagers,
         publishFile: Boolean(
           resource &&
@@ -90,7 +93,9 @@ export async function createArtifact(
     id: response.node.id,
     revision: response.node.revision,
     textLength: response.node.text?.length ?? 0,
-    attachment: resource ?? null,
+    attachment: response.node.resource
+      ? { ...response.node.resource, reference: `intrica-file:${response.node.id}` }
+      : null,
     sharedWith: response.sharedWith,
     sharing: response.sharing,
     ...(response.sharing.skippedManagers.length

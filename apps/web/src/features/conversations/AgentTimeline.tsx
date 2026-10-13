@@ -3,16 +3,18 @@ import {
   lazy,
   type ReactNode,
   type Ref,
+  type RefObject,
   Suspense,
   useImperativeHandle,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import { tr, useTranslation } from "../../i18n";
 import { Button } from "../../ui/button";
+import { isExpedited } from "./message-priority";
 import { type Activity, activityKey, type TimelineNavigation } from "./model";
 import type { MessageKey, NavigationSource } from "./navigation/source";
+import { useProfileVisibility } from "./navigation/use-profile-visibility";
 import { useTranscriptScroll } from "./navigation/use-transcript-scroll";
 import { TimelineEvent } from "./TimelineEvent";
 import { coalesceToolEvents } from "./tool-display";
@@ -22,6 +24,9 @@ const MessageNavigation = lazy(() => import("./navigation/MessageNavigation"));
 export function AgentTimeline({
   events,
   nodes,
+  currentAgentId,
+  profileRef,
+  onProfileVisibilityChange,
   onRead,
   before,
   navigationRef,
@@ -37,6 +42,9 @@ export function AgentTimeline({
 }: {
   events: Activity[];
   nodes: ReadonlyMap<string, Node>;
+  currentAgentId?: string | undefined;
+  profileRef?: RefObject<HTMLElement | null> | undefined;
+  onProfileVisibilityChange?: ((visible: boolean) => void) | undefined;
   onRead?: (() => void) | undefined;
   before?: ReactNode;
   navigationRef?: Ref<TimelineNavigation>;
@@ -53,7 +61,7 @@ export function AgentTimeline({
   useTranslation();
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState("");
+  useProfileVisibility(scroller, profileRef, onProfileVisibilityChange);
   const scroll = useTranscriptScroll({
     scroller,
     content,
@@ -115,7 +123,7 @@ export function AgentTimeline({
             {rows.map((event) => (
               <article
                 key={activityKey(event)}
-                className={`agent-event agent-event-${event.kind}`}
+                className={`agent-event agent-event-${event.kind}${isExpedited(event) ? " agent-event-expedited" : ""}`}
                 data-message-seq={event.seq > 0 ? event.seq : lastSeq + 1}
                 data-message-key={activityKey(event)}
                 tabIndex={-1}
@@ -123,21 +131,13 @@ export function AgentTimeline({
                 <TimelineEvent
                   event={event}
                   nodes={nodes}
+                  currentAgentId={currentAgentId}
                   accessCards={accessCards}
                   requestEvent={requestEvent}
                   onSelectNode={onSelectNode}
                   onOpenFile={onOpenFile}
+                  onExpandEvent={onExpandEvent}
                 />
-                {event.seq > 0 && event.data.truncated && onExpandEvent ? (
-                  <Button
-                    className="agent-expand-event"
-                    onClick={() =>
-                      void onExpandEvent(event.seq).catch((error) => setError(error.message))
-                    }
-                  >
-                    {tr("展开完整记录")}
-                  </Button>
-                ) : null}
               </article>
             ))}
             {onLoadLater && (
@@ -148,7 +148,7 @@ export function AgentTimeline({
                 {tr("较新会话")}
               </Button>
             )}
-            {(error || scroll.error) && <p role="alert">{error || scroll.error}</p>}
+            {scroll.error && <p role="alert">{scroll.error}</p>}
           </section>
         </div>
       </div>

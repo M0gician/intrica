@@ -11,11 +11,13 @@ export function WorkspaceImagePreview({
   alt,
   className = "",
   preview = false,
+  assetId,
 }: {
   path: string;
   alt: string;
   className?: string;
   preview?: boolean;
+  assetId?: string | undefined;
 }) {
   useTranslation();
 
@@ -27,12 +29,17 @@ export function WorkspaceImagePreview({
     let objectUrl: string | null = null;
     setSource(null);
     setFailed(false);
-    if (preview) {
+    if (preview || assetId) {
       void transport
-        .fetch(`/api/v2/workspace/image?path=${encodeURIComponent(path)}`, {
-          signal: abort.signal,
-          credentials: "include",
-        })
+        .fetch(
+          assetId
+            ? `/api/v2/assets/${encodeURIComponent(assetId)}`
+            : `/api/v2/workspace/image?path=${encodeURIComponent(path)}`,
+          {
+            signal: abort.signal,
+            credentials: "include",
+          },
+        )
         .then((response) => {
           if (!response.ok) throw new Error(tr("图片读取失败"));
           return response.blob();
@@ -69,7 +76,7 @@ export function WorkspaceImagePreview({
       abort.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [path, preview, transport.fetch, serverRequest]);
+  }, [path, preview, assetId, transport.fetch, serverRequest]);
   if (source && !failed)
     return (
       <img

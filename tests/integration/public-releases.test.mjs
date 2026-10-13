@@ -170,7 +170,7 @@ test("verified public artifacts remain pinned when latest changes and corrupt by
   assert.deepEqual(await readFile(path), server.bytes);
 });
 
-test("public desktop downloads are serialized, cancellable, cached and reverified before opening", async (t) => {
+test("public desktop downloads are serialized, cancellable, cached and reverified before installation", async (t) => {
   const server = await releaseServer(t);
   const dir = await directory(t);
   let opens = 0;
@@ -181,14 +181,13 @@ test("public desktop downloads are serialized, cancellable, cached and reverifie
     platform: "darwin",
     arch: "arm64",
     fetchImpl: server.fetch,
-    shell: {
-      openPath: async () => {
-        opens++;
-        return "";
-      },
-      showItemInFolder: () => {
-        opens++;
-      },
+    installer: {
+      prepare: async () => ({
+        apply: async () => {
+          opens++;
+        },
+      }),
+      dispose() {},
     },
   };
   const updater = await createUpdater(options);
@@ -198,17 +197,15 @@ test("public desktop downloads are serialized, cancellable, cached and reverifie
   await Promise.all([updater.download(), updater.download()]);
   await settle(updater);
   assert.equal(updater.state().phase, "ready");
-  assert.equal(server.requests.filter((r) => r.path.endsWith(".dmg")).length, 1);
+  assert.equal(server.requests.filter((r) => r.path.endsWith(".zip")).length, 1);
   const restored = await createUpdater(options);
   t.after(() => restored.dispose());
   await restored.check();
   assert.equal(restored.state().phase, "ready");
-  await restored.open();
-  assert.equal(opens, 1);
   await writeFile(join(dir, "updates", restored.state().asset.name), "tampered");
   await restored.open();
   assert.equal(restored.state().error, "UPDATE_CHECKSUM_FAILED");
-  assert.equal(opens, 1);
+  assert.equal(opens, 0);
   server.state.mode = "stream";
   await restored.download();
   while (restored.state().downloadedBytes === 0)
@@ -216,7 +213,11 @@ test("public desktop downloads are serialized, cancellable, cached and reverifie
   await restored.cancel();
   await settle(restored);
   assert.equal(restored.state().phase, "idle");
+  assert.equal(opens, 0);
+  server.state.mode = "good";
+  await restored.install();
   assert.equal(opens, 1);
+  assert.equal(restored.state().phase, "restarting");
 });
 
 test("twenty public update cycles per desktop artifact preserve download and handoff success", async (t) => {
@@ -237,14 +238,13 @@ test("twenty public update cycles per desktop artifact preserve download and han
         arch,
         appImage,
         fetchImpl: server.fetch,
-        shell: {
-          openPath: async () => {
-            handoffs++;
-            return "";
-          },
-          showItemInFolder: () => {
-            handoffs++;
-          },
+        installer: {
+          prepare: async () => ({
+            apply: async () => {
+              handoffs++;
+            },
+          }),
+          dispose() {},
         },
       });
       try {

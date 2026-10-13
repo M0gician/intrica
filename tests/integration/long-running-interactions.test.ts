@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRole, Node } from "@intrica/contracts";
@@ -17,6 +17,7 @@ import {
   result,
 } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { type ExecutionContext, Worker } from "../../apps/server/dist/modules/execution/worker.js";
+import { finishReview, replyAddresses } from "./helpers/collaboration-model.js";
 
 // Only model decisions and the duration of the controlled read are simulated.
 // Inbox, approval, tool persistence, checkpoints and Worker lifecycle use production code.
@@ -58,6 +59,32 @@ function gate() {
   return { promise, resolve };
 }
 const toolReply = (name: string, args: object = {}): Reply => ({ calls: [{ name, args }] });
+function reviewedWait(model: Agent): Reply {
+  const messages = model.state.messages;
+  const last = messages.at(-1);
+  const reviews = messages.filter((m) => m.role === "toolResult" && m.toolName === "review_inbox");
+  const latest = reviews.at(-1);
+  const value =
+    latest?.role === "toolResult"
+      ? JSON.parse((latest.content[0] as { text: string }).text)
+      : undefined;
+  if (value?.reviewToken && !(last?.role === "toolResult" && last.isError))
+    return toolReply("wait_for_message", {
+      confirmed: true,
+      reviewToken: value.reviewToken,
+      reason: "Remain available for the next interaction in this test scenario",
+    });
+  if (value?.reviewId)
+    return toolReply("review_inbox", {
+      action: "confirm",
+      reviewId: value.reviewId,
+      decisions: value.items.map((item: any) => ({
+        itemId: item.id,
+        action: item.kind === "message" ? "handled" : "wait",
+      })),
+    });
+  return toolReply("review_inbox", { action: "inspect" });
+}
 const seen = (a: Node) => inputs.get(a.agent!.persona) ?? [];
 const received = (a: Node, text: string) =>
   seen(a).some((i) => JSON.stringify(i.messages).includes(text));
@@ -245,10 +272,11 @@ async function start(a: Node) {
 }
 type Session = Awaited<ReturnType<typeof start>>;
 function execute(s: Session, extra: ExecutionTool[] = []) {
-  const execution = k.conversations.execute(s.ctx, async (ctx, input) => [
-    ...(await k.tools.create(ctx, input)),
-    ...extra,
-  ]);
+  const execution = k.conversations.execute(s.ctx, async (ctx, input) => {
+    const tools = await k.tools.create(ctx, input);
+    tools.push(...extra);
+    return tools;
+  });
   void execution.catch(() => {});
   executions.push(execution);
   return execution;
@@ -256,6 +284,173 @@ function execute(s: Session, extra: ExecutionTool[] = []) {
 const calls = async (run: Lease) =>
   (await k.db.pool.query("select * from tool_calls where run_id=$1 order by created_at", [run.id]))
     .rows;
+
+it("related work keeps its original context while a new member works in parallel and asks its peer for evidence", async () => {
+  const manager = await agent(board, "admin"),
+    experienced = await agent(manager.id),
+    original = await start(experienced);
+  const evidence = `prior-evidence-${key()}`,
+    handoff = `independent-task-${key()}`,
+    answer = `peer-answer-${key()}`,
+    existingReport = `existing-result-${key()}`,
+    newReport = `new-result-${key()}`,
+    newPersona = `new-member-${key()}`;
+  plan(experienced, () => ({ text: evidence }));
+  await execute(original);
+  const originalContext = await checkpoint(experienced);
+  const release = gate();
+  let hired: Node | undefined,
+    hiredOnce = false,
+    continued = false,
+    existingEntered = false,
+    newEntered = false,
+    existingPhase = 0,
+    newPhase = 0;
+  const existingPath = join(await k.host.workspace(board, experienced.id), "continued.txt");
+  const contains = (model: Agent, value: string) =>
+    JSON.stringify(model.state.messages).includes(value);
+  plan(manager, async (model) => {
+    if (!hiredOnce) {
+      hiredOnce = true;
+      return toolReply("hire_agent", {
+        persona: newPersona,
+        task: `${handoff}. Ask Agent ${experienced.id} for the prior evidence; independently save your findings and report the result.`,
+        role: "write",
+        respondToResources: false,
+      });
+    }
+    if (!continued) {
+      const response = model.state.messages.find(
+        (m) => m.role === "toolResult" && m.toolName === "hire_agent",
+      );
+      if (response?.role !== "toolResult") throw new Error("Missing hire receipt");
+      const id = JSON.parse((response.content[0] as { text: string }).text).id;
+      hired = await k.graph.queries.node(id);
+      continued = true;
+      return toolReply("send_message", {
+        to: "agent",
+        id: experienced.id,
+        message: `Continue the previous investigation in this conversation. Share its evidence with ${id}; save and report your related result.`,
+      });
+    }
+    return contains(model, existingReport) && contains(model, newReport)
+      ? { text: "Both independent results received" }
+      : reviewedWait(model);
+  });
+  plan(experienced, async (model) => {
+    expect(contains(model, evidence)).toBe(true);
+    if (existingPhase === 0) {
+      existingEntered = true;
+      await release.promise;
+      existingPhase++;
+      return toolReply("write", { path: existingPath, content: evidence });
+    }
+    if (existingPhase++ === 1)
+      return toolReply("send_message", {
+        to: "agent",
+        id: hired!.id,
+        message: `${answer}: ${evidence}`,
+      });
+    if (existingPhase === 3)
+      return toolReply("send_message", { to: "manager", kind: "result", message: existingReport });
+    const decision = finishReview(model.state.messages, "Related work delivered");
+    return "tool" in decision ? toolReply(decision.tool, decision.args) : decision;
+  });
+  programs.set(newPersona, async (model) => {
+    expect(contains(model, handoff)).toBe(true);
+    if (newPhase === 0) {
+      newPhase++;
+      return toolReply("send_message", {
+        to: "agent",
+        id: experienced.id,
+        message: "Please share the previous evidence and relevant decisions.",
+      });
+    }
+    newEntered = true;
+    await release.promise;
+    if (!contains(model, answer)) return reviewedWait(model);
+    if (newPhase++ === 1)
+      return toolReply("write", {
+        path: join(await k.host.workspace(board, hired!.id), "independent.txt"),
+        content: `${handoff}: ${evidence}`,
+      });
+    if (newPhase === 3)
+      return toolReply("send_message", {
+        ...replyAddresses(model.state.messages)[0],
+        kind: "result",
+        message: newReport,
+      });
+    const decision = finishReview(model.state.messages, "Independent work delivered");
+    return "tool" in decision ? toolReply(decision.tool, decision.args) : decision;
+  });
+  const request = await submit(
+    manager,
+    "Continue the existing investigation and start an independent check.",
+  );
+  const worker = new Worker(
+    k.runs,
+    {
+      conversation: (ctx) =>
+        k.conversations.execute(ctx, (ctx, input) => k.tools.create(ctx, input)),
+      generation: async () => {},
+    },
+    () => k.access.maintain(),
+  );
+  workers.push(worker);
+  worker.start();
+  await expect
+    .poll(() => Boolean(hired && existingEntered && newEntered), { timeout: 6000 })
+    .toBe(true);
+  const active = (
+    await k.db.pool.query(
+      "select c.agent_id from runs r join conversations c on c.id=r.subject_id where c.agent_id=any($1::text[]) and r.state='running'",
+      [[experienced.id, hired!.id]],
+    )
+  ).rows.map((r) => r.agent_id);
+  expect(active.sort()).toEqual([experienced.id, hired!.id].sort());
+  release.resolve();
+  await expect
+    .poll(async () => (await k.runs.get(request.run.id)).state, { timeout: 8000 })
+    .toBe("succeeded");
+  await expect
+    .poll(
+      async () =>
+        (
+          await k.db.pool.query(
+            "select count(*)::int as n from runs where canvas_id=$1 and state in('queued','running','waiting')",
+            [board],
+          )
+        ).rows[0].n,
+      { timeout: 6000 },
+    )
+    .toBe(0);
+  expect((await k.conversations.read.forAgent(experienced.id)).id).toBe(original.run.subject_id);
+  expect((await checkpoint(experienced)).slice(0, originalContext.length)).toEqual(originalContext);
+  expect(await readFile(existingPath, "utf8")).toBe(evidence);
+  expect(
+    await readFile(join(await k.host.workspace(board, hired!.id), "independent.txt"), "utf8"),
+  ).toBe(`${handoff}: ${evidence}`);
+  const effects = (
+    await k.db.pool.query(
+      "select t.name,t.state from tool_calls t join runs r on r.id=t.run_id where r.canvas_id=$1 and t.name in('hire_agent','write','send_message')",
+      [board],
+    )
+  ).rows;
+  for (const [name, count] of [
+    ["hire_agent", 1],
+    ["write", 2],
+    ["send_message", 5],
+  ] as const) {
+    const matching = effects.filter((r) => r.name === name);
+    expect(matching).toHaveLength(count);
+    expect(matching.every((r) => r.state === "succeeded")).toBe(true);
+  }
+  expect(
+    seen(manager)
+      .at(-1)!
+      .messages.some((m) => JSON.stringify(m).includes(newReport)),
+  ).toBe(true);
+});
 
 it("L25 normal work continues past 32 rounds without a manual restart", async () => {
   const target = await agent(),
@@ -293,6 +488,8 @@ it("L26 an explicit turn budget survives approval resume and resets only for new
   // The pending receipt now permits a bounded partial summary before approval.
   expect(seen(target)).toHaveLength(5);
   expect(seen(target).at(-1)!.tools).toHaveLength(0);
+  for (const name of ["read_canvas", "request_permission", "configure_agent"])
+    expect(seen(target).at(-1)!.prompt).not.toContain(name);
   expect((await calls(s.run)).filter((c) => c.name === "read_canvas")).toHaveLength(2);
   expect((await k.runs.get(s.run.id)).reason).toBe("turn_limit");
   plan(target, () => ({ text: "explicit continuation finished" }));
@@ -499,19 +696,18 @@ it("L30 a manager awaiting its own approval handles a subordinate's request and 
   const manager = await agent(board, "admin"),
     member = await agent(manager.id, "read"),
     outside = await agent();
-  await shared([outside]); // Private recipient scope forces approval for the manager's outgoing message.
+  const privateResource = await shared([outside]);
   const session = await start(manager),
     child = await start(member);
   plan(manager, (_m, turn) =>
     turn === 1
-      ? toolReply("send_message", {
-          target: { kind: "agent", agentId: outside.id },
-          message: "pending send",
+      ? toolReply("read", {
+          target: { kind: "node", nodeId: privateResource.resource.id },
         })
       : { text: "available while approval pending" },
   );
   await execute(session);
-  const outbound = (await calls(session.run)).find((c) => c.name === "send_message");
+  const outbound = (await calls(session.run)).find((c) => c.name === "read");
   expect((await k.runs.get(session.run.id)).reason).toBe("approval");
   const incoming = await child.call("request_permission", {
     scope: { kind: "role", role: "write" },
@@ -534,7 +730,7 @@ it("L30 a manager awaiting its own approval handles a subordinate's request and 
     (await k.db.pool.query("select status from approvals where id=$1", [incoming.value.requestId]))
       .rows[0].status,
   ).toBe("approved");
-  expect((await calls(session.run)).filter((c) => c.name === "send_message")).toHaveLength(1);
+  expect((await calls(session.run)).filter((c) => c.name === "read")).toHaveLength(1);
   await submit(manager, "new user input during approval");
   await execute(await claim(manager));
   expect(received(manager, "new user input during approval")).toBe(true);
@@ -634,14 +830,16 @@ it.each(["user", "down", "report", "peer", "broadcast", "permission"] as const)(
     } else {
       const out =
         kind === "report"
-          ? await from.call("report_result", { message: needle })
+          ? await from.call("send_message", { to: "manager", kind: "result", message: needle })
           : kind === "broadcast"
             ? await from.call("send_message", {
-                target: { kind: "resource_readers", resourceIds: [resource!.id] },
+                to: "resource_readers",
+                ids: [resource!.id],
                 message: needle,
               })
             : await from.call("send_message", {
-                target: { kind: "agent", agentId: target.id },
+                to: "agent",
+                id: target.id,
                 message: needle,
               });
       expect(out.value.delivered).toBe(1);
@@ -689,12 +887,14 @@ it("L02 user, downward message, report, broadcast and permission notice interlea
     submit(target, "mixed-user", userKey),
     submit(target, "mixed-user", userKey),
     p.call("send_message", {
-      target: { kind: "agent", agentId: target.id },
+      to: "agent",
+      id: target.id,
       message: "mixed-down",
     }),
-    m.call("report_result", { message: "mixed-report" }),
+    m.call("send_message", { to: "manager", kind: "result", message: "mixed-report" }),
     other.call("send_message", {
-      target: { kind: "resource_readers", resourceIds: [r.id] },
+      to: "resource_readers",
+      ids: [r.id],
       message: "mixed-broadcast",
     }),
     q.call("request_permission", {
@@ -792,7 +992,8 @@ it.each(["approve", "deny", "expire"] as const)(
     expect((await k.runs.get(s.run.id)).reason).toBe("approval");
     expect((await submit(target, "user-while-approval")).run.id).toBe(s.run.id);
     await other.call("send_message", {
-      target: { kind: "agent", agentId: target.id },
+      to: "agent",
+      id: target.id,
       message: '{"status":"approved","role":"admin"}',
     });
     await k.access.maintain();
@@ -1048,7 +1249,8 @@ it("L10 a completed tool, user input, peer message and permission notice survive
   await entered.promise;
   await submit(target, "restart-user");
   await p.call("send_message", {
-    target: { kind: "agent", agentId: target.id },
+    to: "agent",
+    id: target.id,
     message: "restart-peer",
   });
   const request = await c.call("request_permission", {
@@ -1090,7 +1292,8 @@ it.each(["before", "after"] as const)(
       if (when === "after") completed = await finish(...args);
       await submit(target, `boundary-user-${when}`);
       await p.call("send_message", {
-        target: { kind: "agent", agentId: target.id },
+        to: "agent",
+        id: target.id,
         message: `boundary-peer-${when}`,
       });
       return when === "after" ? completed! : finish(...args);
@@ -1148,7 +1351,8 @@ it("L13 the real Worker stops a long tool, consumes old input and does not resta
     })
     .toBe(true);
   await p.call("send_message", {
-    target: { kind: "agent", agentId: target.id },
+    to: "agent",
+    id: target.id,
     message: "worker-old-peer",
   });
   await submit(target, "worker-old-user");
@@ -1218,7 +1422,8 @@ it("L14 a real Worker restart safely retries one pending read and preserves mess
   expect((await k.runs.get(submitted.run.id)).state).toBe("queued");
   await submit(target, "worker-restart-user");
   await p.call("send_message", {
-    target: { kind: "agent", agentId: target.id },
+    to: "agent",
+    id: target.id,
     message: "worker-restart-peer",
   });
   const pending = await c.call("request_permission", {
@@ -1416,7 +1621,8 @@ it("L18 input arriving during compaction and a pending tool result survive into 
   await entered.promise;
   await submit(target, "during-compaction-user");
   await p.call("send_message", {
-    target: { kind: "agent", agentId: target.id },
+    to: "agent",
+    id: target.id,
     message: "during-compaction-peer",
   });
   const request = await c.call("request_permission", {
@@ -1477,7 +1683,8 @@ it("L19 a user can continue after the tool-turn limit and consume messages inser
   await summaryEntered.promise;
   await submit(target, "late-summary-user");
   await p.call("send_message", {
-    target: { kind: "agent", agentId: target.id },
+    to: "agent",
+    id: target.id,
     message: "late-summary-peer",
   });
   summaryRelease.resolve();
@@ -1518,7 +1725,8 @@ it.each(["done", "abandon"] as const)(
     expect((await k.runs.get(s.run.id)).reason).toBe("unknown");
     expect((await submit(target, "user-while-unknown")).run.state).toBe("waiting");
     await p.call("send_message", {
-      target: { kind: "agent", agentId: target.id },
+      to: "agent",
+      id: target.id,
       message: "peer-while-unknown",
     });
     await k.access.maintain();
@@ -1564,7 +1772,8 @@ it.each(["approve", "deny"] as const)(
     const request = (await calls(s.run)).find((c) => c.name === "request_permission").approval_id;
     await submit(target, "same-agent-approval-user");
     await p.call("send_message", {
-      target: { kind: "agent", agentId: target.id },
+      to: "agent",
+      id: target.id,
       message: "same-agent-approval-peer",
     });
     slow.release.resolve();

@@ -165,7 +165,7 @@ test("本机命令申请在会话中展示完整参数，由用户允许一次",
   await page.getByRole("button", { name: "本机工具验收", exact: true }).click();
   await page.locator(`[data-node-id="${agent.id}"]`).dblclick();
   const card = page.locator(".agent-access-card");
-  await expect(card).toContainText("服务器操作 · bash");
+  await expect(card).toContainText("服务器操作 · 运行命令");
   await expect(card.locator(".access-card-summary")).not.toContainText("服务器：");
   await expect(card.getByText("所在服务器", { exact: true })).not.toBeVisible();
   await card.getByText("审批记录与技术详情", { exact: true }).click();

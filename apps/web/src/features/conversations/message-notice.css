@@ -1,0 +1,129 @@
+.message-notice-actions {
+  font-size: 13px;
+}
+.message-notice-heading > strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.message-notice-heading p,
+.message-notice-hint {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.reminder-delay {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-block: 14px;
+  font-size: 12px;
+}
+.reminder-delay > label {
+  color: var(--text-secondary);
+}
+.reminder-delay .ui-select {
+  width: auto;
+  max-width: 100%;
+  font: inherit;
+}
+.reminder-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex-basis: 100%;
+}
+.reminder-custom .ui-input {
+  width: 112px;
+}
+.reminder-custom [role="status"] {
+  flex-basis: 100%;
+  color: var(--status-error);
+}
+.message-notice-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+.message-notice-list > li {
+  min-width: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--card-border);
+}
+.message-notice-recipient {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  justify-content: space-between;
+}
+.message-notice-recipient strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.message-notice-recipient [role="status"] {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.message-notice-list blockquote {
+  margin: 8px 0 12px;
+  padding-left: 10px;
+  border-left: 2px solid var(--card-border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.message-notice-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+}
+.message-notice-more {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.message-notice-more > summary {
+  cursor: pointer;
+  width: fit-content;
+  padding-block: 6px;
+}
+.message-notice-more > div {
+  margin-top: 6px;
+  padding: 10px;
+  background: var(--control-soft);
+  border-radius: 8px;
+}
+.message-notice-more p {
+  margin: 0 0 6px;
+  line-height: 1.55;
+}
+.message-notice-more > summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.message-notice-person {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.message-notice-recipient > .receipt-status {
+  flex: none;
+  color: var(--text-secondary);
+}
+.message-notice-buttons {
+  align-items: center;
+}

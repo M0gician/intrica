@@ -15,12 +15,14 @@ import {
   type Sql,
   type Tx,
 } from "../../adapters/postgres/database.js";
+import type { AssetStore } from "../../adapters/storage/assets.js";
 import { pendingInboxMessage, projectToolOutcome } from "../execution/messages.js";
 import { result, type ToolResult } from "../execution/tool-calls.js";
 import type { GraphCommands } from "../graph/commands.js";
 import { GraphMutation } from "../graph/mutation.js";
 import type { Conversations } from "../work/conversations.js";
-import { deliverCollaboration } from "./collaboration.js";
+import { deliverCollaboration, validateDelivery } from "./collaboration.js";
+import { delegateResources } from "./delegation.js";
 import { publishHandoffReport } from "./handoffs.js";
 import {
   canApprove,
@@ -53,6 +55,7 @@ export class AccessService {
     readonly db: Database,
     readonly graph: GraphCommands,
     readonly conversations: Conversations,
+    readonly assets: AssetStore,
   ) {}
 
   async describe(agentId: string): Promise<EffectiveAgentPermissions> {
@@ -68,11 +71,17 @@ export class AccessService {
     );
     return {
       role: identity.config.role,
+      permissionProtocol: 2,
+      commandExecution:
+        identity.config.role === "admin" || grants.some((g) => g.execution_mode === "host")
+          ? "host"
+          : "isolated",
       resources: grants.slice(0, 200).map((grant) => ({
         nodeId: grant.resource_id,
         rootId: grant.root_resource_id,
         title: names.get(grant.resource_id) || grant.resource_id,
         mode: grant.mode,
+        execution: grant.execution_mode,
         sourceLinkId: grant.source_link_id,
         delegatedBy: grant.delegated_by ?? null,
       })),
@@ -104,6 +113,7 @@ export class AccessService {
     if (intent.kind === "agent") allowed = await mayManage(tx, actor.agentId, intent);
     if (intent.kind === "path") allowed ||= identity.config.role === "admin";
     if (intent.kind === "collaboration") {
+      await validateDelivery(tx, identity.canvas_id, actor.agentId, intent);
       allowed = true;
       for (const target of intent.recipients)
         if (target !== actor.agentId) {
@@ -136,6 +146,37 @@ export class AccessService {
     )
       return;
     if (prior?.status === "pending") return result({ status: "pending", requestId: prior.id });
+    if (prior)
+      throw new DomainError(
+        "AUTHORIZATION_CHANGED",
+        "原申请已结束，但当前执行条件未满足；已停止恢复此调用",
+        {
+          requestId: prior.id,
+          status: prior.status,
+          executed: false,
+          nextAction:
+            "检查目标和当前权限。快照授权只允许读取固定节点；复制文件使用 copy_artifact。解决权限变化后再提交新调用，勿重复申请原操作。",
+        },
+      );
+    if (["role", "resource", "path"].includes(intent.kind)) {
+      const pending = (
+        await tx.query(
+          "select id,action,basis from approvals where subject_id=$1 and status='pending' order by created_at",
+          [actor.agentId],
+        )
+      ).rows;
+      const duplicate = pending.find(
+        (r) =>
+          digest(operation(r.action)) === digest(operation(intent)) &&
+          digest(r.basis) === digest(basis),
+      );
+      if (duplicate)
+        throw new DomainError("APPROVAL_PENDING", "相同权限申请正在处理；等待原申请结果后再继续", {
+          requestId: duplicate.id,
+          hook: "list_access_requests",
+          nextAction: "查看原 requestId；不要重复申请。",
+        });
+    }
     const reviewer = await reviewerFor(tx, actor.agentId, intent);
     const request = (
       await tx.query(
@@ -210,6 +251,16 @@ export class AccessService {
       throw error;
     }
   }
+  async storedReceiptAllows(call: { approval_id?: string; id: string }) {
+    if (!call.approval_id) return false;
+    const request = (
+      await this.db.pool.query(
+        "select * from approvals where id=$1 and origin_call_id=$2 and status='approved'",
+        [call.approval_id, call.id],
+      )
+    ).rows[0];
+    return Boolean(request && (await this.decisionAuthority(this.db.pool, request)));
+  }
 
   private async apply(
     tx: Tx,
@@ -247,8 +298,8 @@ export class AccessService {
         : null;
       let resource = (
         await tx.query(
-          "select n.id from nodes n where n.canvas_id=$1 and n.body->'resource'->>'path'=$2 order by n.created_at,n.id limit 1",
-          [identity.canvas_id, intent.path],
+          "select n.id from nodes n where n.canvas_id=$1 and n.body->'resource'->>'path'=$2 and n.body->'resource'->>'type'=$3 and not(n.body->'resource' ? 'snapshot') order by n.created_at,n.id limit 1",
+          [identity.canvas_id, intent.path, intent.directory ? "directory" : "file"],
         )
       ).rows[0]?.id;
       if (!resource)
@@ -266,34 +317,62 @@ export class AccessService {
       // currently conveys. Never upgrade a non-admin owner as a side effect of
       // approving its member's path request.
       if (workspaceOwner?.agent?.role === "admin" && workspaceOwner.id !== subject)
-        await mutation.connectGrant(workspaceOwner.id, resource, "write");
+        await mutation.connectGrant(
+          workspaceOwner.id,
+          resource,
+          "write",
+          "user_link",
+          undefined,
+          null,
+          intent.execution ?? "none",
+        );
       const mode =
-        delegatedBy &&
+        intent.mode ??
+        (delegatedBy &&
         !(await coveringGrant(
           await grantsFor(tx, delegatedBy),
           { resource: { path: intent.path, type: "directory" } },
           "write",
         ))
           ? "read"
-          : "write";
-      await mutation.connectGrant(subject, resource, mode, "user_link", undefined, delegatedBy);
-      output = { ...output, path: intent.path, nodeId: resource };
+          : "write");
+      await mutation.connectGrant(
+        subject,
+        resource,
+        mode,
+        "user_link",
+        undefined,
+        delegatedBy,
+        intent.execution ?? "none",
+      );
+      output = {
+        ...output,
+        path: intent.path,
+        nodeId: resource,
+        mode,
+        execution: intent.execution ?? "none",
+      };
     }
     if (intent.kind === "agent") {
       const args = intent.args;
       if (intent.operation === "hire") {
+        const run = (
+          await tx.query(
+            "select r.id,r.frozen_input from runs r join tool_calls t on t.run_id=r.id where t.id=$1",
+            [callId],
+          )
+        ).rows[0];
         const nodeId = await mutation.insert({
           kind: "agent",
           parentId: subject,
-          title: args.title,
+          nameLanguage: args.language ?? run.frozen_input.language ?? "en",
           agent: { persona: args.persona, role: args.role, enabled: args.enabled },
           position: await mutation.agentPosition(subject),
           origin: "model",
         });
-        const runId = (await tx.query("select run_id from tool_calls where id=$1", [callId]))
-          .rows[0].run_id;
+        const runId = run.id;
         await mutation.connectGrant(subject, nodeId, "write", "derived_from", runId);
-        await this.grantRecruitResources(
+        await delegateResources(
           mutation,
           subject,
           nodeId,
@@ -303,7 +382,7 @@ export class AccessService {
         const initialTask = await this.conversations.assignNewAgent(tx, runId, nodeId, args.task);
         output = {
           id: nodeId,
-          title: args.title,
+          title: (await mutation.row(nodeId)).body.title,
           initialTask,
           resourceIds: args.resourceIds ?? [],
           ...(!args.resourceIds?.length
@@ -333,6 +412,18 @@ export class AccessService {
           callId,
         ])
       ).rows[0];
+      for (const nodeId of intent.fileIds ?? []) {
+        const node = await this.graph.queries.node(nodeId, tx);
+        if (
+          node.canvasId !== identity.canvas_id ||
+          !node.assetId ||
+          node.resource?.snapshot?.assetId !== node.assetId
+        )
+          throw new DomainError("TARGET_CHANGED", "交付文件的发布版本已变化");
+        if (!(await grantsFor(tx, subject)).some((grant) => grant.resource_id === node.id))
+          throw new DomainError("FORBIDDEN", "交付文件的读取权限已变化");
+        await this.assets.assertAvailable(node.assetId);
+      }
       const delivery = await deliverCollaboration(
         tx,
         this.conversations,
@@ -360,45 +451,6 @@ export class AccessService {
           .run_id,
       });
     return output;
-  }
-
-  async grantRecruitResources(
-    mutation: GraphMutation,
-    recruiter: string | null,
-    member: string,
-    args: {
-      inheritResources?: boolean;
-      resourceIds?: string[];
-      resourceModes?: Record<string, "read" | "write">;
-    },
-    delegatedBy = recruiter,
-  ) {
-    if (args.inheritResources && args.resourceIds?.length)
-      throw new DomainError("VALIDATION", "请选择继承全部资源或指定节点，不能同时设置");
-    if (args.inheritResources && !recruiter)
-      throw new DomainError("VALIDATION", "工作区招募请指定资源节点");
-    const available = recruiter
-      ? (await grantsFor(mutation.tx, recruiter)).filter((g) => g.resource_kind !== "agent")
-      : [];
-    const ids = args.inheritResources
-      ? [...new Set(available.map((g) => g.root_resource_id))]
-      : [...new Set(args.resourceIds ?? [])];
-    for (const id of ids) {
-      const target = await mutation.row(id);
-      if (target.kind === "agent")
-        throw new DomainError("VALIDATION", "只能继承资源节点，不能继承 Agent 的私有空间");
-      const grant = recruiter
-        ? await coveringGrant(available, { id, resource: target.body.resource }, "read")
-        : undefined;
-      if (recruiter && !grant) throw new DomainError("FORBIDDEN", "不能委托未获授权的资源");
-      const mode = args.resourceModes?.[id] ?? grant?.mode ?? "write";
-      if (
-        recruiter &&
-        !(await coveringGrant(available, { id, resource: target.body.resource }, mode))
-      )
-        throw new DomainError("FORBIDDEN", "原委托权限已变化，请重新申请");
-      await mutation.connectGrant(member, id, mode, "user_link", undefined, delegatedBy);
-    }
   }
 
   async list(
@@ -603,7 +655,13 @@ export class AccessService {
       };
     });
     if ("conflict" in response)
-      throw new DomainError("VERSION_CONFLICT", `申请已变化（${response.status}），请重新载入`);
+      throw new DomainError("VERSION_CONFLICT", `申请当前状态为 ${response.status}，此审查未执行`, {
+        executed: false,
+        requestId,
+        status: response.status,
+        nextAction:
+          "用 list_access_requests 查询此 requestId 的当前版本；仅审查 pending 项。satisfied 表示权限已满足，可继续原任务。",
+      });
     return response;
   }
 
@@ -623,7 +681,7 @@ export class AccessService {
         `
       select c.id,c.canvas_id,c.agent_id,cfg.config from conversations c
       join agent_configs cfg on cfg.node_id=c.agent_id join canvases board on board.id=c.canvas_id
-      where board.deleted_at is null
+      where board.deleted_at is null and not cfg.paused and c.context->>'modelBlocked' is distinct from 'true'
       and exists(select 1 from messages m where m.conversation_id=c.id and m.seq>c.consumed_message_seq and m.run_id is null and ${eligible})
       and not exists(select 1 from runs r where r.subject_id=c.id and r.state in('queued','running','waiting'))
       order by (c.id<=$1),c.id limit 128`,
@@ -636,7 +694,7 @@ export class AccessService {
         const model = await this.conversations.models.capture(c.config.model);
         await this.db.canvas(c.canvas_id, async (tx) => {
           const identity = await agentIdentity(tx, c.agent_id);
-          if (digest(identity.config) !== digest(c.config)) return;
+          if (identity.paused || digest(identity.config) !== digest(c.config)) return;
           if (
             (
               await tx.query(
@@ -677,7 +735,7 @@ export class AccessService {
               await tx.query(
                 `update messages set content=content||'{"activationBlocked":true}'::jsonb
                 where conversation_id=$1 and run_id is null and seq>(select consumed_message_seq from conversations where id=$1)
-                and role in ('message','team_notice') and content->>'causeId' is not distinct from $2`,
+                and role in ('message','team_notice','message_notice') and content->>'causeId' is not distinct from $2`,
                 [c.id, group.cause_id],
               );
               continue;
@@ -688,6 +746,16 @@ export class AccessService {
       } catch (error) {
         if (error instanceof DomainError && error.code === "QUEUE_FULL") continue;
         await this.db.canvas(c.canvas_id, async (tx) => {
+          if (error instanceof DomainError && error.code === "MODEL_NOT_CONFIGURED") {
+            await tx.query(
+              "update conversations set context=coalesce(context,'{}')||'{\"modelBlocked\":true}'::jsonb where id=$1",
+              [c.id],
+            );
+            await canvasEvent(tx, c.canvas_id, "conversation.changed", {
+              conversationId: c.id,
+              agentId: c.agent_id,
+            });
+          }
           const rows = (
             await tx.query(
               "select * from approvals where assigned_reviewer_id=$1 and status='pending' for update",

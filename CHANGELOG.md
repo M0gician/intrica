@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0
+
+- Durable collaboration messages with read/reply reminders, explicit inbox review, prioritization and pause/resume controls.
+- Snapshot-scoped permissions, bounded approval recovery, atomic resource delegation and verified artifact copies into Agent workspaces.
+- Recovery of committed tool receipts across runs; member removal preserves unfinished handoffs without stopping its manager.
+- Clear completion versus waiting instructions, accurate tool failures and live model response progress.
+- Read/unread/priority icons, contextual Agent identity, hover timestamps and complete English/Chinese tool labels.
+- Unified file previews and downloads, draggable artifact previews, sandbox networking and browser runtime improvements.
+- Matching SSH server installation with progress and verified desktop update replacement.
+- Database schema 16 and tool schema 5; see the release notes before upgrading.
+
+See [release notes](docs/releases/v0.4.0.md) and [upgrade safety](docs/updating.md).
+
 ## 0.3.1
 
 - Explicit no-sandbox mode for native server installation and SSH deployment.

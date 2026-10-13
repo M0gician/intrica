@@ -9,7 +9,9 @@ Use HTTPS or an SSH tunnel across untrusted networks.
 The native package includes Node.js, PostgreSQL and the Web interface.
 It supports Linux x64 with a systemd user session and enabled linger.
 The default sandbox mode also requires working `/usr/bin/bwrap` with
-unprivileged namespaces. An administrator must arrange these prerequisites.
+unprivileged namespaces. The installer attempts to enable linger for the current
+account without sudo or password prompts. Host policy may require an administrator
+to enable it; the error includes the actual account's command.
 The installer runs as a non-root user
 and does not change firewall, sudo or namespace policy.
 
@@ -28,8 +30,9 @@ credentials, custom settings and the state directory. New services bind
 to loopback. `--port` and `--bind` explicitly change the listener.
 
 Alternatively use Settings → Server connections → Add server in Desktop.
-Select an SSH alias or enter a host, user and port. Inspect the host, choose
-a pinned release and confirm the deployment plan. SSH host keys must
+Select an SSH alias or enter a host, user and port, choose the execution mode,
+then click **Install and connect**. The client selects its matching release and
+shows download, upload, installation and health progress. SSH host keys must
 already be trusted. No GitHub CLI or GitHub token is needed locally or on
 the remote host. See [SSH deployment](architecture/ssh-server-deployment.md).
 
@@ -51,8 +54,7 @@ and path grants, but shell and MCP commands use the account's file and
 network permissions. A working directory does not confine those commands.
 
 Desktop's SSH inspection reports sandbox availability separately from
-other prerequisites. Select **No-sandbox mode**, generate a new plan, review
-its tool execution mode, then confirm deployment. The option is not selected
+other prerequisites. Select **No-sandbox mode** before installing. The option is not selected
 automatically when Bubblewrap is unavailable.
 
 From a built source checkout, plan and apply with the same explicit mode:

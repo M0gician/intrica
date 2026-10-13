@@ -116,9 +116,12 @@ export function createTransport(
       let failures = 0;
       while (!abort.signal.aborted && !options.signal?.aborted) {
         try {
-          const response = await raw(`${path}?after=${encodeURIComponent(handle.cursor)}`, {
-            signal: abort.signal,
-          });
+          const response = await raw(
+            `${path}${path.includes("?") ? "&" : "?"}after=${encodeURIComponent(handle.cursor)}`,
+            {
+              signal: abort.signal,
+            },
+          );
           if (response.status === 410) {
             callbacks.onReset();
             return;
@@ -127,6 +130,10 @@ export function createTransport(
             if (abort.signal.aborted || options.signal?.aborted) return;
             if (record.type === "heartbeat") return;
             if (record.type === "stream.error") throw new Error(record.message);
+            if (record.type === "stream.snapshot" && record.seq === handle.cursor) {
+              await callbacks.onEvent(record);
+              return;
+            }
             if (typeof record.seq !== "string" || !/^\d+$/.test(record.seq)) return;
             const incoming = BigInt(record.seq),
               current = BigInt(handle.cursor);

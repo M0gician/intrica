@@ -16,6 +16,7 @@ import { useId, useState } from "react";
 import { useSessionConnection } from "../api/connection";
 import { useConnection } from "../app/connection-context";
 import { tr, useTranslation } from "../i18n";
+import { FileLocations } from "./FileLocations";
 import { IconButton, IconChevronDown, IconClose, IconServer } from "./icons";
 
 /** This identity belongs to the directory navigation, not the file contents. */
@@ -23,11 +24,15 @@ export function FileSource({
   path,
   preview = false,
   workspacePath,
+  sharedPath,
+  agentDirectories,
   onNavigate,
 }: {
   path: string;
   preview?: boolean;
   workspacePath?: string | undefined;
+  sharedPath?: string | undefined;
+  agentDirectories?: Array<{ agentId: string; path: string; name: string }> | undefined;
   onNavigate: (path: string) => void;
 }) {
   const { t } = useTranslation();
@@ -98,53 +103,42 @@ export function FileSource({
                   <IconClose size={14} />
                 </IconButton>
               </header>
-              <nav className="file-source-shortcuts" aria-label={tr("常用目录")}>
-                <button
-                  type="button"
-                  aria-label={tr("用户主目录")}
-                  onClick={() => {
-                    onNavigate("~");
-                    setOpen(false);
-                  }}
-                >
-                  <span>{tr("用户主目录")}</span>
-                  <small>{tr("服务器账户的主目录")}</small>
-                </button>
-                {workspacePath && (
-                  <button
-                    type="button"
-                    aria-label={tr("画布工作目录")}
-                    title={workspacePath}
-                    onClick={() => {
-                      onNavigate(workspacePath);
-                      setOpen(false);
-                    }}
-                  >
-                    <span>{tr("画布工作目录")}</span>
-                    <small>{tr("当前画布的共享目录，Agent 可能使用各自的工作目录。")}</small>
-                  </button>
-                )}
-              </nav>
-              <dl>
+              <div className="file-source-server">
+                <IconServer size={16} />
                 <div>
-                  <dt>{tr("所在服务器")}</dt>
-                  <dd>{name}</dd>
+                  <small>{tr("所在服务器")}</small>
+                  <strong title={name}>{name}</strong>
                 </div>
-                <div>
-                  <dt>{tr("连接地址")}</dt>
-                  <dd>{endpoint}</dd>
-                </div>
-                <div>
-                  <dt>{tr(preview ? "文件路径" : "当前目录")}</dt>
-                  <dd className="file-source-path">{path}</dd>
-                </div>
-                {workspacePath && workspacePath !== path && (
+              </div>
+              <FileLocations
+                path={path}
+                workspacePath={workspacePath}
+                sharedPath={sharedPath}
+                agentDirectories={agentDirectories}
+                onNavigate={(target) => {
+                  onNavigate(target);
+                  setOpen(false);
+                }}
+              />
+              <details className="file-source-details">
+                <summary>{tr("完整路径与连接")}</summary>
+                <dl>
                   <div>
-                    <dt>{tr("画布工作目录")}</dt>
-                    <dd className="file-source-path">{workspacePath}</dd>
+                    <dt>{tr("连接地址")}</dt>
+                    <dd>{endpoint}</dd>
                   </div>
-                )}
-              </dl>
+                  <div>
+                    <dt>{tr(preview ? "文件路径" : "当前目录")}</dt>
+                    <dd className="file-source-path">{path}</dd>
+                  </div>
+                  {workspacePath && workspacePath !== path && (
+                    <div>
+                      <dt>{tr("画布工作目录")}</dt>
+                      <dd className="file-source-path">{workspacePath}</dd>
+                    </div>
+                  )}
+                </dl>
+              </details>
             </section>
           </FloatingFocusManager>
         </FloatingPortal>

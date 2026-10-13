@@ -12,7 +12,9 @@ function stop() {
     try {
       process.platform === "win32" ? child.kill("SIGKILL") : process.kill(-child.pid, "SIGKILL");
     } catch {}
-  process.exit(0);
+  if (!child?.pid) process.exit(0);
+  // Report the child's actual termination signal after killing the process group.
+  setTimeout(() => process.exit(0), 2000).unref();
 }
 function launch(input: { command: string; args: string[]; cwd?: string }) {
   child = spawn(input.command, input.args, {
@@ -22,7 +24,10 @@ function launch(input: { command: string; args: string[]; cwd?: string }) {
     stdio: "inherit",
   });
   child.once("error", (error) => {
-    if (process.send) process.send({ error: error.message }, () => process.exit(1));
+    if (process.send && process.connected)
+      process.send({ error: error.message, errorCode: (error as NodeJS.ErrnoException).code }, () =>
+        process.exit(1),
+      );
     else process.exit(1);
   });
   child.once("exit", (exitCode, signal) => {
@@ -30,7 +35,8 @@ function launch(input: { command: string; args: string[]; cwd?: string }) {
       try {
         process.kill(-child.pid, "SIGKILL");
       } catch {}
-    if (process.send) process.send({ exitCode, signal }, () => process.exit(exitCode ?? 1));
+    if (process.send && process.connected)
+      process.send({ exitCode, signal }, () => process.exit(exitCode ?? 1));
     else process.exit(exitCode ?? 1);
   });
 }

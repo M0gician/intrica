@@ -1,5 +1,6 @@
 import type { CanvasNavigationIndex, ConversationPreview } from "@intrica/contracts";
 import { type Database, DomainError } from "../../adapters/postgres/database.js";
+import { projectCollaborationReceipts } from "./messaging/receipts.js";
 
 export type CanvasMessageScope = [
   canvasId: string,
@@ -59,6 +60,7 @@ export class CanvasMessages {
     );
     if (page.around !== undefined && !rows.some((row) => keyOf(row) === page.around))
       throw new DomainError("NOT_FOUND", "Collaboration message not found");
+    await projectCollaborationReceipts(this.db.pool, rows);
     if (!forward) rows.reverse();
     const first = rows[0],
       last = rows.at(-1);

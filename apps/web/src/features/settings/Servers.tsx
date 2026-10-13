@@ -1,5 +1,5 @@
-import type { ServerDiagnostics, SshTarget } from "@intrica/contracts/desktop";
-import { useState } from "react";
+import type { ServerDiagnostics, SshOperation, SshTarget } from "@intrica/contracts/desktop";
+import { useEffect, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import type { ServerActions, ServerProfile } from "../../app/preferences";
 import { useTranslation } from "../../i18n";
@@ -30,6 +30,25 @@ export function Servers({
   const { transport } = useSessionConnection();
   const [editing, setEditing] = useState<ServerProfile | "new" | null>(null);
   const [sshTarget, setSshTarget] = useState<SshTarget | null>(null);
+  const [installation, setInstallation] = useState<SshOperation | null>(null);
+  useEffect(() => {
+    const ssh = window.intricaDesktop?.ssh;
+    if (!ssh?.state) return;
+    let current = true;
+    const poll = () =>
+      void ssh
+        .state()
+        .then((state) => {
+          if (current) setInstallation(state.operation);
+        })
+        .catch(() => {});
+    poll();
+    const timer = setInterval(poll, 1000);
+    return () => {
+      current = false;
+      clearInterval(timer);
+    };
+  }, []);
   const [checks, setChecks] = useState<Record<string, ConnectionCheck & { target: string }>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{
@@ -78,6 +97,11 @@ export function Servers({
         <Button type="button" variant="primary" disabled={busy} onClick={() => setEditing("new")}>
           {t("addServer")}
         </Button>
+        {installation && (
+          <Button onClick={() => setSshTarget(installation.target)}>
+            {t("查看服务器安装", { ns: "ui" })}
+          </Button>
+        )}
       </div>
       <ul className="connection-list">
         {actions.profiles.map((profile) => {

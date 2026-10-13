@@ -9,9 +9,11 @@ import {
 import { languages } from "@codemirror/language-data";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
+import type { FileReferenceOrigin } from "@intrica/contracts";
 import { useEffect, useRef, useState } from "react";
 import { useSessionConnection } from "../api/connection";
 import { type DocumentSave, useDocumentDraft } from "../features/conversations/useDocumentDraft";
+import { HtmlFilePreview } from "../features/files/HtmlFilePreview";
 import { tr, useTranslation } from "../i18n";
 import { Button } from "../ui/button";
 import { IconButton, IconCode, IconPreview, IconSave } from "./icons";
@@ -26,6 +28,8 @@ export function DocumentEditor({
   taskList = false,
   fileName,
   version,
+  fileOrigin,
+  fileMime,
 }: {
   id: string;
   value: string;
@@ -34,20 +38,25 @@ export function DocumentEditor({
   readOnly?: boolean;
   taskList?: boolean;
   fileName?: string;
+  fileOrigin?: FileReferenceOrigin | undefined;
+  fileMime?: string | undefined;
 }) {
   useTranslation();
 
   const { storageKey } = useSessionConnection();
   id = storageKey(id);
   const codeLanguage = fileName ? LanguageDescription.matchFilename(languages, fileName) : null;
-  const isCodeFile = Boolean(fileName && !/\.(md|markdown|mdx|html?|xhtml)$/i.test(fileName));
+  const isCodeFile = fileMime
+    ? !["text/markdown", "text/html"].includes(fileMime)
+    : Boolean(fileName && !/\.(md|markdown|mdx|html?|xhtml)$/i.test(fileName));
   const { text, current, saved, status, conflict, save, changeText, loadLatest, keepDraft } =
     useDocumentDraft({ id, value, version, readOnly, onSave });
   const [preview, setPreview] = useState(!isCodeFile && value.trim().length > 0 && text === value);
   const [format, setFormat] = useState<"markdown" | "html" | "code">(
     isCodeFile
       ? "code"
-      : /^\s*<(?:!doctype|html|div|p|h[1-6]|article|section|table)\b/i.test(value)
+      : fileMime === "text/html" ||
+          /^\s*<(?:!doctype|html|div|p|h[1-6]|article|section|table)\b/i.test(value)
         ? "html"
         : "markdown",
   );
@@ -261,11 +270,7 @@ export function DocumentEditor({
       {preview ? (
         <div className="document-preview">
           {format === "html" ? (
-            <iframe
-              title={tr("HTML 预览")}
-              sandbox=""
-              srcDoc={`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:;"><style>body{font:14px/1.6 system-ui;margin:20px;overflow-wrap:anywhere}img{max-width:100%}pre{overflow:auto}</style>${text}`}
-            />
+            <HtmlFilePreview text={text} origin={fileOrigin} />
           ) : taskList ? (
             <TodoList
               text={text}
@@ -276,7 +281,7 @@ export function DocumentEditor({
               }}
             />
           ) : (
-            <MarkdownLite text={text} />
+            <MarkdownLite text={text} origin={fileOrigin} />
           )}
         </div>
       ) : (

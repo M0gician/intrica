@@ -61,7 +61,7 @@ describe("PI workspace tools", () => {
     ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("auto-detects image content regardless of extension, applies vision gating and rejects text mode", async () => {
+  it("auto-detects image content regardless of extension, provides metadata in text mode and applies vision gating", async () => {
     const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } })
       .png()
       .toBuffer();
@@ -74,9 +74,9 @@ describe("PI workspace tools", () => {
       image.content.some((part) => part.type === "image" && part.mimeType === "image/png"),
     ).toBe(true);
     expect(image.details).toMatchObject({ mediaType: "image", frames: 1, frame: 0, width: 2 });
-    await expect(
-      read.execute("text-image", { path: "picture.dat", mode: "text" }),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
+    const metadata = await read.execute("text-image", { path: "picture.dat", mode: "text" });
+    expect(metadata.content.every((p) => p.type === "text")).toBe(true);
+    expect(JSON.parse((metadata.content[0] as { text: string }).text).format).toBe("png");
     await expect(
       read.execute("bad-frame", { path: "picture.dat", frame: 1 }),
     ).rejects.toMatchObject({ code: "VALIDATION" });
@@ -86,9 +86,14 @@ describe("PI workspace tools", () => {
     const textOnly = createWorkspaceTools(cwd, undefined, { supportsVision: false }).find(
       (tool) => tool.name === "read",
     )!;
-    await expect(textOnly.execute("text-only", { path: "picture.dat" })).rejects.toMatchObject({
-      code: "VALIDATION",
-    });
+    expect(
+      (await textOnly.execute("text-only", { path: "picture.dat" })).content.every(
+        (p) => p.type === "text",
+      ),
+    ).toBe(true);
+    await expect(
+      textOnly.execute("force-image", { path: "picture.dat", mode: "image" }),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
   it("does not infer images from extensions or claim non-image media support", async () => {
@@ -169,7 +174,9 @@ describe("PI workspace tools", () => {
         if (JSON.stringify(part).includes("ready")) controller.abort();
       },
     );
-    await expect(result).rejects.toThrow(/abort/i);
+    await expect(result).rejects.toMatchObject({
+      outcome: { termination: "cancelled", taskStatus: "unverified", output: "ready" },
+    });
     await new Promise((resolve) => setTimeout(resolve, 1100));
     await expect(readFile(join(cwd, "should-not-exist"))).rejects.toMatchObject({ code: "ENOENT" });
   });

@@ -5,7 +5,10 @@ import { Button } from "../ui/button";
 import { IconChevronLeft, IconChevronRight, IconFit, IconMinus, IconPlus } from "./icons";
 import "./pdf-preview.css";
 
-type PdfSource = { nodeId: string; path?: never } | { path: string; nodeId?: never };
+type PdfSource =
+  | { nodeId: string; path?: never; referenceId?: never }
+  | { path: string; nodeId?: never; referenceId?: never }
+  | { referenceId: string; nodeId?: never; path?: never };
 type PdfPage = {
   page: number;
   pageCount: number;
@@ -44,7 +47,11 @@ function pdfFailure(reason: unknown) {
 
 export function PdfPreview(props: PdfPreviewProps) {
   const connection = useSessionConnection();
-  const documentKey = props.nodeId ? `node:${props.nodeId}` : `path:${props.path}`;
+  const documentKey = props.referenceId
+    ? `reference:${props.referenceId}`
+    : props.nodeId
+      ? `node:${props.nodeId}`
+      : `path:${props.path}`;
   return (
     <PdfDocument
       key={`${connection.bindingId}:${documentKey}`}
@@ -60,6 +67,7 @@ export function PdfPreview(props: PdfPreviewProps) {
 function PdfDocument({
   nodeId,
   path,
+  referenceId,
   title,
   onDownload,
   downloadBusy,
@@ -102,9 +110,11 @@ function PdfDocument({
     setError(null);
     setImageFailed(false);
     const query = `page=${page}&render=${!textOnly && cursor === 0}&characterOffset=${cursor}&characterLimit=12000`;
-    const url = nodeId
-      ? `/api/v2/nodes/${encodeURIComponent(nodeId)}/pdf?${query}`
-      : `/api/v2/workspace/pdf?path=${encodeURIComponent(path!)}&${query}`;
+    const url = referenceId
+      ? `/api/v2/files/pdf?reference=${encodeURIComponent(referenceId)}&${query}`
+      : nodeId
+        ? `/api/v2/nodes/${encodeURIComponent(nodeId)}/pdf?${query}`
+        : `/api/v2/workspace/pdf?path=${encodeURIComponent(path!)}&${query}`;
     void connection.transport
       .request<PdfPage>(url, { signal })
       .then((value) => {

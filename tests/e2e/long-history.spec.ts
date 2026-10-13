@@ -61,7 +61,7 @@ test("长历史按页卸载、旧检查点直达、窄画布顶栏与输入区�
   await expect(page.locator(".agent-activity")).toContainText("checkpoint-80:");
   await page.getByRole("button", { name: "返回最新会话", exact: true }).click();
   await expect(page.locator(".agent-activity")).toContainText("checkpoint-2499:");
-  await page.locator(".agent-expand-event").last().click();
+  await page.getByRole("button", { name: "阅读全文", exact: true }).last().click();
   await expect(page.locator(".agent-event").last()).toContainText("END_OF_LONG_RECORD");
   await page.getByRole("button", { name: "展开阅读宽度", exact: true }).click();
   const path = (await page.locator(".top-bar-path").boundingBox())!;

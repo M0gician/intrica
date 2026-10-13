@@ -46,7 +46,8 @@ export async function collaborationIdentity(
 
 // All consumers use the same eligibility rules. Historical notices remain visible
 // in the transcript, but may no longer wake inference or request a decision.
-export const currentTeamNotice = `(m.role='team_notice' and not(m.content ? 'activationBlocked') and exists(
+export const currentTeamNotice = `(m.role='team_notice' and not(m.content ? 'activationBlocked') and (
+  m.content->>'event'='member_removed' or exists(
   select 1 from runs source join conversations member on member.id=source.subject_id
   join nodes n on n.id=member.agent_id join conversations manager on manager.agent_id=n.parent_id
   where source.id=m.content->>'runId' and source.epoch::text=m.content->>'epoch'
@@ -55,10 +56,18 @@ export const currentTeamNotice = `(m.role='team_notice' and not(m.content ? 'act
   and source.superseded_by_run_id is null
   and not exists(select 1 from runs newer where newer.subject_id=source.subject_id
     and (newer.created_at,newer.id)>(source.created_at,source.id))
-))`;
+)))`;
 
 export const actionableMessage = `(
-  m.role in ('user','trigger')
+  m.role in ('user','trigger','completion_review')
+  or (m.role='message_notice' and not(m.content ? 'activationBlocked') and exists(
+    select 1 from jsonb_array_elements(coalesce(m.content->'deliveries','[]')) reminder
+    join message_deliveries q on q.id=reminder->>'deliveryId'
+    where q.state='open' and not q.tracking_stopped and q.version::text=reminder->>'version'
+    and (reminder->>'event'='reply_overdue' and q.expect_reply or reminder->>'event'='unread' and exists(
+      select 1 from messages receipt join conversations inbox on inbox.id=receipt.conversation_id
+      where receipt.conversation_id=q.recipient_conversation_id and receipt.client_message_id=q.inbox_message_id
+      and receipt.consumed_run_id is null and receipt.seq>inbox.consumed_message_seq))))
   or (m.role='message' and m.content ? 'from' and m.run_id is not null and not(m.content ? 'activationBlocked'))
   or (${currentTeamNotice} and m.run_id is not null)
   or (m.role='tool_update' and m.content->>'progress' is distinct from 'true')
@@ -72,6 +81,7 @@ export const actionableMessage = `(
 )`;
 
 export const pendingInboxMessage = `((m.role='message' and m.content ? 'from' and not(m.content ? 'activationBlocked'))
+  or (m.role='message_notice' and ${actionableMessage})
   or ${currentTeamNotice}
   or (m.role='permission_notice' and ${actionableMessage}))`;
 

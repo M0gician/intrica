@@ -83,9 +83,57 @@ it("shows outgoing recipients and incoming sender without confusing the inbox ow
   const { rerender } = render(
     <AgentTimeline events={[event({ recipients: ["child"] })]} nodes={nodes} />,
   );
-  expect(document.querySelector(".agent-event small")?.textContent).toBe("管理员 → 成员");
+  expect(document.querySelector(".activity-header")?.textContent).toBe("管理员发给 成员");
   rerender(<AgentTimeline events={[event({ from: "manager" }, "child")]} nodes={nodes} />);
-  expect(document.querySelector(".agent-event small")?.textContent).toBe("管理员 → 成员");
+  expect(document.querySelector(".activity-header")?.textContent).toBe("管理员发给 成员");
+});
+
+it("omits the current Agent identity while preserving incoming authors and outgoing targets", () => {
+  render(
+    <AgentTimeline
+      currentAgentId="manager"
+      events={[
+        event({ recipients: ["child"] }),
+        { ...event({ from: "child" }), seq: 2 },
+        { ...event({ text: "当前回复" }), seq: 3, kind: "assistant" },
+        {
+          ...event({ name: "review_inbox", status: "complete" }),
+          seq: 4,
+          kind: "tool",
+        },
+        { ...event({ text: "审批通知" }), seq: 5, kind: "permission_notice" },
+      ]}
+      nodes={nodes}
+    />,
+  );
+  expect(document.querySelector(".agent-event-message .activity-header")?.textContent).toBe(
+    "发给 成员",
+  );
+  expect(document.querySelectorAll(".agent-event-message .activity-header")[1]?.textContent).toBe(
+    "成员",
+  );
+  expect(screen.queryByText("管理员", { exact: true })).toBeNull();
+  expect(screen.getByText("当前回复")).toBeTruthy();
+  expect(screen.getByText("复核信箱")).toBeTruthy();
+  expect(screen.getByText("系统审批通知")).toBeTruthy();
+});
+
+it("keeps authors of other Agent replies in the current Agent conversation", () => {
+  render(
+    <AgentTimeline
+      currentAgentId="manager"
+      events={[
+        {
+          ...event({ to: "manager", text: "成员的交付结果" }, "child"),
+          kind: "report",
+        },
+      ]}
+      nodes={nodes}
+    />,
+  );
+  expect(screen.getByText("成员", { exact: true })).toBeTruthy();
+  expect(screen.queryByText("发给 管理员")).toBeNull();
+  expect(screen.getByText("成员的交付结果")).toBeTruthy();
 });
 
 it("identifies deleted participants and workspace sends instead of Agent to Agent", () => {
@@ -102,8 +150,8 @@ it("identifies deleted participants and workspace sends instead of Agent to Agen
       nodes={new Map()}
     />,
   );
-  expect(document.querySelector(".agent-event small")?.textContent).toBe(
-    "旧管理员（已删除） → 旧成员（已删除）",
+  expect(document.querySelector(".activity-header")?.textContent).toBe(
+    "旧管理员（已删除）发给 旧成员（已删除）",
   );
   rerender(
     <AgentTimeline
@@ -111,8 +159,8 @@ it("identifies deleted participants and workspace sends instead of Agent to Agen
       nodes={nodes}
     />,
   );
-  expect(document.querySelector(".agent-event small")?.textContent).toBe(
-    "工作区助手 → 已删除的 Agent（12345678）",
+  expect(document.querySelector(".activity-header")?.textContent).toBe(
+    "工作区助手发给 已删除的 Agent（12345678）",
   );
 });
 

@@ -49,7 +49,7 @@ test.afterEach(async ({ request }) => {
       await request.delete(`${api}/api/v2/model-endpoints/${e.id}?expectedRevision=${e.revision}`);
   data = await (await request.get(`${api}/api/v2/workspace/models`)).json();
   await request.post(`${api}/api/v2/workspace/models/select`, {
-    data: { id: "mock", expectedSelectedId: data.selectedId },
+    data: { id: "startup", expectedSelectedId: data.selectedId },
   });
 });
 

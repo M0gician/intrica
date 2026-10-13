@@ -29,8 +29,8 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
   const definition = tool(
     "read",
     text(
-      "Read a path (file or directory), canvas node, or indexed skillId (its catalog path). Permissions are separate for each target. Follow nextCursor to finish. line is one-based for file text; page is one-based for PDFs; frame is zero-based for images. Omit positions with cursor. mode=text omits images; image requires vision. Results preserve images and node revisions. No OCR.",
-      "读取路径（文件或目录）、画布节点或已索引 skillId（目录索引中的路径）。各目标分别检查权限。沿 nextCursor 续读。文件 line 和 PDF page 从 1 开始，图片 frame 从 0 开始；cursor 不能与定位字段混用。text 不渲染图片；image 需要视觉能力。保留图片及节点版本，不执行 OCR。",
+      "Read a path (file or directory), canvas node, or indexed skillId (its catalog path). Permissions are separate for each target. Follow nextCursor to finish. line is one-based for file text; page is one-based for PDFs; frame is zero-based for path or node images; node reads use immutable published bytes. mode=text returns image metadata, GIF frame durations and loop count. Use node targets for version-specific review. Omit positions with cursor. mode=text omits images; image requires vision. Results preserve images and node revisions. No OCR.",
+      "读取路径（文件或目录）、画布节点或已索引 skillId（目录索引中的路径）。各目标分别检查权限。沿 nextCursor 续读。文件 line 和 PDF page 从 1 开始，frame 从 0 开始，可用于 path 或 node 图片；节点读取不可变发布快照。mode=text 返回图片元数据、GIF 帧时长与循环次数。按版本质检使用 node 目标；cursor 不能与定位字段混用。text 不渲染图片；image 需要视觉能力。保留图片及节点版本，不执行 OCR。",
     ),
     object({
       target: Type.Union([
@@ -47,7 +47,13 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
       cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 2048 })),
       line: Type.Optional(Type.Integer({ minimum: 1 })),
       page: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000 })),
-      frame: Type.Optional(Type.Integer({ minimum: 0, maximum: 10000 })),
+      frame: Type.Optional(
+        Type.Integer({
+          minimum: 0,
+          maximum: 10000,
+          description: "Zero-based image frame for path or node targets.",
+        }),
+      ),
       mode: Type.Optional(
         Type.Union([Type.Literal("auto"), Type.Literal("text"), Type.Literal("image")]),
       ),
@@ -60,13 +66,20 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
   );
   definition.normalize = async (args) => {
     const kind: Kind = args.target.kind;
-    if (args.cursor && [args.line, args.page, args.frame, args.mode].some((v) => v !== undefined))
+    if (args.cursor && [args.line, args.page, args.frame].some((v) => v !== undefined))
       throw new DomainError("VALIDATION", "cursor 不能与定位字段同时使用");
-    if (
-      (kind !== "path" && (args.line !== undefined || args.frame !== undefined)) ||
-      (kind === "skill" && (args.page !== undefined || args.mode !== undefined))
-    )
-      throw new DomainError("VALIDATION", "目标不接受此定位或显示选项");
+    if (kind === "skill" && args.frame !== undefined)
+      throw new DomainError("VALIDATION", "skill 不接受 frame", { path: "frame" });
+    if (kind !== "path" && args.line !== undefined)
+      throw new DomainError(
+        "VALIDATION",
+        "line 仅适用于 path 文本；节点使用 read 返回的 nextCursor",
+        { path: "line" },
+      );
+    if (kind === "skill" && (args.page !== undefined || args.mode !== undefined))
+      throw new DomainError("VALIDATION", "skill 目标仅使用 skillId 和 cursor", {
+        path: args.page !== undefined ? "page" : "mode",
+      });
     let input: Record<string, any> = {
       ...(kind === "node"
         ? { nodeId: args.target.nodeId }
@@ -88,12 +101,18 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
       }
       if (!Value.Check(cursorSchema, decoded) || decoded.target !== digest(target))
         throw new DomainError("VALIDATION", "读取游标与目标不匹配");
+      if (args.mode !== undefined && args.mode !== (decoded.position.mode ?? "auto"))
+        throw new DomainError(
+          "VALIDATION",
+          "mode 与游标模式冲突；续读时省略 mode 或使用游标原模式",
+        );
       if (
         (kind === "skill" && Object.keys(decoded.position).some((key) => key !== "offset")) ||
         (kind === "node" && decoded.position.column !== undefined)
       )
         throw new DomainError("VALIDATION", "读取游标位置不适用于此目标");
       input = { ...input, ...decoded.position };
+      if (decoded.position.mode === undefined) delete input.mode;
     }
     return { target, input };
   };

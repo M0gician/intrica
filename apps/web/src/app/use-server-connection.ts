@@ -103,18 +103,32 @@ export function useServerConnection() {
     };
   }, [establish, desktop]);
   useEffect(() => () => binding.services.dispose(), [binding.services]);
-  const adoptDesktop = async (next: import("@intrica/contracts/desktop").DesktopConnection) => {
-    const services = createSessionConnection(next.apiBase, "pending", next.bindingId);
-    setPhase("loading");
-    setBinding({
-      services,
-      profileId: next.profileId,
-      address: next.baseUrl,
-      server: null,
-      capabilities: null,
-    });
-    await establish(services, next.profileId, next.baseUrl);
-  };
+  const adoptDesktop = useCallback(
+    async (next: import("@intrica/contracts/desktop").DesktopConnection) => {
+      const services = createSessionConnection(next.apiBase, "pending", next.bindingId);
+      setPhase("loading");
+      setBinding({
+        services,
+        profileId: next.profileId,
+        address: next.baseUrl,
+        server: null,
+        capabilities: null,
+      });
+      await establish(services, next.profileId, next.baseUrl);
+    },
+    [establish],
+  );
+  useEffect(
+    () =>
+      desktop?.subscribe?.((next) => {
+        void adoptDesktop(next);
+        void desktop
+          .list()
+          .then(setProfiles)
+          .catch(() => {});
+      }),
+    [desktop, adoptDesktop],
+  );
   const currentWeb: ServerProfile = {
     id: "web",
     label: binding.server?.name ?? "Intrica",

@@ -36,3 +36,7 @@ directory when collecting local evidence. Never use a personal workspace.
 
 Installed package, native service, SSH transport, signing and published
 upgrade acceptance are separate release checks.
+
+The [RFC acceptance map](rfc-acceptance.md) lists file, input, permission,
+recovery and updater checks. Signed installed upgrades are opt-in and start
+from the product action; test scripts do not perform the replacement.

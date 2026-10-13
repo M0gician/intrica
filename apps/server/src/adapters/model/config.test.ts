@@ -70,12 +70,9 @@ describe("loadFileConfig", () => {
 });
 
 describe("resolveModelConfig", () => {
-  it("默认 mock", () => {
-    expect(resolveModelConfig({})).toEqual({
-      kind: "mock",
-      streamDelayMs: 40,
-      supportsVision: true,
-    });
+  it("defaults to unconfigured and ignores legacy mock switches", () => {
+    expect(resolveModelConfig({})).toBeNull();
+    expect(resolveModelConfig({ MODEL_KIND: "mock", MOCK_STREAM_DELAY_MS: "0" })).toBeNull();
   });
 
   it("文件提供 pi 配置（含 baseUrl 与 apiKeyEnv）", () => {
@@ -159,19 +156,17 @@ describe("resolveModelConfig", () => {
     expect(fallback).toMatchObject({ apiKey: "sk-literal" });
   });
 
-  it("kind=pi 缺 provider/modelId 时报 ConfigError", () => {
-    expect(() => resolveModelConfig({ MODEL_KIND: "pi" }, {})).toThrow(/model\.provider 未配置/);
-    expect(() => resolveModelConfig({ MODEL_KIND: "pi", MODEL_PROVIDER: "openai" }, {})).toThrow(
-      /model\.modelId 未配置/,
-    );
+  it("partial configuration remains unconfigured so the UI can repair it", () => {
+    expect(resolveModelConfig({ MODEL_KIND: "pi" })).toBeNull();
+    expect(resolveModelConfig({ MODEL_KIND: "pi", MODEL_PROVIDER: "openai" })).toBeNull();
   });
 
-  it("mock 参数可从文件读取", () => {
+  it("legacy mock configuration cannot enable simulation", () => {
     const config = resolveModelConfig(
       {},
       { model: { kind: "mock", mock: { streamDelayMs: 0, supportsVision: false } } },
     );
-    expect(config).toEqual({ kind: "mock", streamDelayMs: 0, supportsVision: false });
+    expect(config).toBeNull();
   });
 });
 

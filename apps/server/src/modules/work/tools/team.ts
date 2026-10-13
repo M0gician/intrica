@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import { DomainError } from "../../../adapters/postgres/database.js";
+import { delegateResources } from "../../access/delegation.js";
 import { takeOverRun } from "../../access/handoffs.js";
 import { grantsFor } from "../../access/policy.js";
 import { result } from "../../execution/tool-calls.js";
@@ -16,15 +17,14 @@ export function teamTools(context: ToolContext) {
   const hire = tool(
     "hire_agent",
     text(
-      "Create a member, grant chosen resources, and submit its required first task atomically. Choose inheritResources=true for all current resource grants, or resourceIds for selected nodes (not both); omission grants none. Container access includes nested resources, not Agent private spaces. Delegated access remains bounded by the granting manager. The inbox schedules on-demand members too; do not resend the task. Only users grant admin.",
-      "原子创建成员、授予所选资源并提交首次任务 task。inheritResources=true 继承当前全部资源，或 resourceIds 指定节点，二者不能同时设置；省略则不继承。容器覆盖内部资源，不穿过 Agent 私有空间。委托权限持续受授予者权限限制。按需成员也会执行首次任务，不要重复发送。只有用户可授予 admin。",
+      "Create a member with a server-generated random name, grant chosen resources, and submit its first task atomically. Supply persona for personality and responsibilities; do not supply a title or name. Use returned id for messages. Choose inheritResources=true or resourceIds (not both); omission grants none. Container grants stop at Agent private spaces. On-demand members receive the first task too; do not resend it. Only users grant admin.",
+      "原子创建随机姓名的成员、授予所选资源并提交首次任务。persona 描述性格与职责；不传入 title 或姓名，发消息使用返回的 id。inheritResources=true 或 resourceIds 二选一，省略则不继承资源。容器授权不穿过 Agent 私有空间。按需成员也会接收首次任务，不要重复发送。只有用户可授予 admin。",
     ),
     Type.Object({
-      title: Type.String({ maxLength: 200 }),
       persona: Type.String({ maxLength: 8000 }),
       task: Type.String({ minLength: 1, maxLength: 8000, pattern: "\\S" }),
       role,
-      respondToResources: Type.Boolean(),
+      respondToResources: Type.Optional(Type.Boolean()),
       inheritResources: Type.Optional(Type.Boolean()),
       resourceIds: Type.Optional(Type.Array(string, { maxItems: 100, uniqueItems: true })),
     }),
@@ -41,23 +41,30 @@ export function teamTools(context: ToolContext) {
             const nodeId = await m.insert({
               kind: "agent",
               parentId: input.agentId ?? ctx.run.canvas_id,
-              title: args.title,
+              nameLanguage: args.language,
               agent: { persona: args.persona, role: args.role, enabled: args.respondToResources },
               position: await m.agentPosition(input.agentId ?? ctx.run.canvas_id),
             });
-            await registry.access.grantRecruitResources(m, input.agentId ?? null, nodeId, args);
+            await delegateResources(m, input.agentId ?? null, nodeId, args);
             const initialTask = await registry.conversations.assignNewAgent(
               m.tx,
               ctx.run.id,
               nodeId,
               args.task,
             );
-            return { id: nodeId, title: args.title, initialTask };
+            return { id: nodeId, title: (await m.row(nodeId)).body.title, initialTask };
           },
         ),
       );
     },
   );
+  // Only persisted calls from the old schema may omit the obsolete input on replay.
+  hire.restore = (args, version) => {
+    if (version !== 1) return args;
+    if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+    const { title: _title, ...current } = args;
+    return current;
+  };
   hire.normalize = async (args) => {
     if (args.inheritResources && args.resourceIds?.length)
       throw new DomainError("VALIDATION", "请选择继承全部资源或指定节点，不能同时设置");
@@ -72,9 +79,16 @@ export function teamTools(context: ToolContext) {
     const resourceIds = args.inheritResources
       ? [...new Set(grants.map((g) => g.root_resource_id))]
       : (args.resourceIds ?? []);
+    const respondToResources =
+      args.respondToResources ??
+      (input.agentId
+        ? ((await registry.graph.queries.node(input.agentId)).agent?.enabled ?? true)
+        : true);
     return {
       ...args,
-      enabled: args.respondToResources,
+      respondToResources,
+      language: input.language ?? "en",
+      enabled: respondToResources,
       inheritResources: false,
       resourceIds,
       resourceModes: Object.fromEntries(

@@ -4,7 +4,7 @@ Desktop and the source CLI use `scripts/deploy-server.mjs` for the same
 preflight, package selection and installation process. Desktop lists SSH
 configuration aliases and also accepts an explicit host, username and port.
 
-## Preflight and confirmation
+## Inspection and installation
 
 The default CLI invocation is read-only:
 
@@ -13,17 +13,35 @@ node scripts/deploy-server.mjs SSH_ALIAS vX.Y.Z
 ```
 
 The host must be Linux x64, use a non-root account, support a systemd user
-session with linger. Inspection reports Bubblewrap availability and the
+session with linger. Inspection is read-only and distinguishes disabled linger,
+query failures and an unavailable user manager from unsupported platforms.
+It reports Bubblewrap availability and the
 installed sandbox mode. Planning requires working isolation unless the
 selected mode is explicitly `disabled`; a new installation defaults to
 `required`. The helper does not configure sudo, namespaces, firewall rules
 or SSH host trust.
 
 Preflight reports installation and service state without returning secrets.
-Desktop retains a single expiring plan. Applying it requires explicit
-confirmation and rechecks SSH identity, installation state, selected and
-installed sandbox modes, and artifact hash.
-Changed or expired plans require a new inspection.
+Desktop selects the server release from its own packaged version. The renderer
+cannot choose a release. **Install and connect** runs inspection and the internal
+deployment plan, then rechecks SSH identity, installation state, execution mode
+and artifact hash. Changed targets stop the operation.
+
+During installation, the shared prerequisite function from the standalone installer
+can enable linger for the remote effective UID with `loginctl --no-ask-password`.
+It never invokes sudo or changes host policy. Preparation must pass a second
+linger and user-manager check before service changes. Failed queries are not
+treated as disabled settings. Failed preparation does not stop the existing service.
+An enabled linger setting is retained after later failures because other user
+services may depend on it.
+
+A main-process operation ID owns installation progress, cancellation and recovery.
+The operation persists without credentials. Leaving the settings panel does not
+stop it. Download and upload progress counts real bytes; other phases show elapsed
+time. Cancellation aborts safe transfer steps and waits for critical installation
+steps to finish. An interrupted operation re-inspects remote state before retrying.
+Health-checked installations are saved and activated through the private connection
+manager, which notifies the renderer of the new connection.
 
 ## Downloads and activation
 

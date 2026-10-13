@@ -160,7 +160,8 @@ it("M01 four-level cross-branch coordination preserves recipients, roles and dis
     before = await Promise.all([scope(worker), scope(cousin)]);
   expect(await managementChain(k.db.pool, worker.id)).toEqual([lead.id, division.id, top.id]);
   const args = {
-    target: { kind: "agent", agentId: cousin.id },
+    to: "agent",
+    id: cousin.id,
     message: "inspect your branch, not my files",
   };
   const sent = await child.call("send_message", args, "cross-branch-once");
@@ -171,13 +172,15 @@ it("M01 four-level cross-branch coordination preserves recipients, roles and dis
   expect(
     (
       await peer.call("send_message", {
-        target: { kind: "agent", agentId: worker.id },
+        to: "agent",
+        id: worker.id,
         message: "branch checked",
       })
     ).value.delivered,
   ).toBe(1);
   expect(
-    (await child.call("report_result", { message: "direct result" })).value.recipients,
+    (await child.call("send_message", { to: "manager", kind: "result", message: "direct result" }))
+      .value.recipients,
   ).toEqual([lead.id]);
   expect(await incoming(top)).toHaveLength(0);
   expect(await incoming(division)).toHaveLength(0);
@@ -186,26 +189,21 @@ it("M01 four-level cross-branch coordination preserves recipients, roles and dis
   expect((await k.access.list(board, { status: "pending" })).total).toBe(0);
 });
 
-it("M02 one private leaf resource blocks cross-branch delivery despite a common admin ancestor", async () => {
+it("M02 private leaf resources remain private while common-admin branches communicate directly", async () => {
   const { top, worker } = await tree(),
     otherDivision = await agent(top.id),
     cousin = await agent(otherDivision.id, "write"),
-    publicResource = await resource(),
     privateResource = await resource();
-  for (const a of [top, worker, cousin]) await connect(a, publicResource);
   await connect(worker, privateResource);
   const sender = await start(worker),
-    args = { target: { kind: "agent", agentId: cousin.id }, message: "must remain private" };
-  const pending = await sender.call("send_message", args, "private-branch-once");
-  expect(pending.waiting).toBe("approval");
-  expect(await incoming(cousin)).toHaveLength(0);
-  await decide(pending.value.requestId, undefined, "deny");
-  const denied = await sender.call("send_message", args, pending.logical);
-  expect(denied.result.isError).toBe(true);
-  expect((await request(pending.value.requestId)).status).toBe("denied");
-  expect(await incoming(cousin)).toHaveLength(0);
-  expect((await history(worker)).filter((m) => m.role === "message")).toHaveLength(0);
+    args = { to: "agent", id: cousin.id, message: "coordination" };
+  const sent = await sender.call("send_message", args, "private-branch-once");
+  expect(sent.waiting).toBeUndefined();
+  expect(sent.value.delivered).toBe(1);
+  expect(await incoming(cousin)).toHaveLength(1);
+  expect((await sender.call("send_message", args, sent.logical)).value).toEqual(sent.value);
   expect(await scope(cousin)).not.toContain(`${privateResource.id}:write`);
+  expect((await k.access.list(board, { status: "pending" })).total).toBe(0);
 });
 
 it("M03 three review hops retain one frozen call and user steering, then execute only the approved path", async () => {
@@ -218,7 +216,7 @@ it("M03 three review hops retain one frozen call and user steering, then execute
     manager = await start(lead),
     child = await start(worker);
   const args = {
-      scope: { kind: "path", path: area, access: "directory_and_commands" },
+      scope: { kind: "path", path: area, access: "directory", mode: "read", execution: "none" },
       reason: "read assigned evidence",
     },
     pending = await child.call("request_permission", args, "three-hop-request");
@@ -347,7 +345,8 @@ it.each(["move-middle", "revoke-root", "downgrade-root"] as const)(
     ).toBe("source evidence");
     await expect(
       manager.call("send_message", {
-        target: { kind: "agent", agentId: worker.id },
+        to: "agent",
+        id: worker.id,
         message: "stale manager work",
       }),
     ).rejects.toMatchObject({ code: "STALE_EXECUTION" });
@@ -368,13 +367,15 @@ it("M05 a normal node breaks the management chain even when Agents are deeply ne
   await connect(worker, localEvidence);
   const child = await start(worker);
   expect(await managementChain(k.db.pool, worker.id)).toEqual([lead.id]);
-  expect((await child.call("report_result", { message: "local report" })).value.recipients).toEqual(
-    [lead.id],
-  );
+  expect(
+    (await child.call("send_message", { to: "manager", kind: "result", message: "local report" }))
+      .value.recipients,
+  ).toEqual([lead.id]);
   expect(
     (
       await child.call("send_message", {
-        target: { kind: "agent", agentId: top.id },
+        to: "agent",
+        id: top.id,
         message: "not an ancestor team",
       })
     ).waiting,
@@ -386,7 +387,10 @@ it("M05 a normal node breaks the management chain even when Agents are deeply ne
     idempotencyKey: key(),
   });
   expect(await managementChain(k.db.pool, worker.id)).toEqual([]);
-  expect((await child.call("report_result", { message: "no manager" })).value.delivered).toBe(0);
+  expect(
+    (await child.call("send_message", { to: "user", kind: "result", message: "no manager" })).value
+      .delivered,
+  ).toBe(1);
   expect(await incoming(lead)).toHaveLength(1);
   await k.graph.undoGraphOp(moved.graphOpId);
   expect(await managementChain(k.db.pool, worker.id)).toEqual([lead.id]);
@@ -427,8 +431,13 @@ it("M06 a deep artifact is shared only with readable ancestors and explicitly re
     expect(JSON.stringify(blocked.result)).not.toContain("private branch evidence");
   }
   expect(
-    (await child.call("report_result", { message: "report ready for direct manager" })).value
-      .recipients,
+    (
+      await child.call("send_message", {
+        to: "manager",
+        kind: "result",
+        message: "report ready for direct manager",
+      })
+    ).value.recipients,
   ).toEqual([lead.id]);
   expect(await incoming(top)).toHaveLength(0);
   expect(await incoming(division)).toHaveLength(0);
@@ -502,10 +511,8 @@ it("M08 concurrent deep-team broadcasts use resource intersection, deduplicate r
   const child = await start(worker),
     peer = await start(cousin),
     args = {
-      target: {
-        kind: "resource_readers",
-        resourceIds: [firstResource.id, secondResource.id, firstResource.id],
-      },
+      to: "resource_readers",
+      ids: [firstResource.id, secondResource.id, firstResource.id],
       message: "same content, independent senders",
     };
   const sends = await Promise.all([
@@ -583,9 +590,14 @@ it("M09 hierarchy does not expose private transcripts to ancestors, siblings or 
     message: "private user instruction: do not redistribute",
     key: key(),
   });
-  await child.call("report_result", { message: "public direct-manager report" });
   await child.call("send_message", {
-    target: { kind: "agent", agentId: sibling.id },
+    to: "manager",
+    kind: "result",
+    message: "public direct-manager report",
+  });
+  await child.call("send_message", {
+    to: "agent",
+    id: sibling.id,
     message: "sibling-only coordination",
   });
   const own = await child.call("read_conversation", {}),

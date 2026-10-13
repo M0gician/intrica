@@ -11,6 +11,8 @@ import { meteredStream } from "./usage.js";
 
 /** One provider turn only. Durable orchestration and tool execution belong to execution. */
 export class Agent {
+  prepareMessages: (messages: AgentMessage[]) => Promise<AgentMessage[]> = async (messages) =>
+    messages;
   readonly state: {
     model: Model<Api>;
     tools: AgentTool[];
@@ -55,7 +57,7 @@ export class Agent {
       this.state.model,
       {
         systemPrompt: this.state.systemPrompt,
-        messages: this.state.messages as Message[],
+        messages: (await this.prepareMessages(this.state.messages)) as Message[],
         tools: this.state.tools,
       },
       options,

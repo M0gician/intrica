@@ -1,8 +1,11 @@
+import { effectiveModel } from "@intrica/contracts";
 import { memo, useMemo, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import { BottomBar, computeActionAvailability } from "../../components/BottomBar";
+import { ModelRequired } from "../../components/ModelRequired";
 import { TaskBar } from "../../components/TaskBar";
 import { Toast } from "../../components/Toast";
+import { useOptionalModels } from "../../data/models";
 import { tr } from "../../i18n";
 import type { WorkspaceController } from "../../state/controller";
 import { useStore, useViewValue } from "../../state/store";
@@ -38,6 +41,8 @@ export const CanvasFooter = memo(function CanvasFooter({
   handleAcceptOperation,
 }: Props) {
   const store = useStore();
+  const models = useOptionalModels();
+  const defaultReady = effectiveModel(models?.data).ready;
   const { controlCanvasAgents } = useSessionConnection();
   const selection = useViewValue((view) => view.selection);
   const surface = useViewValue((view) => view.surface);
@@ -66,6 +71,9 @@ export const CanvasFooter = memo(function CanvasFooter({
     return team;
   }, [agentBoard, selectedAgents]);
   const [batchAgentBusy, setBatchAgentBusy] = useState(false);
+  const teamReady = [...selectedAgentScope].every(
+    (id) => effectiveModel(models?.data, graph.nodes.get(id)?.agent?.model).ready,
+  );
   const batchAgentState =
     selectedAgents.length > 0
       ? (([...selectedAgentScope].some((id) =>
@@ -81,15 +89,22 @@ export const CanvasFooter = memo(function CanvasFooter({
     <section className="bottom-region" aria-label={tr("选中操作、生成任务与通知")}>
       {!readonlyOverlay && (
         <BottomBar
-          availability={availability}
+          availability={{
+            ...availability,
+            actions: availability.actions.map((action) =>
+              action.id === "link" || defaultReady
+                ? action
+                : { ...action, enabled: false, disabledReason: tr("添加端点和模型") },
+            ),
+          }}
           moreOpen={surface?.type === "more"}
           canInspect={view.selection.size === 1}
           onAction={handleBottomBarAction}
           onReadPdf={readPdfWithAgent}
           agentRunState={batchAgentState}
-          agentRunBusy={batchAgentBusy}
+          agentRunBusy={batchAgentBusy || (batchAgentState === "idle" && !teamReady)}
           onAgentRun={(action) => {
-            if (batchAgentBusy) return;
+            if (batchAgentBusy || (action === "start" && !teamReady)) return;
             setBatchAgentBusy(true);
             void controlCanvasAgents(selectedAgents, action)
               .then((result) =>
@@ -124,6 +139,17 @@ export const CanvasFooter = memo(function CanvasFooter({
             const id = [...store.getState().view.selection][0];
             if (id) inspectNode(id);
           }}
+        />
+      )}
+      {selectedAgents.length > 0 && !teamReady && (
+        <ModelRequired
+          selection={
+            graph.nodes.get(
+              selectedAgents.find(
+                (id) => !effectiveModel(models?.data, graph.nodes.get(id)?.agent?.model).ready,
+              ) ?? selectedAgents[0]!,
+            )?.agent?.model
+          }
         />
       )}
 

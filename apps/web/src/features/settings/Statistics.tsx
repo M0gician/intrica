@@ -173,10 +173,12 @@ export function Statistics() {
                     ? t(row.name)
                     : groupBy === "endpoint"
                       ? row.name === "builtin"
-                        ? t(row.simulated ? "mock" : "unrecordedEndpoint")
+                        ? t(row.simulated ? "testRecords" : "unrecordedEndpoint")
                         : (models.data?.endpoints.find((endpoint) => endpoint.id === row.name)
                             ?.name ?? row.name)
-                      : row.name}
+                      : row.simulated
+                        ? t("testRecords")
+                        : row.name}
                   {row.simulated ? ` · ${t("simulated")}` : ""}
                 </h4>
                 <dl className="settings-metrics">

@@ -77,3 +77,30 @@ describe("BrowserPanel", () => {
     expect(command).not.toHaveBeenCalledWith("navigate", expect.anything());
   });
 });
+
+it("打开 HTML 产物时隐藏原生浏览器并使用文件授权预览", async () => {
+  const { command } = installBridge();
+  const { createSessionConnection, ConnectionServices } = await import("../../api/connection");
+  const connection = createSessionConnection("", "artifact");
+  connection.transport.request = vi.fn(async () => ({
+    serverId: "artifact",
+    name: "scene.html",
+    path: "/work/scene.html",
+    mime: "text/html",
+    text: "<canvas></canvas><script>scene()</script>",
+  })) as any;
+  render(
+    <ConnectionServices.Provider value={connection}>
+      <BrowserPanel
+        target={{ artifact: true, nodeId: "published-scene", name: "scene.html", nonce: "1" }}
+      />
+    </ConnectionServices.Provider>,
+  );
+  await screen.findByTitle("HTML 预览");
+  expect(command).toHaveBeenCalledWith("bounds", null);
+  expect(command).not.toHaveBeenCalledWith("navigate", expect.anything());
+  expect(connection.transport.request).toHaveBeenCalledWith(
+    expect.stringContaining("/api/v2/files/preview?reference="),
+    expect.anything(),
+  );
+});

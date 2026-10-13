@@ -12,6 +12,7 @@ export function useCollaborationActivity(
   const current = useRef(base);
   current.current = base;
   const generation = useRef(0);
+  const visibleQuery = useRef({ scope: base, query: "" });
   const [snapshot, setSnapshot] = useState<{ scope: string; board: AgentBoard }>();
   const [page, setPage] = useState({ scope: base, history: false });
   const [error, setError] = useState("");
@@ -19,6 +20,7 @@ export function useCollaborationActivity(
   const load = useCallback(
     async (query = "", signal?: AbortSignal) => {
       const request = ++generation.current;
+      visibleQuery.current = { scope: base, query };
       setPage({ scope: base, history: Boolean(query) });
       try {
         const path = `${base}${query}`;
@@ -37,16 +39,19 @@ export function useCollaborationActivity(
     [base, activity, transport],
   );
   useEffect(() => {
-    if (!active || viewingHistory) return;
+    if (!active) return;
     const abort = new AbortController();
     const stop = activity.follow({ kind: "canvas", id: source.id }, async () => {
-      await load("", abort.signal).catch(() => {});
+      await load(
+        visibleQuery.current.scope === base ? visibleQuery.current.query : "",
+        abort.signal,
+      ).catch(() => {});
     });
     return () => {
       stop();
       abort.abort();
     };
-  }, [active, source.id, viewingHistory, activity, load]);
+  }, [active, source.id, activity, load, base]);
   return {
     board: snapshot?.scope === base ? snapshot.board : null,
     viewingHistory,

@@ -185,23 +185,19 @@ function envBool(value: string | undefined): boolean | undefined {
 
 /**
  * 合并模型配置：环境变量 > 配置文件 > 内置默认。
- * kind 的取值也按此优先级决定走 mock 还是 pi。
+ * 未配置或历史模拟配置返回 null；测试模拟只能通过内部依赖注入。
  */
 export function resolveModelConfig(
   env: NodeJS.ProcessEnv,
   file: IntricaFileConfig = {},
-): ModelConfig {
+): ModelConfig | null {
   const m = file.model ?? {};
-  const kind = env.MODEL_KIND ?? m.kind ?? "mock";
+  const kind = env.MODEL_KIND ?? m.kind ?? (env.MODEL_ID || m.modelId ? "pi" : undefined);
+  if (kind === undefined || kind === "mock") return null;
   if (kind === "pi") {
     const provider = env.MODEL_PROVIDER ?? m.provider;
     const modelId = env.MODEL_ID ?? m.modelId;
-    if (provider === undefined || provider === "") {
-      throw new ConfigError("model.provider 未配置（kind=pi 时必填，或用 MODEL_PROVIDER）");
-    }
-    if (modelId === undefined || modelId === "") {
-      throw new ConfigError("model.modelId 未配置（kind=pi 时必填，或用 MODEL_ID）");
-    }
+    if (!provider?.trim() || !modelId?.trim()) return null;
     const config: Extract<ModelConfig, { kind: "pi" }> = { kind: "pi", provider, modelId };
     const keyFromEnvVar = m.apiKeyEnv !== undefined ? env[m.apiKeyEnv] : undefined;
     const apiKey =
@@ -218,13 +214,5 @@ export function resolveModelConfig(
     if (m.maxOutputTokens !== undefined) config.maxOutputTokens = m.maxOutputTokens;
     return config;
   }
-  if (kind !== "mock") {
-    throw new ConfigError(`model.kind 必须是 "mock" 或 "pi"，当前为 ${JSON.stringify(kind)}`);
-  }
-  const delayRaw = env.MOCK_STREAM_DELAY_MS ?? m.mock?.streamDelayMs;
-  return {
-    kind: "mock",
-    streamDelayMs: delayRaw === undefined ? 40 : Number(delayRaw),
-    supportsVision: envBool(env.MOCK_SUPPORTS_VISION) ?? m.mock?.supportsVision ?? true,
-  };
+  throw new ConfigError(`Unsupported model kind: ${JSON.stringify(kind)}`);
 }

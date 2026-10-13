@@ -3,7 +3,7 @@ import { result } from "../../execution/tool-calls.js";
 import { messageParameter, idParameter as string, type ToolContext, tool } from "./context.js";
 
 export function reviewTools(context: ToolContext) {
-  const { registry, ctx, actor, text } = context;
+  const { registry, ctx, actor, text, capabilities } = context;
   return [
     tool(
       "list_access_requests",
@@ -21,6 +21,9 @@ export function reviewTools(context: ToolContext) {
         result(
           await registry.access.list(ctx.run.canvas_id, {
             actor,
+            ...(!capabilities.manageTeam && actor.kind === "agent"
+              ? { subjectId: actor.agentId }
+              : {}),
             ...(args.requestId ? { requestIds: [args.requestId] } : { status: "pending" }),
             ...(args.cursor ? { cursor: args.cursor } : {}),
             ...(args.limit ? { limit: args.limit } : {}),

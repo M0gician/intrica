@@ -7,7 +7,7 @@ import {
   type UpdateCheck,
 } from "@intrica/contracts";
 import { checkRelease, UpdateError } from "@intrica/releases";
-import { DomainError } from "../adapters/postgres/database.js";
+import { DomainError, SCHEMA_VERSION } from "../adapters/postgres/database.js";
 import type { AppInstance } from "../app.js";
 import type { ApiConfig } from "../config.js";
 
@@ -36,7 +36,7 @@ export function registerUpdates(app: AppInstance, config: ApiConfig) {
       version,
       build,
       apiVersion: "v2",
-      schemaVersion: 10,
+      schemaVersion: SCHEMA_VERSION,
       deployment: config.deployment,
       commit: process.env.INTRICA_COMMIT ?? metadata.commit ?? null,
     };

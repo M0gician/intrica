@@ -1,5 +1,6 @@
 import { execSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createDefaultEndpoint } from "../fixtures/default-endpoint.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -8,9 +9,10 @@ execSync("node tests/e2e/pretest-e2e.mjs", { cwd: repoRoot, stdio: "inherit" });
 
 // 2. 以独立进程组拉起 API；本进程退出或被终止时杀整个进程组，
 //    避免 playwright 只杀直接子进程导致 server 残留占用端口
+const endpoint = await createDefaultEndpoint();
 const child = spawn(process.execPath, ["apps/server/dist/server.js"], {
   cwd: repoRoot,
-  env: process.env,
+  env: { ...process.env, ...endpoint.env },
   stdio: "inherit",
   detached: true,
 });
@@ -19,6 +21,7 @@ let stopping = false;
 function stopTree() {
   if (stopping) return;
   stopping = true;
+  endpoint.close();
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch {

@@ -1,4 +1,5 @@
 import type { Database } from "../../adapters/postgres/database.js";
+import { projectCollaborationReceipts } from "./messaging/receipts.js";
 
 export class CollaborationReader {
   constructor(private readonly db: Database) {}
@@ -6,7 +7,7 @@ export class CollaborationReader {
   async history(agentId: string, viewerId: string, before?: number) {
     const rows = (
       await this.db.pool.query(
-        `select m.seq,m.role,m.content,m.run_id,m.consumed_run_id,m.created_at,c.id as conversation_id,c.consumed_message_seq,
+        `select m.client_message_id,m.seq,m.role,m.content,m.run_id,m.consumed_run_id,m.created_at,c.id as conversation_id,c.consumed_message_seq,
         r.state as run_state
        from messages m join conversations c on c.id=m.conversation_id left join runs r on r.id=coalesce(m.consumed_run_id,m.run_id)
        where c.agent_id=$1 and ($3::bigint is null or m.seq<$3)
@@ -17,6 +18,7 @@ export class CollaborationReader {
       )
     ).rows;
     const page = rows.slice(0, 80).reverse();
+    await projectCollaborationReceipts(this.db.pool, page);
     return {
       events: page.map((row) => ({
         conversationId: row.conversation_id,

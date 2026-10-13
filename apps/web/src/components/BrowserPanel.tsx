@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { BrowserBridge, BrowserCommand, BrowserState } from "../desktop/bridge";
+import { FileReferenceView } from "../features/files/FileReferenceView";
 import { tr, useTranslation } from "../i18n";
 import { safeWebUrl } from "../utils/web-url";
 import { IconBrowser, IconButton, IconClose, IconRefresh } from "./icons";
@@ -19,14 +20,35 @@ type BrowserPanelProps = {
         url: string;
         nonce: string;
       }
+    | { artifact: true; nodeId: string; name: string; nonce: string }
     | undefined;
 };
 export function BrowserPanel(props: BrowserPanelProps) {
   useTranslation();
 
+  if (props.target && "artifact" in props.target)
+    return props.active === false ? null : <ArtifactBrowserPanel target={props.target} />;
   const bridge = window.intricaDesktop?.browser;
   if (!bridge) return <RemoteBrowserPanel {...props} />;
   return <NativeBrowserPanel {...props} bridge={bridge} />;
+}
+function ArtifactBrowserPanel({
+  target,
+}: {
+  target: { nodeId: string; name: string; nonce: string };
+}) {
+  useEffect(() => {
+    void window.intricaDesktop?.browser?.command("bounds", null).catch(() => {});
+  }, []);
+  return (
+    <div className="workspace-browser artifact-browser" key={target.nonce}>
+      <FileReferenceView
+        origin={{ kind: "node", id: target.nodeId }}
+        embedded
+        label={target.name}
+      />
+    </div>
+  );
 }
 function RemoteBrowserPanel({ target }: BrowserPanelProps) {
   useTranslation();
@@ -37,7 +59,7 @@ function RemoteBrowserPanel({ target }: BrowserPanelProps) {
         <IconBrowser size={28} />
         <h2>{tr("浏览与收集")}</h2>
         <p>{tr("当前 Server 未提供浏览器能力。请在 Electron 客户端中使用受限的本机浏览器。")}</p>
-        {target?.url && (
+        {target && "url" in target && target.url && (
           <a href={safeWebUrl(target.url) ?? "#"} target="_blank" rel="noreferrer">
             {tr("在系统浏览器打开当前地址")}
           </a>
@@ -61,7 +83,7 @@ function NativeBrowserPanel({
   const host = useRef<HTMLElement>(null);
   const editing = useRef(false);
   useEffect(() => {
-    if (!target) return;
+    if (!target || !("url" in target)) return;
     const value = safeWebUrl(target.url);
     if (!value) return;
     let closed = false;

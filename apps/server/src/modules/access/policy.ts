@@ -40,19 +40,13 @@ export async function canReadAgentResources(sql: Sql, reader: string, subject: s
       return false;
   return true;
 }
-/** Team communication is authorized by a common manager, not by equal tool scopes.
- * A private grant outside that manager's readable scope remains a boundary. */
+/** Team membership permits coordination. It never copies resource or host grants. */
 export async function commonTeamManager(sql: Sql, left: string, right: string) {
   const leftChain = [left, ...(await managementChain(sql, left))];
   const rightChain = new Set([right, ...(await managementChain(sql, right))]);
   for (const id of leftChain) {
     if (!rightChain.has(id)) continue;
-    if (
-      (await agentIdentity(sql, id)).config.role === "admin" &&
-      (await canReadAgentResources(sql, id, left)) &&
-      (await canReadAgentResources(sql, id, right))
-    )
-      return id;
+    if ((await agentIdentity(sql, id)).config.role === "admin") return id;
   }
   return null;
 }
@@ -67,6 +61,7 @@ export async function collaborationNeedsApproval(
   const sender = await agentIdentity(sql, senderId);
   const target = await agentIdentity(sql, targetId);
   if (sender.canvas_id !== target.canvas_id) return true;
+  if (!report && sender.config.role === "admin") return false;
   if (await commonTeamManager(sql, senderId, targetId)) return false;
   const left = (await grantsFor(sql, senderId)).filter((g) => g.resource_kind !== "agent");
   const right = (await grantsFor(sql, targetId)).filter((g) => g.resource_kind !== "agent");

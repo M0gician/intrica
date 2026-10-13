@@ -33,6 +33,7 @@ export type Run = {
 };
 export type Lease = Run & { attemptId: string };
 export class RunStore {
+  media?: import("../../adapters/storage/media.js").MediaStore;
   readonly settings: ExecutionSettingsStore;
   constructor(
     readonly db: Database,
@@ -89,6 +90,7 @@ export class RunStore {
         (await this.chargeActivation(tx, group.cause_id));
       await tx.query(
         `update messages set run_id=case when $3 then $4 else null end,
+         expedite_run_id=case when $3 and expedite_requested_at is not null then $4 else expedite_run_id end,
          content=case when $3 then content else content||'{"activationBlocked":true}'::jsonb end
          where conversation_id=$1 and seq=any($2::bigint[])`,
         [run.subject_id, group.seqs, admitted, run.id],
@@ -111,6 +113,16 @@ export class RunStore {
   ): Promise<Run> {
     let blocked = false;
     if (input.kind === "conversation") {
+      const agent = (
+        await tx.query(
+          "select a.node_id,a.paused from conversations c join agent_configs a on a.node_id=c.agent_id where c.id=$1",
+          [input.subjectId],
+        )
+      ).rows[0];
+      if (agent?.paused && !input.userInitiated)
+        throw new DomainError("AGENT_PAUSED", "Agent 已暂停自动协作；用户恢复后处理信箱");
+      if (agent?.paused && input.userInitiated)
+        await tx.query("update agent_configs set paused=false where node_id=$1", [agent.node_id]);
       const barrier = await this.conversationBarrier(input.subjectId, tx);
       blocked = barrier.unknown;
       if (barrier.paused) {
@@ -142,6 +154,7 @@ export class RunStore {
         if (
           prior.state === "waiting" &&
           (prior.reason === "message" ||
+            prior.reason === "inbox_review" ||
             prior.reason === "approval" ||
             (["turn_limit", "unknown"].includes(prior.reason) && input.userInitiated))
         ) {
@@ -348,7 +361,15 @@ export class RunStore {
           `update runs set cancel_requested_at=now(),state=case when state='running' then state else 'cancelled' end,reason=${cancellationReason},updated_at=now() where id=$1`,
           [runId],
         );
+        await tx.query(
+          "update agent_configs set paused=true where node_id=(select agent_id from conversations where id=$1)",
+          [current.subject_id],
+        );
         await cancelApprovals(tx, [runId]);
+        await tx.query(
+          "update message_deliveries set state='cancelled',version=version+1,updated_at=now() where sender_conversation_id=$1 and state='open'",
+          [current.subject_id],
+        );
         await canvasEvent(tx, run.canvas_id, "run.changed", {
           id: runId,
           state: current.state === "running" ? "running" : "cancelled",

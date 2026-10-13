@@ -34,6 +34,8 @@ jobs:
     timeout-minutes: 20
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      INTRICA_UPGRADE_DISPOSABLE: "1"
+      APPIMAGE_EXTRACT_AND_RUN: "1"
       FROM_VERSION: ${{ inputs.from }}
       TO_VERSION: ${{ inputs.to }}
     steps:

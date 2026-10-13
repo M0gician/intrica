@@ -1,6 +1,6 @@
 -- Intrica protocol 2. This schema never reads or alters the previous public tables.
-CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=10), models_initialized boolean NOT NULL DEFAULT false);
-INSERT INTO schema_info(version) VALUES (10) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=16), models_initialized boolean NOT NULL DEFAULT false);
+INSERT INTO schema_info(version) VALUES (16) ON CONFLICT DO NOTHING;
 CREATE TABLE canvases (
  id text PRIMARY KEY, title text NOT NULL, graph_revision integer NOT NULL DEFAULT 0,
  event_seq bigint NOT NULL DEFAULT 0,
@@ -9,6 +9,7 @@ CREATE TABLE canvases (
 CREATE TABLE assets (
  id text PRIMARY KEY, content_hash text NOT NULL UNIQUE, storage_key text NOT NULL,
  mime text NOT NULL, bytes integer NOT NULL, width integer NOT NULL, height integer NOT NULL,
+ last_used_at timestamptz NOT NULL DEFAULT now(),
  state text NOT NULL CHECK (state IN ('ready','deleting')), created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE nodes (
@@ -49,7 +50,7 @@ CREATE TABLE canvas_events (
 );
 CREATE TABLE agent_configs (
  node_id text PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
- config jsonb NOT NULL, enabled boolean NOT NULL DEFAULT false
+ config jsonb NOT NULL, enabled boolean NOT NULL DEFAULT true, paused boolean NOT NULL DEFAULT false
 );
 CREATE TABLE conversations (
  id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id), agent_id text UNIQUE REFERENCES agent_configs(node_id) ON DELETE SET NULL,
@@ -59,7 +60,7 @@ CREATE TABLE conversations (
 CREATE TABLE messages (
  conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, seq bigint NOT NULL,
  client_message_id text NOT NULL, role text NOT NULL, content jsonb NOT NULL,
- run_id text, consumed_run_id text, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(conversation_id,seq),
+ run_id text, consumed_run_id text, consumed_at timestamptz, expedite_requested_at timestamptz, expedite_run_id text, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(conversation_id,seq),
  UNIQUE(conversation_id,client_message_id)
 );
 CREATE TABLE runs (
@@ -95,11 +96,12 @@ CREATE TABLE proposals (
 CREATE INDEX proposals_canvas ON proposals(canvas_id,created_at DESC);
 CREATE TABLE tool_calls (
  id text PRIMARY KEY, run_id text NOT NULL REFERENCES runs(id), attempt_id text NOT NULL REFERENCES attempts(id),
+ schema_version integer NOT NULL DEFAULT 5,
  logical_call_id text NOT NULL, name text NOT NULL, args jsonb NOT NULL, args_hash text NOT NULL,
  effect_class text NOT NULL CHECK(effect_class IN ('read','graph','external')),
  state text NOT NULL CHECK(state IN ('prepared','dispatching','succeeded','failed','unknown','waiting')),
  is_async boolean NOT NULL DEFAULT false, delivered_at timestamptz, next_notice_at timestamptz, notice_count integer NOT NULL DEFAULT 0,
- result jsonb, approval_id text, execution_input jsonb, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+ result jsonb, approval_id text, execution_input jsonb, dispatched_at timestamptz, completed_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
  UNIQUE(run_id,logical_call_id)
 );
 CREATE INDEX tool_calls_pending ON tool_calls(run_id) WHERE is_async AND delivered_at IS NULL;
@@ -107,6 +109,7 @@ CREATE INDEX tool_calls_dispatching ON tool_calls(run_id) WHERE state='dispatchi
 CREATE TABLE grants (
  id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id), subject_id text NOT NULL REFERENCES agent_configs(node_id) ON DELETE CASCADE,
  resource_id text NOT NULL, mode text NOT NULL CHECK(mode IN ('read','write')),
+ execution_mode text NOT NULL DEFAULT 'none' CHECK(execution_mode IN ('none','isolated','host')),
  source_link_id text NOT NULL REFERENCES edges(id) ON DELETE CASCADE,
  version integer NOT NULL DEFAULT 1, delegated_by text, UNIQUE NULLS NOT DISTINCT(subject_id,resource_id,delegated_by)
 );
@@ -115,7 +118,7 @@ CREATE TABLE approvals (
  id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id), subject_id text NOT NULL,
  origin_call_id text REFERENCES tool_calls(id), action jsonb NOT NULL,
  complete_tool boolean NOT NULL DEFAULT false, basis jsonb NOT NULL, execution_basis jsonb,
- status text NOT NULL CHECK(status IN ('pending','approved','denied','cancelled','expired','invalidated')),
+ status text NOT NULL CHECK(status IN ('pending','approved','satisfied','denied','cancelled','expired','invalidated')),
  version integer NOT NULL DEFAULT 1, assigned_reviewer_id text, review_due_at timestamptz,
  route_reason text NOT NULL DEFAULT 'user', expires_at timestamptz NOT NULL,
  decided_by text, reason text NOT NULL, decision text, decided_at timestamptz, result jsonb,
@@ -128,7 +131,10 @@ CREATE TABLE schedules (
  id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id), agent_id text NOT NULL REFERENCES agent_configs(node_id) ON DELETE CASCADE,
  kind text NOT NULL CHECK(kind IN ('cron','resource_change')), next_due_at timestamptz NOT NULL,
  timezone text NOT NULL DEFAULT 'UTC', spec jsonb NOT NULL, dedupe_key text NOT NULL UNIQUE,
- enabled boolean NOT NULL DEFAULT true
+ enabled boolean NOT NULL DEFAULT true,
+ revision bigint NOT NULL DEFAULT 1,
+ dispatch_state text NOT NULL DEFAULT 'pending' CHECK(dispatch_state IN ('pending','blocked','delivered','cancelled')),
+ blocked_reason text, delivery_seq bigint, delivery_run_id text
 );
 CREATE INDEX schedules_due ON schedules(next_due_at) WHERE enabled;
 CREATE TABLE model_endpoints (
@@ -150,8 +156,44 @@ CREATE TABLE model_calls (
  endpoint_id text, profile_id text, provider text NOT NULL, model_id text NOT NULL, protocol text NOT NULL,
  purpose text NOT NULL, simulated boolean NOT NULL DEFAULT false,
  started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz,
+ provider_request_id text, response_id text, request_id text, first_response_at timestamptz,
+ last_response_at timestamptz, response_phase text NOT NULL DEFAULT 'awaiting_response',
  outcome text NOT NULL DEFAULT 'unconfirmed', usage_status text NOT NULL DEFAULT 'unavailable',
  input_tokens bigint, output_tokens bigint, cache_read_tokens bigint, cache_write_tokens bigint
 );
 CREATE INDEX model_calls_time ON model_calls(started_at);
 CREATE INDEX model_calls_canvas_time ON model_calls(canvas_id,started_at);
+
+CREATE TABLE media_references (
+ id text PRIMARY KEY, asset_id text NOT NULL REFERENCES assets(id),
+ conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+ tool_call_id text REFERENCES tool_calls(id) ON DELETE CASCADE,
+ created_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE NULLS NOT DISTINCT(asset_id,conversation_id,tool_call_id)
+);
+CREATE INDEX media_references_scope ON media_references(conversation_id);
+
+CREATE TABLE message_deliveries (
+ id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id),
+ sender_conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+ recipient_conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+ sender_agent_id text, recipient_agent_id text NOT NULL,
+ origin_call_id text REFERENCES tool_calls(id), inbox_message_id text NOT NULL,
+ source_message_id text NOT NULL, cause_id text NOT NULL REFERENCES runs(id),
+ expect_reply boolean NOT NULL DEFAULT false, unread_deadline_at timestamptz NOT NULL,
+ unread_notified_at timestamptz, snoozed_until timestamptz, tracking_stopped boolean NOT NULL DEFAULT false,
+ expedited_at timestamptz, expedited_by text, expedite_message_id text,
+ state text NOT NULL DEFAULT 'open' CHECK(state IN ('open','replied','cancelled')),
+ deadline_at timestamptz NOT NULL, notified_at timestamptz,
+ version integer NOT NULL DEFAULT 1, notice_count integer NOT NULL DEFAULT 0,
+ reply_call_id text REFERENCES tool_calls(id),
+ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(sender_conversation_id,source_message_id,recipient_conversation_id)
+);
+CREATE INDEX message_deliveries_due ON message_deliveries(deadline_at) WHERE state='open' AND notified_at IS NULL;
+CREATE TABLE inbox_reviews (
+ conversation_id text PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+ token text NOT NULL, fingerprint text NOT NULL, inspection_token text, inspection_fingerprint text, reviewed_seq bigint NOT NULL DEFAULT 0, reviewed_at timestamptz NOT NULL DEFAULT now(), decisions jsonb NOT NULL DEFAULT '[]'
+);
+
+CREATE INDEX message_deliveries_unread_due ON message_deliveries(unread_deadline_at) WHERE state='open' AND NOT tracking_stopped AND unread_notified_at IS NULL;

@@ -49,7 +49,16 @@ export function DesktopUpdateProvider({ children }: { children: ReactNode }) {
           clearTimeout(timer);
           timer = setTimeout(
             () => void refresh(),
-            ["checking", "downloading"].includes(next?.phase ?? "") ? 750 : 15_000,
+            [
+              "checking",
+              "downloading",
+              "verifying",
+              "installing",
+              "restarting",
+              "validating",
+            ].includes(next?.phase ?? "")
+              ? 750
+              : 15_000,
           );
         }
       }

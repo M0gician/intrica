@@ -198,7 +198,7 @@ test("输入区权限、能力入口与肖像重新生成保存", async ({ page,
   await expect(page.getByRole("dialog", { name: "Agent 访问权限", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Agent 访问权限" })).toContainText("读写");
   await page.getByRole("button", { name: "Agent 能力与设置" }).click();
-  await page.getByRole("switch", { name: "持续协作" }).check();
+  await page.getByRole("switch", { name: "自动响应资源变化" }).check();
   await page.getByText("可用工具", { exact: true }).click();
   await expect(page.getByText("网页搜索", { exact: true })).toBeVisible();
   const axe = await new AxeBuilder({ page })

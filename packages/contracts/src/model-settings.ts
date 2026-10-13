@@ -104,3 +104,26 @@ export type ManagedModelInput = Omit<ModelProfileInput, "baseUrl" | "apiKey"> & 
   expectedRevision?: number;
 };
 export type ModelDirectory = ModelSettingsView & { endpoints: ModelEndpointView[] };
+
+/** Configuration readiness only; network/provider health is checked by an actual request. */
+export function effectiveModel(
+  directory: ModelDirectory | null | undefined,
+  selection?: ModelSelection | null,
+) {
+  if (!directory) return { ready: false, reason: "loading" as const };
+  const id = selection?.profileId ?? directory.selectedId;
+  const profile = directory.profiles.find((p) => p.id === id);
+  if (!profile)
+    return { ready: false, reason: id ? ("missing_model" as const) : ("no_selection" as const) };
+  const endpoint = directory.endpoints.find((e) => e.id === profile.endpointId);
+  if (
+    !endpoint?.baseUrl ||
+    !profile.modelId?.trim() ||
+    !profile.provider?.trim() ||
+    !MODEL_PROTOCOLS.includes(profile.api)
+  )
+    return { ready: false, reason: "missing_endpoint" as const };
+  if (!profile.thinkingLevels.includes(selection?.thinkingLevel ?? profile.thinkingLevel))
+    return { ready: false, reason: "invalid_selection" as const };
+  return { ready: true, profile, endpoint };
+}

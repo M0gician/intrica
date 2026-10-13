@@ -29,7 +29,6 @@ assert.ok(
   modes.every((mode) => ["web", "desktop"].includes(mode)),
   "Unknown matrix mode",
 );
-process.env.MODEL_KIND = "mock";
 
 async function ready(page, server) {
   await expect(
@@ -113,7 +112,7 @@ for (const mode of modes) {
         await page.getByLabel("访问令牌", { exact: true }).waitFor();
         await ready(page, a);
       } else {
-        const env = { ...process.env, MODEL_KIND: "mock", INTRICA_DESKTOP_PORT: "0" };
+        const env = { ...process.env, INTRICA_DESKTOP_PORT: "0" };
         for (const key of [
           "ELECTRON_RUN_AS_NODE",
           "INTRICA_SERVER_URL",
@@ -151,15 +150,19 @@ for (const mode of modes) {
           await page.getByRole("button", { name: "打开侧栏", exact: true }).click();
         await sidebar.getByRole("button", { name: "文件", exact: true }).click();
         const files = sidebar.locator(".files-panel");
-        await expect(files.locator("button.file-location")).toHaveAttribute("title", home.path);
+        await expect(files.locator("button.file-location")).toHaveAttribute(
+          "title",
+          workspace.canvasRoot,
+        );
         await files.getByRole("button", { name: "查看文件位置", exact: true }).click();
         let locations = page.getByRole("dialog", { name: "文件位置", exact: true });
-        await expect(locations.getByText(workspace.path, { exact: true })).toBeVisible();
+        await locations.getByText("完整路径与连接", { exact: true }).click();
+        await expect(locations.getByText(workspace.canvasRoot, { exact: true })).toBeVisible();
         await locations.getByRole("button", { name: "画布工作目录", exact: true }).click();
         await expect(locations).toHaveCount(0);
         await expect(files.locator("button.file-location")).toHaveAttribute(
           "title",
-          workspace.path,
+          workspace.canvasRoot,
         );
         await files.getByRole("button", { name: "查看文件位置", exact: true }).click();
         locations = page.getByRole("dialog", { name: "文件位置", exact: true });
@@ -178,7 +181,7 @@ for (const mode of modes) {
           await verifyMatrixPdf(page, call, journey.board, expect, label);
         report.checks.push(
           `${label}: nested resources, 3 Agents, ordinary messages, real artifacts, paginated evidence, exact media bytes, active-server terminal`,
-          `${label}: file browser defaults to the server account home, reveals the canvas shared directory, and navigates both shortcuts through real file APIs`,
+          `${label}: file browser defaults to the canvas root and navigates canvas/home shortcuts through real file APIs`,
         );
         if (process.env.INTRICA_MATRIX_PDF !== "0")
           report.checks.push(

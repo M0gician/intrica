@@ -125,7 +125,7 @@ test("长会话底部首次打开职责即聚焦，广播按接收者筛选且�
   );
   await openBoard(page, root.title);
   await page.locator(`[data-node-id="${a.id}"]`).dblclick();
-  await expect(page.locator(".agent-event-broadcast")).toContainText("广播给 2 位 Agent");
+  await expect(page.locator(".agent-event-broadcast")).toContainText("发给 华生、灰原哀");
   await page.getByRole("button", { name: "Agent 能力与设置" }).click();
   await page.getByRole("button", { name: "性格与职责 编辑 ↗" }).click();
   const field = page.getByLabel("Agent 性格与职责");

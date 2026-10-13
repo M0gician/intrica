@@ -79,12 +79,16 @@ test("源码直接编辑、自动保存、Markdown 与 HTML 预览、复制图�
     el.scrollLeft = 250;
   });
   await expect.poll(() => scroller.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
-  await editor.fill('<h1>HTML 预览</h1><script>document.body.innerHTML="不应执行"</script>');
+  await editor.fill('<h1>HTML 预览</h1><script>document.body.dataset.script="executed"</script>');
   await page.getByLabel("正文格式").selectOption("html");
   await page.getByRole("button", { name: "预览正文" }).click();
   const frame = page.frameLocator('iframe[title="HTML 预览"]');
   await expect(frame.getByRole("heading", { name: "HTML 预览" })).toBeVisible();
-  await expect(frame.getByText("不应执行", { exact: true })).toHaveCount(0);
+  await expect(frame.locator("body")).toHaveAttribute("data-script", "executed");
+  await expect(page.locator('iframe[title="HTML 预览"]')).not.toHaveAttribute(
+    "sandbox",
+    /allow-same-origin/,
+  );
   await expect(page.getByRole("navigation", { name: "画布路径" })).toContainText("我的画布");
   await expect(page.getByRole("navigation", { name: "画布路径" })).not.toContainText("根");
   await page.getByRole("button", { name: "更多", exact: true }).click();

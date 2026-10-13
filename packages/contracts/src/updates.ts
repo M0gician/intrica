@@ -16,7 +16,19 @@ export type DesktopUpdateState = {
   build?: BuildIdentity;
   version: string;
   packaged: boolean;
-  phase: "idle" | "checking" | "downloading" | "ready" | "error";
+  manualInstallRequired: boolean;
+  phase:
+    | "idle"
+    | "checking"
+    | "downloading"
+    | "ready"
+    | "verifying"
+    | "installing"
+    | "restarting"
+    | "validating"
+    | "complete"
+    | "error";
+  operation?: { id: string; targetVersion: string; phase: string; error?: string } | null;
   downloadedBytes: number;
   asset: ReleaseAsset | null;
   check: UpdateCheck | null;
@@ -31,6 +43,7 @@ export type DesktopUpdates = {
   check: () => Promise<DesktopUpdateState>;
   download: () => Promise<DesktopUpdateState>;
   cancel: () => Promise<DesktopUpdateState>;
+  install: () => Promise<DesktopUpdateState>;
   open: () => Promise<DesktopUpdateState>;
   configure: (
     preferences: Partial<DesktopUpdateState["preferences"]>,

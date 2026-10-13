@@ -39,9 +39,14 @@ vi.mock("../../features/conversations/AgentCollaboration", () => ({
 
 afterEach(cleanup);
 
+const paths = (canvasRoot: string) => ({
+  canvasRoot,
+  sharedRoot: `${canvasRoot}/shared`,
+  agentRoots: [],
+});
 function rootResult() {
-  let resolve!: (value: { path: string }) => void;
-  const promise = new Promise<{ path: string }>((done) => {
+  let resolve!: (value: ReturnType<typeof paths>) => void;
+  const promise = new Promise<ReturnType<typeof paths>>((done) => {
     resolve = done;
   });
   return { promise, resolve };
@@ -86,11 +91,11 @@ it("starts at server home without waiting for the workspace root and never overw
   expect((await screen.findByTestId("files")).dataset.root).toBe("~");
   fireEvent.click(screen.getByRole("button", { name: "Choose directory" }));
   await act(async () => {
-    root.resolve({ path: "/beta/canvas-a/shared" });
+    root.resolve(paths("/beta/canvas-a"));
     await root.promise;
   });
   expect(screen.getByTestId("files").dataset.root).toBe("/chosen/directory");
-  expect(screen.getByTestId("files").dataset.workspace).toBe("/beta/canvas-a/shared");
+  expect(screen.getByTestId("files").dataset.workspace).toBe("/beta/canvas-a");
 });
 
 it("preserves explicit directory targets and direct file previews across workspace discovery", async () => {
@@ -113,7 +118,7 @@ it("preserves explicit directory targets and direct file previews across workspa
   expect(screen.getByTestId("files").dataset.root).toBe("/chosen");
   expect(screen.getByTestId("files").dataset.file).toBe("/chosen/report.pdf");
   await act(async () => {
-    root.resolve({ path: "/beta/canvas-a/shared" });
+    root.resolve(paths("/beta/canvas-a"));
     await root.promise;
   });
   expect(screen.getByTestId("files").dataset.root).toBe("/chosen");
@@ -135,28 +140,28 @@ it("isolates navigation and late workspace results across canvases and servers",
   expect(screen.getByTestId("files").dataset.root).toBe("~");
   expect(screen.getByTestId("files").dataset.workspace).toBe("");
   await act(async () => {
-    nextCanvasRoot.resolve({ path: "/beta/canvas-b/shared" });
+    nextCanvasRoot.resolve(paths("/beta/canvas-b"));
     await nextCanvasRoot.promise;
   });
   await act(async () => {
-    oldRoot.resolve({ path: "/beta/canvas-a/shared" });
+    oldRoot.resolve(paths("/beta/canvas-a"));
     await oldRoot.promise;
   });
-  expect(screen.getByTestId("files").dataset.workspace).toBe("/beta/canvas-b/shared");
+  expect(screen.getByTestId("files").dataset.workspace).toBe("/beta/canvas-b");
   fireEvent.click(screen.getByRole("button", { name: "Choose directory" }));
   view.rerender(second.wrap(<WorkspacePanel {...props} canvasId="canvas-b" />));
   expect(screen.getByTestId("files").dataset.root).toBe("~");
   expect(screen.getByTestId("files").dataset.workspace).toBe("");
   await act(async () => {
-    nextServerRoot.resolve({ path: "/another/canvas-b/shared" });
+    nextServerRoot.resolve(paths("/another/canvas-b"));
     await nextServerRoot.promise;
   });
-  expect(screen.getByTestId("files").dataset.workspace).toBe("/another/canvas-b/shared");
+  expect(screen.getByTestId("files").dataset.workspace).toBe("/another/canvas-b");
 });
 
 it("retains the canvas workspace as the terminal default but honors explicit file navigation", async () => {
   const remote = host("beta");
-  remote.request.mockResolvedValue({ path: "/beta/canvas-a/shared" });
+  remote.request.mockResolvedValue(paths("/beta/canvas-a"));
   const props = panelProps();
   const view = render(remote.wrap(<WorkspacePanel {...props} mode="terminal" />));
   expect((await screen.findByTestId("terminal")).dataset.cwd).toBe("/beta/canvas-a/shared");
