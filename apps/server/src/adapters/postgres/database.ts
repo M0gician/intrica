@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
+export const SCHEMA_VERSION = 14;
+
 export type Tx = pg.PoolClient;
 export type Sql = Pick<pg.Pool, "query">;
 export class DomainError extends Error {
@@ -181,7 +183,13 @@ export class Database {
           );
           version = 13;
         }
-        if (version !== 13) throw new Error("不支持此数据库版本，请使用独立数据库");
+        if (version === 13) {
+          await tx.query(
+            await readFile(join(dirname(path), "migrations/0014-message-hooks.sql"), "utf8"),
+          );
+          version = 14;
+        }
+        if (version !== SCHEMA_VERSION) throw new Error("不支持此数据库版本，请使用独立数据库");
         return;
       }
       await tx.query(await readFile(path, "utf8"));

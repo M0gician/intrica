@@ -145,6 +145,25 @@ export class AccessService {
     )
       return;
     if (prior?.status === "pending") return result({ status: "pending", requestId: prior.id });
+    if (["role", "resource", "path"].includes(intent.kind)) {
+      const pending = (
+        await tx.query(
+          "select id,action,basis from approvals where subject_id=$1 and status='pending' order by created_at",
+          [actor.agentId],
+        )
+      ).rows;
+      const duplicate = pending.find(
+        (r) =>
+          digest(operation(r.action)) === digest(operation(intent)) &&
+          digest(r.basis) === digest(basis),
+      );
+      if (duplicate)
+        throw new DomainError("APPROVAL_PENDING", "相同权限申请正在处理；等待原申请结果后再继续", {
+          requestId: duplicate.id,
+          hook: "list_access_requests",
+          nextAction: "查看原 requestId；不要重复申请。",
+        });
+    }
     const reviewer = await reviewerFor(tx, actor.agentId, intent);
     const request = (
       await tx.query(
@@ -670,7 +689,12 @@ export class AccessService {
       };
     });
     if ("conflict" in response)
-      throw new DomainError("VERSION_CONFLICT", `申请已变化（${response.status}），请重新载入`);
+      throw new DomainError("VERSION_CONFLICT", `申请当前状态为 ${response.status}，此审查未执行`, {
+        requestId,
+        status: response.status,
+        nextAction:
+          "用 list_access_requests 查询此 requestId 的当前版本；仅审查 pending 项。satisfied 表示权限已满足，可继续原任务。",
+      });
     return response;
   }
 

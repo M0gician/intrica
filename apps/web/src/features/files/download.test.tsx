@@ -158,3 +158,51 @@ it("browser handoff reports browser ownership instead of pretending to know nati
   expect(click).toHaveBeenCalledOnce();
   expect(screen.queryByText("在文件管理器中显示")).toBeNull();
 });
+
+it("浏览器通过当前认证连接获取原始字节并使用文件名下载", async () => {
+  const connection = createSessionConnection("https://private-server", "auth-download");
+  const bytes = new Uint8Array([71, 73, 70, 56, 57, 97]);
+  const response = new Response(bytes);
+  connection.transport.fetch = vi.fn().mockResolvedValue(response);
+  const object = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:download-result");
+  let saved: HTMLAnchorElement | undefined;
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    saved = this;
+  });
+  render(
+    <ConnectionServices.Provider value={connection}>
+      <Fixture />
+    </ConnectionServices.Provider>,
+  );
+  fireEvent.click(screen.getByText("Save"));
+  await screen.findByText("已交给浏览器下载，请在浏览器下载列表查看进度和保存位置。");
+  expect(connection.transport.fetch).toHaveBeenCalledWith(
+    "/api/v2/workspace/download?path=%2Fsrv%2Freport.pdf",
+    expect.objectContaining({ method: "GET", signal: expect.any(AbortSignal) }),
+  );
+  expect(saved?.href).toBe("blob:download-result");
+  expect(saved?.download).toBe("report.pdf");
+  const blob = object.mock.calls[0]![0] as Blob;
+  expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes);
+});
+
+it("下载失败显示服务器返回的确切原因", async () => {
+  const connection = createSessionConnection("", "denied-download");
+  connection.transport.fetch = vi
+    .fn()
+    .mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: { code: "FORBIDDEN", message: "没有此交付文件的读取权限" } }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+  render(
+    <ConnectionServices.Provider value={connection}>
+      <Fixture />
+    </ConnectionServices.Provider>,
+  );
+  fireEvent.click(screen.getByText("Save"));
+  expect((await screen.findByRole("alert")).textContent).toContain("没有此交付文件的读取权限");
+});

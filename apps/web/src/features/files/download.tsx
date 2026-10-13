@@ -1,4 +1,4 @@
-import { newId } from "@intrica/client";
+import { newId, parseError } from "@intrica/client";
 import type { FileDownloadProgress, FileDownloadSource } from "@intrica/contracts";
 import { useSyncExternalStore } from "react";
 import { type SessionConnection, useSessionConnection } from "../../api/connection";
@@ -20,6 +20,7 @@ const downloads = new WeakMap<SessionConnection, ReturnType<typeof createDownloa
 function createDownload(connection: SessionConnection) {
   let state: DownloadState | null = null;
   let active: string | null = null;
+  let browserAbort: AbortController | undefined;
   let restoreTimer: ReturnType<typeof setInterval> | undefined;
   const listeners = new Set<() => void>();
   const emit = (value: DownloadState | null) => {
@@ -63,6 +64,7 @@ function createDownload(connection: SessionConnection) {
     "abort",
     () => {
       if (active) void bridge?.cancel(active);
+      browserAbort?.abort();
       active = null;
       emit(null);
     },
@@ -117,26 +119,35 @@ function createDownload(connection: SessionConnection) {
               : source.path !== undefined
                 ? `/api/v2/workspace/download?path=${encodeURIComponent(source.path)}`
                 : `/api/v2/assets/${encodeURIComponent(source.assetId)}`;
-          const response = await connection.transport.fetch(url, { method: "HEAD" });
-          if (!response.ok) throw new Error(tr("下载失败（HTTP {{v0}}）", { v0: response.status }));
+          browserAbort = new AbortController();
+          const response = await connection.transport.fetch(url, {
+            method: "GET",
+            signal: AbortSignal.any([connection.signal, browserAbort.signal]),
+          });
+          if (!response.ok) throw await parseError(response);
+          const blob = await response.blob();
           connection.signal.throwIfAborted();
+          const objectUrl = URL.createObjectURL(blob);
           const link = document.createElement("a");
-          link.href = connection.assetUrl(url);
+          // Fetch through the authenticated connection, including bearer credentials.
+          link.href = objectUrl;
           link.download = source.name;
           document.body.append(link);
           link.click();
           link.remove();
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
           if (state?.id === id) emit({ ...state, phase: "browser" });
         }
       } catch (error) {
         if (!connection.signal.aborted && state?.id === id)
           emit({
             ...state,
-            phase: "error",
+            phase: browserAbort?.signal.aborted ? "cancelled" : "error",
             error: error instanceof Error ? error.message : String(error),
           });
       } finally {
         clearInterval(timer);
+        browserAbort = undefined;
         if (active === id) active = null;
       }
     },
@@ -146,7 +157,10 @@ function createDownload(connection: SessionConnection) {
     expand: () => {
       if (state) emit({ ...state, closed: false });
     },
-    cancel: () => (active ? bridge?.cancel(active) : undefined),
+    cancel: () => {
+      browserAbort?.abort();
+      return active ? bridge?.cancel(active) : undefined;
+    },
     async reveal() {
       if (state?.phase !== "complete") return;
       const id = state.id;

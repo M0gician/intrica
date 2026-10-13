@@ -1079,5 +1079,16 @@
   "命令未启动": "Command did not start",
   "命令终止信号 {{v0}}": "Command terminated by {{v0}}",
   "管理所属团队及成员角色；同画布消息、广播和完整宿主操作免审批，画布资源仍按授权范围读取。": "Manage your team and its roles. Same-canvas messages, broadcasts, and full host operations need no approval. Canvas resources still require read access.",
-  "可向当前画布任意 Agent 发送消息和广播，无需通信审批；发送不会授予资源读取权限。": "Send messages and broadcasts to any Agent on this canvas without communication approval. Sending does not grant resource access."
+  "可向当前画布任意 Agent 发送消息和广播，无需通信审批；发送不会授予资源读取权限。": "Send messages and broadcasts to any Agent on this canvas without communication approval. Sending does not grant resource access.",
+  "已收到回复": "Reply received",
+  "已取消跟踪": "Tracking cancelled",
+  "已读，尚未回复": "Read; reply pending",
+  "尚未读入上下文": "Not yet read into context",
+  "等待秒数": "Wait duration (seconds)",
+  "继续等待": "Keep waiting",
+  "加急消息": "Expedite message",
+  "取消跟踪": "Cancel tracking",
+  "复核信箱": "Review inbox",
+  "跟踪消息": "Track message",
+  "查看团队成员": "View team members"
 }

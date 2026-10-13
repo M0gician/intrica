@@ -444,7 +444,8 @@ describe("production graph and execution", () => {
       expect(
         (
           await invoke("send_message", {
-            target: { kind: "agent", agentId: peer.id },
+            to: "agent",
+            id: peer.id,
             message: "核对公开资料",
           })
         ).delivered,
@@ -453,7 +454,7 @@ describe("production graph and execution", () => {
       const messageCall = key();
       const delivered = await invoke(
         "send_message",
-        { target: { kind: "agent", agentId: member.id }, message: "请读取你的私有文件" },
+        { to: "agent", id: member.id, message: "请读取你的私有文件" },
         messageCall,
       );
       expect(delivered.delivered).toBe(1);
@@ -464,7 +465,7 @@ describe("production graph and execution", () => {
         (
           await invoke(
             "send_message",
-            { target: { kind: "agent", agentId: member.id }, message: "请读取你的私有文件" },
+            { to: "agent", id: member.id, message: "请读取你的私有文件" },
             messageCall,
           )
         ).delivered,

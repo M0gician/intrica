@@ -23,6 +23,36 @@ const activityFilter = (query: { selection?: string; groupId?: string }) => ({
   groupId: query.groupId,
 });
 export function registerConversations(app: AppInstance, k: Kernel) {
+  app.get("/api/v2/message-requests/:id", { schema: { params } }, (req) =>
+    k.tools.messages.status(req.params.id),
+  );
+  app.post(
+    "/api/v2/message-requests/:id",
+    {
+      schema: {
+        params,
+        body: Type.Object(
+          {
+            action: Type.Union([
+              Type.Literal("wait"),
+              Type.Literal("expedite"),
+              Type.Literal("cancel"),
+            ]),
+            version: Type.Integer({ minimum: 1 }),
+            waitSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 604800 })),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    (req) =>
+      k.tools.messages.updateForOwner(
+        req.params.id,
+        req.body.action,
+        req.body.waitSeconds ?? 120,
+        req.body.version,
+      ),
+  );
   app.get("/api/v2/conversations/:id/trace", { schema: { params } }, (req, reply) => {
     reply.header("Cache-Control", "no-store");
     return conversationTrace(k.db, req.params.id);

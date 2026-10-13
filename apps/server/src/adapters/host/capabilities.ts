@@ -6,7 +6,7 @@ import { Type } from "typebox";
 import { type ExecutionTool, result } from "../../modules/execution/tool-calls.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
 import { DomainError } from "../postgres/database.js";
-import { cleanEnvironment, isolationAvailable } from "./sandbox.js";
+import { browserRuntimes, cleanEnvironment, isolationAvailable } from "./sandbox.js";
 
 export async function hostCapabilities() {
   const skills: Array<{ name: string; path: string }> = [];
@@ -32,7 +32,20 @@ export async function hostCapabilities() {
         break;
       }
     }
+  if (!commands.some((c) => c.name === "node"))
+    commands.push({ name: "node", path: process.execPath });
   return {
+    runtime: {
+      node: process.execPath,
+      nodeInvocation: process.versions.electron
+        ? `ELECTRON_RUN_AS_NODE=1 "${process.execPath}"`
+        : process.execPath,
+    },
+    browser: {
+      readableDistributions: await browserRuntimes(),
+      profile:
+        "Prefer Chromium headless_shell for scoped automation. Use --user-data-dir inside your workspace; run headless with --no-sandbox only inside Intrica OS isolation if Chromium cannot nest its sandbox.",
+    },
     skills,
     commands,
     isolation: await isolationAvailable(),

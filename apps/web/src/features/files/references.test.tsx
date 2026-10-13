@@ -51,7 +51,7 @@ it("resolves Unicode local Markdown images through source permissions and blocks
   });
 });
 
-it("isolates HTML while resolving local images relative to the document, with no active content", async () => {
+it("isolates HTML while resolving local images relative to the document, with scripts in an opaque origin", async () => {
   const connection = createSessionConnection("", "html");
   connection.transport.request = vi.fn(async () => file("html")) as any;
   render(
@@ -68,8 +68,8 @@ it("isolates HTML while resolving local images relative to the document, with no
   await waitFor(() =>
     expect(frame.getAttribute("srcdoc")).toContain("data:image/png;base64,aW1hZ2U="),
   );
-  expect(frame.getAttribute("sandbox")).toBe("");
-  expect(frame.getAttribute("srcdoc")).not.toContain("<script>");
+  expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-pointer-lock");
+  expect(frame.getAttribute("srcdoc")).toContain("<script>bad()</script>");
   expect(frame.getAttribute("srcdoc")).not.toContain("<base");
   expect(connection.transport.request).toHaveBeenCalledTimes(1);
 });

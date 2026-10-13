@@ -24,6 +24,7 @@ import {
   canonicalPath,
   cleanEnvironment,
   isolationAvailable,
+  prepareRuntime,
   protections,
   type Root,
   runProcess,
@@ -42,6 +43,7 @@ export class HostExecutor {
   async workspace(canvasId: string, agentId?: string) {
     const p = join(this.dataDir, "workspaces", canvasId, agentId ?? "shared");
     await mkdir(join(p, ".tmp"), { recursive: true, mode: 0o700 });
+    await prepareRuntime(p);
     return canonicalPath(p);
   }
   async protectedPath(path: string, write = false) {

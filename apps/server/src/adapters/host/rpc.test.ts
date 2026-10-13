@@ -58,3 +58,52 @@ test("downloads raw binary beyond preview/RPC limits and closes cancelled stream
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("scoped commands cannot connect to the private owner RPC socket", async (context) => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { mkdir, realpath, symlink } = await import("node:fs/promises");
+  const { buildSandboxCommand, cleanEnvironment } = await import("./sandbox.js");
+  const root = await realpath(await mkdtemp(join(tmpdir(), "intrica-rpc-isolation-")));
+  const home = join(root, "workspace");
+  await mkdir(join(home, ".tmp"), { recursive: true });
+  const call = vi.fn(async () => ({ marker: "fixture-only-owner-authority" }));
+  const server = await startHostServer(root, { call, close: vi.fn() } as unknown as OwnerHost);
+  try {
+    await symlink(socketPath(root), join(home, "owner-alias.sock"));
+    const program = `import{createConnection}from'node:net';import{link}from'node:fs/promises';const probe=path=>new Promise(resolve=>{const socket=createConnection(path);socket.on('error',e=>resolve(true));socket.on('connect',()=>socket.write(JSON.stringify({method:'ping',args:{}})+'\\n'));socket.on('data',()=>{resolve(false);socket.destroy();});});let hardlinkBlocked=true;try{await link(${JSON.stringify(socketPath(root))},${JSON.stringify(join(home, "hardlink.sock"))});hardlinkBlocked=await probe(${JSON.stringify(join(home, "hardlink.sock"))});}catch{}console.log(JSON.stringify({blocked:await probe(${JSON.stringify(socketPath(root))}),aliasBlocked:await probe(${JSON.stringify(join(home, "owner-alias.sock"))}),hardlinkBlocked}));`;
+    const spec = await buildSandboxCommand(
+      process.execPath,
+      ["--input-type=module", "-e", program],
+      [{ path: home, directory: true, write: true }],
+      home,
+      root,
+    );
+    if (!spec) return context.skip("Platform isolation unavailable");
+    const output = await promisify(execFile)(spec.command, spec.args, {
+      cwd: home,
+      env: cleanEnvironment(home),
+      timeout: 5000,
+    }).catch((error) => {
+      if (
+        process.platform === "linux" &&
+        /bwrap:[^\n]*(?:namespace|unshare)/i.test(String(error)) &&
+        /operation not permitted|permission denied/i.test(String(error))
+      ) {
+        context.skip("Host disables bubblewrap user namespaces");
+        return null;
+      }
+      throw error;
+    });
+    if (!output) return;
+    expect(JSON.parse(output.stdout)).toEqual({
+      blocked: true,
+      aliasBlocked: true,
+      hardlinkBlocked: true,
+    });
+    expect(call).not.toHaveBeenCalled();
+  } finally {
+    await server.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -29,8 +29,8 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
   const definition = tool(
     "read",
     text(
-      "Read a path (file or directory), canvas node, or indexed skillId (its catalog path). Permissions are separate for each target. Follow nextCursor to finish. line is one-based for file text; page is one-based for PDFs; frame is zero-based for images. Omit positions with cursor. mode=text omits images; image requires vision. Results preserve images and node revisions. No OCR.",
-      "读取路径（文件或目录）、画布节点或已索引 skillId（目录索引中的路径）。各目标分别检查权限。沿 nextCursor 续读。文件 line 和 PDF page 从 1 开始，图片 frame 从 0 开始；cursor 不能与定位字段混用。text 不渲染图片；image 需要视觉能力。保留图片及节点版本，不执行 OCR。",
+      "Read a path (file or directory), canvas node, or indexed skillId (its catalog path). Permissions are separate for each target. Follow nextCursor to finish. line is one-based for file text; page is one-based for PDFs; frame is zero-based and supported only for path images; use mode=auto for image nodes. Omit positions with cursor. mode=text omits images; image requires vision. Results preserve images and node revisions. No OCR.",
+      "读取路径（文件或目录）、画布节点或已索引 skillId（目录索引中的路径）。各目标分别检查权限。沿 nextCursor 续读。文件 line 和 PDF page 从 1 开始，frame 从 0 开始且仅用于 path 图片；图像节点使用 mode=auto；cursor 不能与定位字段混用。text 不渲染图片；image 需要视觉能力。保留图片及节点版本，不执行 OCR。",
     ),
     object({
       target: Type.Union([
@@ -47,7 +47,13 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
       cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 2048 })),
       line: Type.Optional(Type.Integer({ minimum: 1 })),
       page: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000 })),
-      frame: Type.Optional(Type.Integer({ minimum: 0, maximum: 10000 })),
+      frame: Type.Optional(
+        Type.Integer({
+          minimum: 0,
+          maximum: 10000,
+          description: "Only for target.kind=path images; image nodes use mode=auto.",
+        }),
+      ),
       mode: Type.Optional(
         Type.Union([Type.Literal("auto"), Type.Literal("text"), Type.Literal("image")]),
       ),
@@ -62,11 +68,22 @@ export function readTool(context: ToolContext, pathReader: ExecutionTool) {
     const kind: Kind = args.target.kind;
     if (args.cursor && [args.line, args.page, args.frame].some((v) => v !== undefined))
       throw new DomainError("VALIDATION", "cursor 不能与定位字段同时使用");
-    if (
-      (kind !== "path" && (args.line !== undefined || args.frame !== undefined)) ||
-      (kind === "skill" && (args.page !== undefined || args.mode !== undefined))
-    )
-      throw new DomainError("VALIDATION", "目标不接受此定位或显示选项");
+    if (kind !== "path" && args.frame !== undefined)
+      throw new DomainError(
+        "VALIDATION",
+        "frame 仅适用于 path 图像；读取 GIF 节点请移除 frame 并使用 mode=auto",
+        { path: "frame", nextAction: "移除 frame；保留原 nodeId 和 mode=auto。" },
+      );
+    if (kind !== "path" && args.line !== undefined)
+      throw new DomainError(
+        "VALIDATION",
+        "line 仅适用于 path 文本；节点使用 read 返回的 nextCursor",
+        { path: "line" },
+      );
+    if (kind === "skill" && (args.page !== undefined || args.mode !== undefined))
+      throw new DomainError("VALIDATION", "skill 目标仅使用 skillId 和 cursor", {
+        path: args.page !== undefined ? "page" : "mode",
+      });
     let input: Record<string, any> = {
       ...(kind === "node"
         ? { nodeId: args.target.nodeId }

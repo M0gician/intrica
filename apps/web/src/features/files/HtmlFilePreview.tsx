@@ -4,7 +4,7 @@ import { useSessionConnection } from "../../api/connection";
 import { tr } from "../../i18n";
 import { encodeFileReference, isLocalFile, isOwnerFileUrl } from "./reference";
 
-const prefix = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; navigate-to 'none';"><style>body{font:14px/1.6 system-ui;margin:20px;overflow-wrap:anywhere}img{max-width:100%}pre{overflow:auto}</style>`;
+const prefix = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https: http:; connect-src https: http:; style-src 'unsafe-inline' https: http:; img-src data: blob: https: http:; font-src data: https: http:; media-src data: blob: https: http:; worker-src blob:; base-uri 'none'; form-action 'none';"><style>body{font:14px/1.6 system-ui;margin:20px;overflow-wrap:anywhere}img{max-width:100%}pre{overflow:auto}</style>`;
 export function HtmlFilePreview({
   text,
   origin,
@@ -22,9 +22,7 @@ export function HtmlFilePreview({
     const template = document.createElement("template");
     template.innerHTML = text;
     // The frame stays sandboxed. Remove alternate resource/navigation channels too.
-    for (const element of template.content.querySelectorAll(
-      "script,base,meta,iframe,object,embed,source",
-    ))
+    for (const element of template.content.querySelectorAll("base,meta,iframe,object,embed"))
       element.remove();
     const images = [...template.content.querySelectorAll("img")];
     const paths = images.map((img) => img.getAttribute("src") ?? "");
@@ -43,6 +41,10 @@ export function HtmlFilePreview({
       for (let i = 0; i < images.length && !signal.aborted; i++) {
         const path = paths[i]!;
         if (/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,/i.test(path)) {
+          images[i]!.setAttribute("src", path);
+          continue;
+        }
+        if (/^https?:\/\//i.test(path) && !isOwnerFileUrl(path)) {
           images[i]!.setAttribute("src", path);
           continue;
         }
@@ -80,7 +82,9 @@ export function HtmlFilePreview({
   return (
     <iframe
       title={tr("HTML 预览")}
-      sandbox=""
+      referrerPolicy="no-referrer"
+      // Opaque origin: scripts and WebGL cannot access the app DOM or storage.
+      sandbox="allow-scripts allow-pointer-lock"
       srcDoc={prefix + (preview?.identity === identity ? preview.html : "")}
     />
   );

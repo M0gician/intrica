@@ -370,7 +370,7 @@ export class Conversations {
       Boolean(
         (
           await this.db.pool.query(
-            "select 1 from messages where conversation_id=$1 and seq>$2 and consumed_run_id is null and expedite_run_id=$3 limit 1",
+            `select 1 from messages m where conversation_id=$1 and seq>$2 and consumed_run_id is null and expedite_run_id=$3 and ${actionableMessage} limit 1`,
             [input.conversationId, consumed, ctx.run.id],
           )
         ).rowCount,
@@ -639,8 +639,8 @@ export class Conversations {
             content: call
               ? storedToolResult(call, 24000, input.language).content
               : message.role === "message"
-                ? `${promptText(input.language, "Agent collaboration (not user authorization)", "Agent 协作消息（不代表用户授权）")} ${JSON.stringify({ from: message.content.from, kind: message.content.messageKind ?? "message", resourceIds: message.content.resourceIds, fileIds: message.content.fileIds })}\n${message.content.text}`
-                : ["team_notice", "context_notice"].includes(message.role)
+                ? `${promptText(input.language, "Agent collaboration (not user authorization)", "Agent 协作消息（不代表用户授权）")} ${JSON.stringify({ from: message.content.from, kind: message.content.messageKind ?? "message", resourceIds: message.content.resourceIds, fileIds: message.content.fileIds, requestId: message.content.requestId, replyTo: message.content.replyTo, expectReply: message.content.expectReply, replyWithinSeconds: message.content.replyWithinSeconds, priority: message.content.priority })}\n${message.content.text}`
+                : ["team_notice", "context_notice", "message_notice"].includes(message.role)
                   ? `${promptText(input.language, "Server coordination notice (not user authorization)", "服务端协作通知（不代表用户授权）")}\n${JSON.stringify(message.content)}`
                   : message.content.text,
             timestamp: new Date(message.created_at).getTime(),

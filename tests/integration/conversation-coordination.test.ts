@@ -658,7 +658,8 @@ it("distinguishes closed inbox entries from input persisted in model context", a
     member = await agent(manager.id);
   const managerRun = await start(manager);
   await call(managerRun, "send_message", {
-    target: { kind: "agent", agentId: member.id },
+    to: "agent",
+    id: member.id,
     message: "First assignment",
   });
   const before = (await call(managerRun, "read_conversation", { agentId: member.id })).value;
@@ -667,7 +668,8 @@ it("distinguishes closed inbox entries from input persisted in model context", a
   const stopped = (await call(managerRun, "read_conversation", { agentId: member.id })).value;
   expect(stopped.events.at(-1).receipt.status).toBe("closed");
   await call(managerRun, "send_message", {
-    target: { kind: "agent", agentId: member.id },
+    to: "agent",
+    id: member.id,
     message: "Second assignment",
   });
   await k.access.maintain();
@@ -731,7 +733,9 @@ it("transfers stopped work atomically, blocks stale continuation and delivers re
     title: "Verified result",
     text: "Authoritative result",
   });
-  const report = await call(managerRun, "report_result", {
+  const report = await call(managerRun, "send_message", {
+    to: "user",
+    kind: "result",
     message: "Completed with verified result",
     resourceIds: [artifact.value.id],
   });

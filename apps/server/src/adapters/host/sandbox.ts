@@ -1,5 +1,15 @@
 import { fork } from "node:child_process";
-import { access, realpath, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import {
+  access,
+  mkdir,
+  readdir,
+  readlink,
+  realpath,
+  rename,
+  stat,
+  symlink,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -28,14 +38,72 @@ export function withinPath(root: string, path: string) {
 }
 export function cleanEnvironment(home: string): Record<string, string> {
   return {
-    PATH: `${dirname(process.execPath)}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`,
+    PATH: `${join(home, ".intrica-bin")}:${dirname(process.execPath)}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`,
     HOME: home,
     TMPDIR: join(home, ".tmp"),
     LANG: "en_US.UTF-8",
     TERM: "xterm-256color",
+    XDG_CACHE_HOME: join(home, ".cache"),
+    XDG_CONFIG_HOME: join(home, ".config"),
+    INTRICA_NODE: process.execPath,
     ELECTRON_RUN_AS_NODE: "1",
   };
 }
+/** Electron's bundled interpreter is callable as node without inheriting host secrets. */
+export async function prepareRuntime(home: string) {
+  await mkdir(join(home, ".intrica-bin"), { recursive: true, mode: 0o700 });
+  const link = join(home, ".intrica-bin", "node");
+  const target = await readlink(link).catch(() => null);
+  if (target && target !== process.execPath) {
+    const temporary = join(home, ".intrica-bin", `node-${randomUUID()}`);
+    await symlink(process.execPath, temporary);
+    await rename(temporary, link);
+    return;
+  }
+  try {
+    await symlink(process.execPath, link);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+}
+
+/** Browser application distributions only; user profiles and credentials are outside these roots. */
+export async function browserRuntimes() {
+  const candidates: string[] =
+    process.platform === "darwin"
+      ? [
+          "/Applications/Google Chrome.app/Contents",
+          "/Applications/Chromium.app/Contents",
+          "/Applications/Microsoft Edge.app/Contents",
+          "/Applications/Brave Browser.app/Contents",
+        ]
+      : ["/opt/google/chrome", "/opt/microsoft/msedge", "/usr/lib/chromium"];
+  for (const cache of [
+    join(homedir(), "Library/Caches/ms-playwright"),
+    join(homedir(), ".cache/ms-playwright"),
+  ])
+    for (const entry of (await readdir(cache, { withFileTypes: true }).catch(() => [])).slice(
+      0,
+      100,
+    )) {
+      if (!entry.isDirectory() || !/^chromium(?:_headless_shell)?-\d+$/.test(entry.name)) continue;
+      const root = join(cache, entry.name);
+      for (const child of (await readdir(root, { withFileTypes: true }).catch(() => [])).slice(
+        0,
+        20,
+      ))
+        if (child.isDirectory() && /^(?:chrome|chromium)/.test(child.name))
+          candidates.push(join(root, child.name));
+    }
+  return (
+    await Promise.all(
+      candidates.map(async (path) =>
+        (await stat(path).catch(() => null))?.isDirectory() ? await canonicalPath(path) : null,
+      ),
+    )
+  ).filter((p): p is string => Boolean(p));
+}
+
 export type Root = { path: string; directory: boolean; write: boolean };
 async function platformSandbox() {
   return process.platform === "darwin"
@@ -82,12 +150,17 @@ export async function buildSandboxCommand(
       "/opt/homebrew/lib",
       "/opt/homebrew/Cellar",
       dirname(process.execPath),
+      ...(await browserRuntimes()),
       // The Worker may run Electron Helper inside a nested .app. Both it and the
       // main executable load the OUTER bundle's runtime; never grant its data paths.
       ...(electronBundle ? [join(electronBundle, "Contents", "Frameworks")] : []),
       "/private/etc",
       "/dev/null",
       "/dev/urandom",
+      "/dev/random",
+      "/dev/zero",
+      "/Library/Fonts",
+      "/private/var/db/timezone",
       "/dev/fd",
     ];
     const allowRead = readable.map((p) => `(subpath ${JSON.stringify(p)})`).join(" ");
@@ -102,13 +175,18 @@ export async function buildSandboxCommand(
     const readOnly = protectedPaths.readOnly.map((p) => `(subpath ${JSON.stringify(p)})`).join(" ");
     // Host networking includes DNS and system certificate verification. File grants stay separate.
     const network = `(allow network*)(allow mach-lookup (global-name "com.apple.mDNSResponder") (global-name "com.apple.SystemConfiguration.configd") (global-name "com.apple.trustd") (global-name "com.apple.trustd.agent"))`;
-    const profile = `(version 1)(deny default)(allow process-exec process-fork)(allow signal (target self))(allow sysctl-read)(allow file-read-metadata)(allow file-read* (literal "/") ${allowRead})(allow file-write* (literal "/dev/null") (subpath "/dev/fd"))${grants}(deny file-read* file-write* ${denied})(deny file-write* ${readOnly})${network}`;
+    const browserIPC = `(allow mach-register mach-lookup (global-name-prefix "org.chromium.Chromium.MachPortRendezvousServer.") (global-name-prefix "com.google.Chrome.MachPortRendezvousServer."))`;
+    const runtimeIPC = `(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo") (global-name "com.apple.logd") (global-name "com.apple.PowerManagement.control") (global-name "com.apple.bsd.dirhelper"))`;
+    const profile = `(version 1)(deny default)(allow process-exec process-fork)(allow signal (target same-sandbox))(allow process-info* (target same-sandbox))(allow ipc-posix-sem)(allow pseudo-tty)(allow sysctl-read)(allow file-read-metadata)(allow file-read* (literal "/") ${allowRead})(allow file-map-executable ${allowRead})(allow iokit-open (iokit-registry-entry-class "RootDomainUserClient"))(allow file-write* (literal "/dev/null") (subpath "/dev/fd"))${grants}(deny file-read* file-write* ${denied})(deny file-write* ${readOnly})${network}(deny network-outbound ${denied})${runtimeIPC}${browserIPC}`;
     return { command: "/usr/bin/sandbox-exec", args: ["-p", profile, command, ...args] };
   }
   const bindings: string[] = [];
   for (const path of ["/usr", "/bin", "/sbin", "/lib", "/lib64"]) {
     if (await stat(path).catch(() => null)) bindings.push("--ro-bind", path, path);
   }
+  if (!withinPath("/usr", process.execPath) && !withinPath("/bin", process.execPath))
+    bindings.push("--ro-bind", dirname(process.execPath), dirname(process.execPath));
+  for (const path of await browserRuntimes()) bindings.push("--ro-bind", path, path);
   // Read only the host resolver and public CA material needed by network clients.
   for (const path of [
     "/etc/resolv.conf",
@@ -145,6 +223,8 @@ export async function buildSandboxCommand(
       "/dev",
       "--tmpfs",
       "/tmp",
+      "--tmpfs",
+      "/dev/shm",
       // Bind grants after the empty base mounts; private masks remain last.
       ...bindings,
       "--chdir",

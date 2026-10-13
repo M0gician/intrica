@@ -11,6 +11,7 @@ import type { ExecutionContext } from "../execution/worker.js";
 import type { GraphCommands } from "../graph/commands.js";
 import { tickSchedules } from "./agent-schedules.js";
 import type { ConversationInput, Conversations } from "./conversations.js";
+import { MessageHooks } from "./message-hooks.js";
 import { canvasTools } from "./tools/canvas.js";
 import { collaborationTools } from "./tools/collaboration.js";
 import { toolContext } from "./tools/context.js";
@@ -24,13 +25,16 @@ import { teamTools } from "./tools/team.js";
 export type ToolSet = ExecutionTool[] & { capabilities?: AgentCapabilities };
 
 export class ToolRegistry {
+  readonly messages: MessageHooks;
   constructor(
     readonly graph: GraphCommands,
     readonly conversations: Conversations,
     readonly access: AccessService,
     readonly host: HostExecutor,
     readonly assets: AssetStore,
-  ) {}
+  ) {
+    this.messages = new MessageHooks(graph.db, conversations);
+  }
 
   async create(ctx: ExecutionContext, input: ConversationInput): Promise<ToolSet> {
     const capabilities = await agentCapabilities(this.graph.db, ctx.run.canvas_id, input.agentId);

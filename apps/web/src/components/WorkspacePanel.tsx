@@ -256,7 +256,13 @@ export const WorkspacePanel = memo(function WorkspacePanel(props: Props) {
           <div className="workspace-tool" hidden={props.mode !== "browser"}>
             <BrowserPanel
               active={props.open && props.mode === "browser"}
-              target={target?.type === "web" ? target : undefined}
+              target={
+                target?.type === "web"
+                  ? target
+                  : target?.type === "html"
+                    ? { ...target, artifact: true }
+                    : undefined
+              }
             />
           </div>
         )}

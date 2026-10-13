@@ -136,3 +136,25 @@ describe("NodeCard：候选卡片", () => {
     expect(screen.getByText("生成中")).toBeTruthy();
   });
 });
+
+it("模型生成的文本正文可开始拖拽，正文内交互按钮保留原操作", () => {
+  const props = renderNodeCard({
+    node: makeNode({ id: "generated", origin: "model", title: "产物", text: "正文内容" }),
+    tier: "latest",
+  });
+  fireEvent.pointerDown(screen.getByText("正文内容"), { pointerType: "mouse", button: 0 });
+  expect(props.onHeaderPointerDown).toHaveBeenCalledOnce();
+  const next = renderNodeCard({
+    node: makeNode({
+      id: "long-generated",
+      origin: "model",
+      title: "长产物",
+      text: Array.from({ length: 8 }, () => "长正文").join("\n"),
+    }),
+  });
+  fireEvent.pointerDown(screen.getByRole("button", { name: "查看详情" }), {
+    pointerType: "mouse",
+    button: 0,
+  });
+  expect(next.onHeaderPointerDown).not.toHaveBeenCalled();
+});

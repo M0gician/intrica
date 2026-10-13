@@ -59,6 +59,8 @@ export const currentTeamNotice = `(m.role='team_notice' and not(m.content ? 'act
 
 export const actionableMessage = `(
   m.role in ('user','trigger')
+  or (m.role='message_notice' and exists(select 1 from message_requests q
+    where q.id=m.content->>'requestId' and q.state='open' and q.version::text=m.content->>'version'))
   or (m.role='message' and m.content ? 'from' and m.run_id is not null and not(m.content ? 'activationBlocked'))
   or (${currentTeamNotice} and m.run_id is not null)
   or (m.role='tool_update' and m.content->>'progress' is distinct from 'true')
@@ -72,6 +74,7 @@ export const actionableMessage = `(
 )`;
 
 export const pendingInboxMessage = `((m.role='message' and m.content ? 'from' and not(m.content ? 'activationBlocked'))
+  or (m.role='message_notice' and ${actionableMessage})
   or ${currentTeamNotice}
   or (m.role='permission_notice' and ${actionableMessage}))`;
 

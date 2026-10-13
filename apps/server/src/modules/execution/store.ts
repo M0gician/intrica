@@ -350,6 +350,10 @@ export class RunStore {
           [runId],
         );
         await cancelApprovals(tx, [runId]);
+        await tx.query(
+          "update message_requests set state='cancelled',version=version+1,updated_at=now() where sender_conversation_id=$1 and state='open'",
+          [current.subject_id],
+        );
         await canvasEvent(tx, run.canvas_id, "run.changed", {
           id: runId,
           state: current.state === "running" ? "running" : "cancelled",

@@ -26,10 +26,13 @@ export function buildConversationPrompt(
       "read_conversation",
       "get_tool_result",
       "wait_for_message",
+      "review_inbox",
+      "update_message",
+      "list_agents",
       "configure_agent",
       "bash",
       "rg",
-      ...(input.agent ? ["report_result", "request_permission", "list_access_requests"] : []),
+      ...(input.agent ? ["request_permission", "list_access_requests"] : []),
       ...(role !== "read" ? ["create_artifact", "update_node"] : []),
       ...(manage ? ["hire_agent", "dismiss_agent", "review_access_request"] : []),
       ...(role === "admin" ? ["take_over_run"] : []),
@@ -96,10 +99,16 @@ export function buildConversationPrompt(
           `你主动向相关成员提问、共享发现、核对分歧并通知依赖变化。${manage ? "你通过 send_message 直接向同画布任意 Agent 发送消息。agent、agents 和 canvas 目标分别用于单个成员、指定集合和全画布其他成员。" : "你在当前通信权限内使用 send_message。agent 目标用于单个成员。"}resource_readers 目标用于全部所选资源的读者。任务消息包含目标、输入、责任范围、依赖、交付物和完成条件。进展消息包含已完成工作、证据、待处理事项和所需协助。你回应相关成员的问题。新的信息或任务变化触发后续沟通。`,
         )
       : "",
+    has("send_message")
+      ? text(
+          'You use flat fields, for example send_message({to:"agent",id:"actual-member-id",message:"question",expectReply:true,replyWithinSeconds:120}). You pass to as a string and keep arguments as a structured object. list_agents lists members under your current administrator; they can communicate directly even with different resource grants. Reply deadline notices contain read and run status; update_message lets you wait, expedite or cancel tracking. You check a returned error\'s code and field path before retrying.',
+          '参数使用扁平字段，例如 send_message({to:"agent",id:"真实成员ID",message:"问题",expectReply:true,replyWithinSeconds:120})。to 使用字符串，参数保持结构化对象。list_agents 返回同一管理员下的成员；资源授权不同也可直接通信。超时通知包含已读和运行状态；用 update_message 选择继续等待、加急或取消跟踪。重试前检查错误码和字段路径。',
+        )
+      : "",
     has("wait_for_message")
       ? text(
-          "You advance independent work while replies are pending. You use wait_for_message when a reply is required to continue.",
-          "你在等待回复期间推进独立工作。需要回复才能继续时，你使用 wait_for_message 等待。",
+          "Advance independent work while replies are pending. Before waiting, call review_inbox, answer incoming requests or explicitly track them and review sent messages. You submit the inspection reviewKey, handledMessageIds and trackRequestIds, then call wait_for_message({confirmed:true,reviewToken}) with the returned token. A new message or request state change requires another review.",
+          "等待回复期间推进独立工作。等待前先调用 review_inbox，答复收到的请求或明确继续跟踪，并复核已发送消息。提交读取时的 reviewKey、handledMessageIds 与 trackRequestIds 后，将返回的凭据用于 wait_for_message({confirmed:true,reviewToken})。新输入或请求状态变化后重新复核。",
         )
       : "",
     has("get_agent_status")
@@ -110,8 +119,8 @@ export function buildConversationPrompt(
       : "",
     has("read")
       ? text(
-          "read retrieves nodes, file paths and indexed skills. You follow nextCursor through the full document until the cursor is null. PDF page starts at 1. PDF text comes from the existing text layer, and page images provide visual evidence. frame selects a still image frame, starting at 0. Animation is verified through actual playback.",
-          "read 读取节点、文件路径和已索引 Skill。你沿 nextCursor 读取全文，直到游标为空。PDF 页码从 1 开始。PDF 文本来自现有文字层，页图提供视觉证据。frame 选择图像静态帧，编号从 0 开始。动画效果通过实际播放验证。",
+          "read retrieves nodes, file paths and indexed skills. You follow nextCursor through the full document until the cursor is null. PDF page starts at 1. PDF text comes from the existing text layer, and page images provide visual evidence. frame selects a path image frame, starting at 0; image nodes use mode=auto. Animation is verified through actual playback.",
+          "read 读取节点、文件路径和已索引 Skill。你沿 nextCursor 读取全文，直到游标为空。PDF 页码从 1 开始。PDF 文本来自现有文字层，页图提供视觉证据。frame 选择路径图像的静态帧，编号从 0 开始；图像节点使用 mode=auto。动画效果通过实际播放验证。",
         )
       : "",
     has("rg")
@@ -150,17 +159,12 @@ export function buildConversationPrompt(
           "你通过 create_artifact 保存阶段成果，并通过 update_node 按当前版本更新内容。你根据 sharedWith 和 sharing 确认成果的共享范围。complete/partial/blocked/private 记录共享结果。交付使用工具返回的节点 ID 和附件引用。",
         )
       : "",
-    has("report_result")
+    has("send_message")
       ? text(
-          "You use report_result to report progress and results to your direct manager. Reports contain verified results, evidence gaps and blockers. Saved results remain available in the delivery record.",
-          "你通过 report_result 向直属管理者汇报进展和结果。报告包含已验证结果、待补证据和阻塞原因。已保存的成果持续保留在交付记录中。",
+          'You submit results with send_message({to:"manager",kind:"result",message:"…"}); a root Agent or workspace assistant uses to="user". You use fileIds for published snapshots. You reply to a tracked request using the received replyTo address so its sender sees a completed reply.',
+          '提交结果使用 send_message({to:"manager",kind:"result",message:"…"})；根 Agent 或工作区助手使用 to="user"。fileIds 引用已发布快照。回复未结请求时使用来信的 replyTo 地址，使发送者的跟踪状态关闭。',
         )
-      : role === "owner"
-        ? text(
-            "You report verified results, pending work and blockers to the user. Delivery uses actual node IDs and attachment references.",
-            "你向用户报告已验证结果、待处理事项和阻塞原因，并使用实际节点 ID 和附件引用交付成果。",
-          )
-        : "",
+      : "",
     !manage && has("request_permission")
       ? text(
           `You use request_permission when the task requires additional authority. ${has("list_access_requests") ? "You inspect your own requests through list_access_requests. " : ""}You continue work within current permissions while the request is pending.`,

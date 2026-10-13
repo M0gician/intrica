@@ -8,6 +8,7 @@ import { Button } from "../../ui/button";
 import { FileReferenceView } from "../files/FileReferenceView";
 import { isContentTruncated, recordVersion } from "./full-records";
 import { InputReceipt, type Receipt } from "./InputReceipt";
+import { MessageNotice } from "./MessageNotice";
 import { type Activity, activityKey } from "./model";
 import { ReadMore } from "./ReadMore";
 export function EventTime({ value }: { value: Activity["createdAt"] }) {
@@ -78,7 +79,7 @@ export function TimelineEvent({
     <>
       {event.kind !== "user" && (
         <small>
-          {["team_notice", "run_status", "context_notice"].includes(event.kind)
+          {["team_notice", "run_status", "context_notice", "message_notice"].includes(event.kind)
             ? tr("运行通知")
             : event.kind === "permission_notice"
               ? tr("系统审批通知")
@@ -168,6 +169,9 @@ export function TimelineEvent({
                   : ""),
             )}
           />
+          {event.kind === "message_notice" && typeof event.data.requestId === "string" && (
+            <MessageNotice requestId={event.data.requestId} conversationId={event.conversationId} />
+          )}
           {load && isContentTruncated(event, "text") && <ReadMore load={load} version={version} />}
           {Array.isArray(event.data.fileIds) &&
             event.data.fileIds.map((id) =>

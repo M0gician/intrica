@@ -400,7 +400,7 @@ it.each(["read", "write", "admin", "owner"] as const)(
     expect(visible.some((t) => t.name === "take_over_run")).toBe(role === "admin");
     expect(visible.some((t) => t.name === "create_artifact")).toBe(role !== "read");
     const send = parameters("send_message");
-    expect(Value.Check(send, { target: { kind: "canvas" }, message: "coordinate" })).toBe(
+    expect(Value.Check(send, { to: "canvas", message: "coordinate" })).toBe(
       ["admin", "owner"].includes(role),
     );
     if (role === "read" || role === "write") {
@@ -430,7 +430,12 @@ it.each(["read", "write", "admin", "owner"] as const)(
       const descriptions = visible.map((t) => t.description).join("\n");
       expect(descriptions).not.toMatch(/take.?over|took over|hire_agent|review_access_request/);
       expect(
-        Value.Check(parameters("report_result"), { message: "progress", resourceIds: [] }),
+        Value.Check(parameters("send_message"), {
+          to: "manager",
+          kind: "result",
+          message: "progress",
+          resourceIds: [],
+        }),
       ).toBe(false);
     }
     if (role === "admin") {
@@ -441,8 +446,8 @@ it.each(["read", "write", "admin", "owner"] as const)(
     if (role === "owner") {
       const to = await agent();
       expect(
-        (await s.call("send_message", { target: { kind: "canvas" }, message: "owner broadcast" }))
-          .value.recipients,
+        (await s.call("send_message", { to: "canvas", message: "owner broadcast" })).value
+          .recipients,
       ).toEqual([to.id]);
     }
   },
@@ -532,7 +537,7 @@ it.each(["en", "zh-CN"] as const)(
     const logical = key(),
       callId = key();
     await k.db.pool.query(
-      "insert into tool_calls(id,run_id,attempt_id,logical_call_id,name,args,args_hash,effect_class,state) values($1,$2,$3,$4,'hire_agent',$5,$6,'graph','prepared')",
+      "insert into tool_calls(id,run_id,attempt_id,logical_call_id,name,args,args_hash,effect_class,state,schema_version) values($1,$2,$3,$4,'hire_agent',$5,$6,'graph','prepared',1)",
       [callId, s.run.id, s.run.attemptId, logical, JSON.stringify(args), digest(args)],
     );
     const out = await invokeTool(s.ctx, hire, logical, args);
@@ -567,16 +572,17 @@ it("failed hiring rolls back the generated name, member and task before retry", 
   vi.spyOn(k.conversations, "assignNewAgent").mockRejectedValueOnce(
     new Error("simulated transaction failure"),
   );
-  await expect(s.call("hire_agent", args, logical)).rejects.toThrow(
-    "simulated transaction failure",
-  );
+  const failed = await s.call("hire_agent", args, logical);
+  expect(failed.value.error.message).toBe("simulated transaction failure");
+  expect((await s.call("hire_agent", args, logical)).value).toEqual(failed.value);
   expect((await k.db.pool.query("select id from nodes where canvas_id=$1", [board])).rows).toEqual(
     before,
   );
-  const hired = await s.call("hire_agent", args, logical);
+  const retry = key();
+  const hired = await s.call("hire_agent", args, retry);
   expect(hired.result.isError).not.toBe(true);
   expect((await k.graph.queries.node(hired.value.id)).title).toBe(hired.value.title);
-  expect((await s.call("hire_agent", args, logical)).value).toEqual(hired.value);
+  expect((await s.call("hire_agent", args, retry)).value).toEqual(hired.value);
 });
 
 it.each([
@@ -641,7 +647,8 @@ it.each([
       ])
     ).rows;
     if (expected === "invalid") {
-      expect(calls).toHaveLength(0);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].state).toBe("failed");
       const history = (
         await k.db.pool.query("select checkpoint from conversations where id=$1", [
           s.run.subject_id,

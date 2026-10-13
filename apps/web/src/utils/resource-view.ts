@@ -3,6 +3,7 @@ import { todoHeight } from "@intrica/contracts";
 import { tr } from "../i18n";
 import { bookmarkUrl } from "./web-url";
 export type ResourceTarget =
+  | { type: "html"; nodeId: string; name: string; nonce: string }
   | {
       type: "directory";
       path: string;

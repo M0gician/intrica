@@ -37,6 +37,10 @@ export async function cancelAgents(
 ) {
   await cancelResourceSchedules(tx, agentIds, resourceReason);
   await tx.query(
+    "update message_requests set state='cancelled',version=version+1,updated_at=now() where sender_agent_id=any($1::text[]) and state='open'",
+    [agentIds],
+  );
+  await tx.query(
     "update conversations c set consumed_message_seq=message_seq,context=context-'modelBlocked' where agent_id=any($1::text[]) and not exists(select 1 from runs r where r.subject_id=c.id and r.reason='tool_contract_upgrade')",
     [agentIds],
   );

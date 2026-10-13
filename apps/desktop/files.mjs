@@ -57,8 +57,10 @@ export function createFileDownloads(connections, choosePath, revealPath = () => 
               ? `/api/v2/assets/${assetId}`
               : `/api/v2/workspace/download?path=${encodeURIComponent(path)}`,
         );
-        if (!response.ok || !response.body)
-          throw new Error(`Download failed (HTTP ${response.status})`);
+        if (!response.ok || !response.body) {
+          const error = await response.json().catch(() => null);
+          throw new Error(error?.error?.message || `Download failed (HTTP ${response.status})`);
+        }
         const size = response.headers.get("content-length");
         if (size !== null && /^\d+$/.test(size) && Number.isSafeInteger(Number(size)))
           progress.totalBytes = Number(size);

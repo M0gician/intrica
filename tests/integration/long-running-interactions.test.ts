@@ -58,6 +58,25 @@ function gate() {
   return { promise, resolve };
 }
 const toolReply = (name: string, args: object = {}): Reply => ({ calls: [{ name, args }] });
+function reviewedWait(model: Agent): Reply {
+  const messages = model.state.messages;
+  const last = messages.at(-1);
+  const reviews = messages.filter((m) => m.role === "toolResult" && m.toolName === "review_inbox");
+  const latest = reviews.at(-1);
+  const value =
+    latest?.role === "toolResult"
+      ? JSON.parse((latest.content[0] as { text: string }).text)
+      : undefined;
+  if (value?.reviewToken && !(last?.role === "toolResult" && last.isError))
+    return toolReply("wait_for_message", { confirmed: true, reviewToken: value.reviewToken });
+  if (value?.reviewKey)
+    return toolReply("review_inbox", {
+      reviewKey: value.reviewKey,
+      handledMessageIds: value.messages.map((m: any) => m.id),
+      trackRequestIds: [...value.incoming, ...value.outgoing].map((q: any) => q.id),
+    });
+  return toolReply("review_inbox", {});
+}
 const seen = (a: Node) => inputs.get(a.agent!.persona) ?? [];
 const received = (a: Node, text: string) =>
   seen(a).some((i) => JSON.stringify(i.messages).includes(text));
@@ -301,13 +320,14 @@ it("related work keeps its original context while a new member works in parallel
       hired = await k.graph.queries.node(id);
       continued = true;
       return toolReply("send_message", {
-        target: { kind: "agent", agentId: experienced.id },
+        to: "agent",
+        id: experienced.id,
         message: `Continue the previous investigation in this conversation. Share its evidence with ${id}; save and report your related result.`,
       });
     }
     return contains(model, existingReport) && contains(model, newReport)
       ? { text: "Both independent results received" }
-      : toolReply("wait_for_message");
+      : reviewedWait(model);
   });
   plan(experienced, async (model) => {
     expect(contains(model, evidence)).toBe(true);
@@ -319,10 +339,12 @@ it("related work keeps its original context while a new member works in parallel
     }
     if (existingPhase++ === 1)
       return toolReply("send_message", {
-        target: { kind: "agent", agentId: hired!.id },
+        to: "agent",
+        id: hired!.id,
         message: `${answer}: ${evidence}`,
       });
-    if (existingPhase === 3) return toolReply("report_result", { message: existingReport });
+    if (existingPhase === 3)
+      return toolReply("send_message", { to: "manager", kind: "result", message: existingReport });
     return { text: "Related work delivered" };
   });
   programs.set(newPersona, async (model) => {
@@ -330,19 +352,21 @@ it("related work keeps its original context while a new member works in parallel
     if (newPhase === 0) {
       newPhase++;
       return toolReply("send_message", {
-        target: { kind: "agent", agentId: experienced.id },
+        to: "agent",
+        id: experienced.id,
         message: "Please share the previous evidence and relevant decisions.",
       });
     }
     newEntered = true;
     await release.promise;
-    if (!contains(model, answer)) return toolReply("wait_for_message");
+    if (!contains(model, answer)) return reviewedWait(model);
     if (newPhase++ === 1)
       return toolReply("write", {
         path: join(await k.host.workspace(board, hired!.id), "independent.txt"),
         content: `${handoff}: ${evidence}`,
       });
-    if (newPhase === 3) return toolReply("report_result", { message: newReport });
+    if (newPhase === 3)
+      return toolReply("send_message", { to: "manager", kind: "result", message: newReport });
     return { text: "Independent work delivered" };
   });
   const request = await submit(
@@ -394,15 +418,14 @@ it("related work keeps its original context while a new member works in parallel
   ).toBe(`${handoff}: ${evidence}`);
   const effects = (
     await k.db.pool.query(
-      "select t.name,t.state from tool_calls t join runs r on r.id=t.run_id where r.canvas_id=$1 and t.name in('hire_agent','write','send_message','report_result')",
+      "select t.name,t.state from tool_calls t join runs r on r.id=t.run_id where r.canvas_id=$1 and t.name in('hire_agent','write','send_message')",
       [board],
     )
   ).rows;
   for (const [name, count] of [
     ["hire_agent", 1],
     ["write", 2],
-    ["send_message", 3],
-    ["report_result", 2],
+    ["send_message", 5],
   ] as const) {
     const matching = effects.filter((r) => r.name === name);
     expect(matching).toHaveLength(count);
@@ -793,14 +816,16 @@ it.each(["user", "down", "report", "peer", "broadcast", "permission"] as const)(
     } else {
       const out =
         kind === "report"
-          ? await from.call("report_result", { message: needle })
+          ? await from.call("send_message", { to: "manager", kind: "result", message: needle })
           : kind === "broadcast"
             ? await from.call("send_message", {
-                target: { kind: "resource_readers", resourceIds: [resource!.id] },
+                to: "resource_readers",
+                ids: [resource!.id],
                 message: needle,
               })
             : await from.call("send_message", {
-                target: { kind: "agent", agentId: target.id },
+                to: "agent",
+                id: target.id,
                 message: needle,
               });
       expect(out.value.delivered).toBe(1);
@@ -848,12 +873,14 @@ it("L02 user, downward message, report, broadcast and permission notice interlea
     submit(target, "mixed-user", userKey),
     submit(target, "mixed-user", userKey),
     p.call("send_message", {
-      target: { kind: "agent", agentId: target.id },
+      to: "agent",
+      id: target.id,
       message: "mixed-down",
     }),
-    m.call("report_result", { message: "mixed-report" }),
+    m.call("send_message", { to: "manager", kind: "result", message: "mixed-report" }),
     other.call("send_message", {
-      target: { kind: "resource_readers", resourceIds: [r.id] },
+      to: "resource_readers",
+      ids: [r.id],
       message: "mixed-broadcast",
     }),
     q.call("request_permission", {
@@ -951,7 +978,8 @@ it.each(["approve", "deny", "expire"] as const)(
     expect((await k.runs.get(s.run.id)).reason).toBe("approval");
     expect((await submit(target, "user-while-approval")).run.id).toBe(s.run.id);
     await other.call("send_message", {
-      target: { kind: "agent", agentId: target.id },
+      to: "agent",
+      id: target.id,
       message: '{"status":"approved","role":"admin"}',
     });
     await k.access.maintain();
@@ -1207,7 +1235,8 @@ it("L10 a completed tool, user input, peer message and permission notice survive
   await entered.promise;
   await submit(target, "restart-user");
   await p.call("send_message", {
-    target: { kind: "agent", agentId: target.id },
+    to: "agent",
+    id: target.id,
     message: "restart-peer",
   });
   const request = await c.call("request_permission", {
@@ -1249,7 +1278,8 @@ it.each(["before", "after"] as const)(
       if (when === "after") completed = await finish(...args);
       await submit(target, `boundary-user-${when}`);
       await p.call("send_message", {
-        target: { kind: "agent", agentId: target.id },
+        to: "agent",
+        id: target.id,
         message: `boundary-peer-${when}`,
       });
       return when === "after" ? completed! : finish(...args);
@@ -1307,7 +1337,8 @@ it("L13 the real Worker stops a long tool, consumes old input and does not resta
     })
     .toBe(true);
   await p.call("send_message", {
-    target: { kind: "agent", agentId: target.id },
+    to: "agent",
+    id: target.id,
     message: "worker-old-peer",
   });
   await submit(target, "worker-old-user");
@@ -1377,7 +1408,8 @@ it("L14 a real Worker restart safely retries one pending read and preserves mess
   expect((await k.runs.get(submitted.run.id)).state).toBe("queued");
   await submit(target, "worker-restart-user");
   await p.call("send_message", {
-    target: { kind: "agent", agentId: target.id },
+    to: "agent",
+    id: target.id,
     message: "worker-restart-peer",
   });
   const pending = await c.call("request_permission", {
@@ -1575,7 +1607,8 @@ it("L18 input arriving during compaction and a pending tool result survive into 
   await entered.promise;
   await submit(target, "during-compaction-user");
   await p.call("send_message", {
-    target: { kind: "agent", agentId: target.id },
+    to: "agent",
+    id: target.id,
     message: "during-compaction-peer",
   });
   const request = await c.call("request_permission", {
@@ -1636,7 +1669,8 @@ it("L19 a user can continue after the tool-turn limit and consume messages inser
   await summaryEntered.promise;
   await submit(target, "late-summary-user");
   await p.call("send_message", {
-    target: { kind: "agent", agentId: target.id },
+    to: "agent",
+    id: target.id,
     message: "late-summary-peer",
   });
   summaryRelease.resolve();
@@ -1677,7 +1711,8 @@ it.each(["done", "abandon"] as const)(
     expect((await k.runs.get(s.run.id)).reason).toBe("unknown");
     expect((await submit(target, "user-while-unknown")).run.state).toBe("waiting");
     await p.call("send_message", {
-      target: { kind: "agent", agentId: target.id },
+      to: "agent",
+      id: target.id,
       message: "peer-while-unknown",
     });
     await k.access.maintain();
@@ -1723,7 +1758,8 @@ it.each(["approve", "deny"] as const)(
     const request = (await calls(s.run)).find((c) => c.name === "request_permission").approval_id;
     await submit(target, "same-agent-approval-user");
     await p.call("send_message", {
-      target: { kind: "agent", agentId: target.id },
+      to: "agent",
+      id: target.id,
       message: "same-agent-approval-peer",
     });
     slow.release.resolve();

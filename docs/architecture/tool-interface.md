@@ -1,6 +1,6 @@
 # Tool contracts
 
-The registry defines 24 tools. Each model request receives the subset and
+The registry defines 26 tools. Each model request receives the subset and
 parameter schemas that match its current capabilities. Workspace sessions use
 the owner's authority. Model visibility is a discovery decision; every
 execution checks its current authority and run lease.
@@ -10,7 +10,7 @@ execution checks its current authority and run lease.
 | Content and execution | `read`, `write`, `edit`, `rg`, `bash` |
 | External capabilities | `web_search`, `mcp`, `list_capabilities` |
 | Canvas | `read_canvas`, `create_artifact`, `update_node` |
-| Collaboration | `send_message`, `report_result`, `read_conversation`, `get_agent_status`, `get_tool_result`, `wait_for_message` |
+| Collaboration | `send_message`, `review_inbox`, `update_message`, `list_agents`, `read_conversation`, `get_agent_status`, `get_tool_result`, `wait_for_message` |
 | Team | `hire_agent`, `configure_agent`, `dismiss_agent`, `take_over_run` |
 | Permissions | `request_permission`, `list_access_requests`, `review_access_request` |
 
@@ -68,7 +68,7 @@ An empty PDF text layer is not OCR; page images can contain unread evidence.
   `write` replaces the complete file. Both session types share these
   contracts and the `bash({command,cwd?,timeout?,fullHost?})` contract.
 
-File artifacts persist a content-addressed snapshot. `report_result.fileIds`
+File artifacts persist a content-addressed snapshot. `send_message.fileIds`
 accepts their node IDs and checks accessible published snapshots. Text reports
 can omit attachments. Clients resolve `intrica-file:NODE_ID` within the owning
 server and conversation. Hashes and file references never grant access.
@@ -80,32 +80,62 @@ exit codes and SIGPIPE are not silently converted to success.
 
 ## Collaboration and permissions
 
-`send_message` accepts one target:
+`send_message` uses flat structured arguments. `report_result` is retired and has no
+execution alias. Tool schema version 3 is persisted in each new receipt; old
+completed receipts remain readable, and persisted version 2 sends retain their
+original argument hashes when adapted during recovery.
 
-- `{kind:"agent",agentId}` sends to one Agent.
-- `{kind:"agents",agentIds}` sends to a deduplicated set.
-- `{kind:"canvas"}` sends to all other Agents on the canvas.
-- `{kind:"resource_readers",resourceIds}` sends to readers of every selected resource.
+```json
+{"to":"agent","id":"member-id","message":"Please verify the result","expectReply":true,"replyWithinSeconds":120}
+{"to":"request","id":"received-request-id","kind":"result","message":"Verified result","fileIds":["snapshot-node-id"]}
+{"to":"manager","kind":"result","message":"Independent progress report"}
+{"to":"user","kind":"result","message":"Root Agent delivery"}
+```
 
-Administrators and workspace owners can use all four targets without
-communication approval. Read/write members retain their existing communication
-checks and see only the single-Agent and resource-reader targets. Resource-reader
-filtering applies to administrators too. The resource list must be nonempty.
-Broadcasts exclude the sender. Resource-response settings do not disable messages.
+`to` is `agent`/`id`, `agents`/`ids`, `team`, `canvas`, `manager`, `user`,
+`request`/`id`, or `resource_readers`/`ids`. `kind` defaults to `message`;
+`result` saves a report and supports authorized handoff resources. A root
+Agent has no `manager`, and uses `user` for its final delivery. A tracked
+reply copies the incoming `replyTo` address to close exactly that request.
+`fileIds` identifies accessible published snapshots; `resourceIds` is
+restricted to authorized manager results for taken-over work.
 
-The server freezes recipients at preparation and checks the complete set before
-any delivery. A deleted or foreign recipient fails the whole operation. Recovery
-does not add later Agents. Empty audiences return zero without starting a run.
-Completed receipts survive role changes; pending operations recheck current
-authority. Promotion can satisfy an existing communication request and resume
-the original send. Denied, expired, stopped and escalated requests retain their
-barriers. Message delivery does not grant access to nodes, files or private
-conversations, or prove input consumption or task completion.
+`list_agents` exposes the current administrator's team and manager, including
+members with different file grants. They communicate without approval.
+Membership never grants private conversation, file, host or node access.
+Explicit contacts outside that team retain communication authorization checks;
+canvas broadcasts require administrator or owner authority. Resource-reader
+broadcasts still intersect all specified resource grants. Recipients are frozen
+and revalidated before any write. Duplicate recipient IDs are deduplicated.
 
-`report_result` separately records delivery to the direct manager and
-grants reported-resource access to executors of taken-over runs. Sending,
-reporting, finishing a run and verifying a business outcome remain
-different operations.
+`expectReply` defaults to false. When true, each recipient receives a durable
+request and reply address; `replyWithinSeconds` defaults to 120 (range 1 to
+604800). A missed deadline emits one `message_notice` for that request version,
+with read and run status. It wakes a message-waiting sender and steers active
+inference. It never restarts an already dispatched tool. `update_message` takes
+`requestId`, `action` (`wait`, `expedite`, `cancel`), optional `waitSeconds` and
+`version`. Waiting extends the deadline without sending another message;
+expediting sends a follow-up tied to the original request, checks current
+communication authority and has a recipient-wide 30 second cooldown. Cancelling
+stops reply tracking. Stop cancels the sender's open requests; paused, unknown
+and deleted contexts retain their execution barriers.
+
+Before `wait_for_message`, call `review_inbox({})` and follow `nextAfter` for
+remaining messages. Reply to outstanding requests, or explicitly track them.
+Read the updated mailbox after replying, then submit its `reviewKey`,
+`handledMessageIds` and `trackRequestIds`. Only complete coverage produces a
+`reviewToken`; unknown IDs fail. Then call
+`wait_for_message({confirmed:true,reviewToken})`. New messages, replies, deadline
+notices and request changes invalidate the token. These tools are sequential.
+The server verifies coverage and state, while the model remains responsible for
+judging whether its answers and follow-up decisions are sufficient.
+
+Argument failures persist a failed receipt before dispatch and return
+`{error:{code,message,issues?,nextAction?},executed:false}`. Schema issues identify
+field paths, expected types and received types without echoing message bodies.
+Preflight failures roll back the canvas transaction. Failures after dispatch
+retain execution evidence and existing unknown-outcome safeguards. Models
+correct the indicated field instead of repeating an ambiguous operation.
 
 `request_permission({scope,reason})` uses one scope:
 
@@ -127,7 +157,7 @@ read-only. Filesystem grants and protected paths remain enforced. Package
 downloads and network clients can use this mode without `fullHost:true`.
 
 Grant reconciliation can mark a pending, unexecuted request `satisfied` with
-no fabricated approver. Denial, expiration, escalation, changed targets and
+no fabricated approver. Equivalent pending persistent requests return the original request ID instead of creating duplicates. Stale reviews return the current status and instruct the model to inspect the current version; only pending requests accept a decision. Denial, expiration, escalation, changed targets and
 unknown outcomes remain barriers. Scratch ownership uses the same physical
 path rules for both one-time and persistent requests.
 
@@ -214,3 +244,25 @@ Browser and shared Web/Electron tests exercise the same tool receipts.
 
 Run `node scripts/ci-tests.mjs functional` after building. Generated-code
 ablation checks run separately with `node tests/integration/ablate-interactions.mjs`.
+
+## Sandbox runtime support
+
+Schema 14 adds message request and inbox review persistence. Runtime discovery
+reports the actual bundled Node interpreter (including Electron's Node mode)
+and readable Chromium distributions. Agent workspaces have a `node` command
+shim and private HOME, TMPDIR and XDG cache/config locations. macOS grants
+application distribution reads, executable mappings, same-sandbox process
+signals, limited system IPC and Chromium's Mach port rendezvous. Browser profile
+and user credential directories remain outside those grants. macOS also denies
+Unix socket connections under server-private paths, closing the owner RPC
+channel even though public networking is allowed; direct, symlink and hardlink
+paths are covered by a real sandbox test. Headless Chromium
+with a fresh profile was verified with actual script and WebGL rendering.
+Linux mounts discovered browser distributions read-only and creates private
+shared memory under `/dev/shm`; its runtime test is conditional on host support.
+
+The maintained reference is [Codex sandboxing](https://developers.openai.com/codex/sandboxing)
+and [Codex seatbelt policies at 6e5f665](https://github.com/openai/codex/tree/6e5f665feb9b71e1500a5721036fbdb8e871f4b0/codex-rs/sandboxing/src).
+Intrica keeps its existing host-network policy and separate host-execution
+approval. It does not inherit Codex's default networking policy or unrestricted
+filesystem preferences IPC.

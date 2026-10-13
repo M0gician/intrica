@@ -1,6 +1,6 @@
 -- Intrica protocol 2. This schema never reads or alters the previous public tables.
-CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=13), models_initialized boolean NOT NULL DEFAULT false);
-INSERT INTO schema_info(version) VALUES (13) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=14), models_initialized boolean NOT NULL DEFAULT false);
+INSERT INTO schema_info(version) VALUES (14) ON CONFLICT DO NOTHING;
 CREATE TABLE canvases (
  id text PRIMARY KEY, title text NOT NULL, graph_revision integer NOT NULL DEFAULT 0,
  event_seq bigint NOT NULL DEFAULT 0,
@@ -96,6 +96,7 @@ CREATE TABLE proposals (
 CREATE INDEX proposals_canvas ON proposals(canvas_id,created_at DESC);
 CREATE TABLE tool_calls (
  id text PRIMARY KEY, run_id text NOT NULL REFERENCES runs(id), attempt_id text NOT NULL REFERENCES attempts(id),
+ schema_version integer NOT NULL DEFAULT 3,
  logical_call_id text NOT NULL, name text NOT NULL, args jsonb NOT NULL, args_hash text NOT NULL,
  effect_class text NOT NULL CHECK(effect_class IN ('read','graph','external')),
  state text NOT NULL CHECK(state IN ('prepared','dispatching','succeeded','failed','unknown','waiting')),
@@ -170,3 +171,22 @@ CREATE TABLE media_references (
  UNIQUE NULLS NOT DISTINCT(asset_id,conversation_id,tool_call_id)
 );
 CREATE INDEX media_references_scope ON media_references(conversation_id);
+
+CREATE TABLE message_requests (
+ id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id),
+ sender_conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+ recipient_conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+ sender_agent_id text, recipient_agent_id text NOT NULL,
+ origin_call_id text NOT NULL REFERENCES tool_calls(id), inbox_message_id text NOT NULL,
+ state text NOT NULL DEFAULT 'open' CHECK(state IN ('open','replied','cancelled')),
+ deadline_at timestamptz NOT NULL, notified_at timestamptz,
+ version integer NOT NULL DEFAULT 1, notice_count integer NOT NULL DEFAULT 0,
+ reply_call_id text REFERENCES tool_calls(id),
+ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(origin_call_id,recipient_conversation_id)
+);
+CREATE INDEX message_requests_due ON message_requests(deadline_at) WHERE state='open' AND notified_at IS NULL;
+CREATE TABLE inbox_reviews (
+ conversation_id text PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+ token text NOT NULL, fingerprint text NOT NULL, inspection_token text, inspection_fingerprint text, reviewed_seq bigint NOT NULL DEFAULT 0, reviewed_at timestamptz NOT NULL DEFAULT now()
+);

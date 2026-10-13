@@ -852,7 +852,11 @@ it("migrates ambiguous legacy blocks without reviving stopped work", async () =>
         ],
       );
     }
-    // Reconstruct the v12 schedules table exactly, then use the real migration runner.
+    // Reconstruct v12, including removal of fields introduced by the v14 migration.
+    await db.pool.query(
+      "drop table message_requests;drop table inbox_reviews;alter table tool_calls drop column schema_version",
+    );
+    // Use the real migration runner.
     await db.pool.query(
       "alter table schedules drop column revision, drop column dispatch_state, drop column blocked_reason, drop column delivery_seq, drop column delivery_run_id",
     );

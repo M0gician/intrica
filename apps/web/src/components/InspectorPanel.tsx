@@ -78,7 +78,9 @@ export function InspectorPanel(props: InspectorPanelProps) {
           />
         </section>
         {node.resource.snapshot && <p>{tr("发布时的文件")}</p>}
-        <FileReferenceView origin={{ kind: "node", id: node.id }} embedded />
+        {props.active !== false && (
+          <FileReferenceView origin={{ kind: "node", id: node.id }} embedded />
+        )}
         {node.kind === "image" && (
           <EditableField
             value={node.alt ?? ""}

@@ -1,0 +1,598 @@
+import { randomUUID } from "node:crypto";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { AgentRole } from "@intrica/contracts";
+import { buildServer, type Kernel } from "@intrica/server";
+import pg from "pg";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
+
+const key = (): string => randomUUID();
+const database = `intrica_message_hooks_${key().replaceAll("-", "")}`;
+let app: Awaited<ReturnType<typeof buildServer>>, k: Kernel, admin: pg.Client;
+let directory: string, board: string;
+const position = { x: 0, y: 0, width: 220, height: 300 };
+beforeAll(async () => {
+  const url = new URL(process.env.INTRICA_TEST_ADMIN_URL ?? "postgres://127.0.0.1:5432/postgres");
+  admin = new pg.Client({ connectionString: url.href });
+  await admin.connect();
+  await admin.query(`create database ${database}`);
+  url.pathname = `/${database}`;
+  directory = await realpath(await mkdtemp(join(tmpdir(), "intrica-message-hooks-")));
+  app = await buildServer({
+    databaseUrl: url.href,
+    dataDir: directory,
+    accessToken: key(),
+    worker: false,
+    model: { kind: "mock", streamDelayMs: 0, supportsVision: false },
+  });
+  await app.ready();
+  k = app.kernel;
+});
+beforeEach(async () => {
+  board = (await k.graph.createCanvas({ title: "Tool contracts", idempotencyKey: key() })).node.id;
+});
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await k.db.pool.query("update message_requests set state='cancelled' where state='open'");
+  await k.db.pool.query("update approvals set status='cancelled' where status='pending'");
+  await k.db.pool.query(
+    "update tool_calls set state='failed',delivered_at=now() where state not in ('succeeded','failed')",
+  );
+  await k.db.pool.query(
+    "update runs set state='cancelled' where state in ('queued','running','waiting')",
+  );
+  await k.db.pool.query("update schedules set enabled=false");
+  await k.db.pool.query("update conversations set consumed_message_seq=message_seq");
+});
+afterAll(async () => {
+  await app?.close();
+  await admin.query(`drop database if exists ${database} with(force)`);
+  await admin.end();
+  if (directory) await rm(directory, { recursive: true, force: true });
+});
+async function agent(parentId = board, enabled = false, role: AgentRole = "write") {
+  return (
+    await k.graph.createNode({
+      kind: "agent",
+      title: "Member",
+      parentId,
+      position,
+      agent: { role, persona: "", enabled },
+      idempotencyKey: key(),
+    })
+  ).node;
+}
+async function start(agentId?: string) {
+  await k.conversations.submit({
+    canvasId: board,
+    ...(agentId ? { agentId } : {}),
+    message: "Contract verification",
+    key: key(),
+  });
+  const run = (await k.runs.claim("contracts"))!;
+  const ctx = { run, store: k.runs, signal: new AbortController().signal, progress() {} };
+  const tools = await k.tools.create(ctx, run.frozen_input);
+  return {
+    run,
+    ctx,
+    tools,
+    async call(name: string, args: object, logical = key()) {
+      const t = tools.find((t) => t.name === name) ?? name;
+      const response = await invokeTool(ctx, t, logical, args);
+      const text = (response.result.content[0] as { text: string }).text;
+      let value: any;
+      try {
+        value = JSON.parse(text);
+      } catch {
+        value = text;
+      }
+      return { ...response, value, logical };
+    },
+  };
+}
+
+async function review(s: Awaited<ReturnType<typeof start>>) {
+  const inbox = (await s.call("review_inbox", {})).value;
+  return s.call("review_inbox", {
+    reviewKey: inbox.reviewKey,
+    handledMessageIds: inbox.messages.map((m: any) => m.id),
+    trackRequestIds: [...inbox.incoming, ...inbox.outgoing].map((q: any) => q.id),
+  });
+}
+async function consume(s: Awaited<ReturnType<typeof start>>) {
+  await k.db.pool.query("update conversations set consumed_message_seq=message_seq where id=$1", [
+    s.run.subject_id,
+  ]);
+  await k.db.pool.query(
+    "update messages set consumed_at=now(),consumed_run_id=$2 where conversation_id=$1 and consumed_run_id is null",
+    [s.run.subject_id, s.run.id],
+  );
+}
+async function expire(requestId: string) {
+  await k.db.pool.query(
+    "update message_requests set deadline_at=now()-interval '1 second' where id=$1",
+    [requestId],
+  );
+}
+async function notices(conversationId: string) {
+  return (
+    await k.db.pool.query(
+      "select * from messages where conversation_id=$1 and role='message_notice' order by seq",
+      [conversationId],
+    )
+  ).rows;
+}
+
+it("rejects retired and malformed tools with precise audited failures and no delivery", async () => {
+  const s = await start();
+  for (const [name, args, code] of [
+    ["report_result", { message: "obsolete" }, "UNKNOWN_TOOL"],
+    [
+      "send_message",
+      { target: JSON.stringify({ kind: "agent", agentId: "x" }), message: "private-body" },
+      "TOOL_ARGUMENTS",
+    ],
+    ["send_message", { to: { kind: "agent" }, message: "private-body" }, "TOOL_ARGUMENTS"],
+    ["send_message", { to: "agent", message: "private-body" }, "MESSAGE_INPUT"],
+    [
+      "send_message",
+      { to: "team", message: "private-body", replyWithinSeconds: 2 },
+      "MESSAGE_INPUT",
+    ],
+  ] as const) {
+    const called = await s.call(name, args);
+    expect(called.result.isError).toBe(true);
+    expect(called.value.error.code).toBe(code);
+    expect(called.value.executed).toBe(false);
+    expect(JSON.stringify(called.value)).not.toContain("private-body");
+    const row = (
+      await k.db.pool.query(
+        "select state,result,schema_version from tool_calls where run_id=$1 and logical_call_id=$2",
+        [s.run.id, called.logical],
+      )
+    ).rows[0];
+    expect(row.state).toBe("failed");
+    expect(row.schema_version).toBe(3);
+    expect(row.result).toEqual(called.result);
+  }
+  expect(
+    (
+      await k.db.pool.query("select 1 from messages where conversation_id=$1 and role='message'", [
+        s.run.subject_id,
+      ])
+    ).rowCount,
+  ).toBe(0);
+});
+
+it("makes siblings with different resource grants visible and directly reachable without granting file access", async () => {
+  const adminNode = await agent(board, false, "admin"),
+    left = await agent(adminNode.id),
+    right = await agent(adminNode.id);
+  const resource = (
+    await k.graph.createNode({
+      kind: "text",
+      parentId: board,
+      title: "private",
+      text: "private",
+      position,
+      idempotencyKey: key(),
+    })
+  ).node;
+  await k.graph.createLink({ fromId: right.id, toId: resource.id, idempotencyKey: key() });
+  const s = await start(left.id);
+  const visible = (await s.call("list_agents", {})).value.agents;
+  expect(visible.map((a: any) => a.id)).toEqual(
+    expect.arrayContaining([adminNode.id, left.id, right.id]),
+  );
+  expect(visible.find((a: any) => a.id === adminNode.id).managerId).toBeNull();
+  expect(
+    (await s.call("send_message", { to: "agent", id: right.id, message: "coordinate" })).waiting,
+  ).toBeUndefined();
+  expect(
+    (await k.db.pool.query("select 1 from approvals where subject_id=$1", [left.id])).rowCount,
+  ).toBe(0);
+  const read = await s.call("read", { target: { kind: "node", nodeId: resource.id } });
+  expect(read.waiting).toBe("approval");
+});
+
+it("keeps untracked messages untracked and creates one durable request per tracked recipient on replay", async () => {
+  const a = await agent(),
+    b = await agent(),
+    s = await start();
+  await s.call("send_message", { to: "agent", id: a.id, message: "FYI" });
+  expect(
+    (await k.db.pool.query("select 1 from message_requests where canvas_id=$1", [board])).rowCount,
+  ).toBe(0);
+  const args = {
+    to: "agents",
+    ids: [a.id, b.id],
+    message: "question",
+    expectReply: true,
+    replyWithinSeconds: 1,
+  };
+  const sent = await s.call("send_message", args, "send-once");
+  expect(sent.value.requests).toHaveLength(2);
+  expect((await s.call("send_message", args, "send-once")).value).toEqual(sent.value);
+  expect(
+    (await k.db.pool.query("select 1 from message_requests where canvas_id=$1", [board])).rowCount,
+  ).toBe(2);
+});
+
+it("requires a real inbox inspection, complete coverage and current review token before waiting", async () => {
+  const s = await start();
+  expect((await s.call("wait_for_message", {})).value.error.code).toBe("INBOX_REVIEW_REQUIRED");
+  expect(
+    (await s.call("review_inbox", { handledMessageIds: [], trackRequestIds: [] })).value.error.code,
+  ).toBe("INBOX_REVIEW_REQUIRED");
+  const first = (await s.call("review_inbox", {})).value;
+  expect(
+    (
+      await s.call("review_inbox", {
+        reviewKey: first.reviewKey,
+        handledMessageIds: [],
+        trackRequestIds: [],
+      })
+    ).value.error.code,
+  ).toBe("INBOX_REVIEW_INCOMPLETE");
+  expect(
+    (
+      await s.call("review_inbox", {
+        reviewKey: first.reviewKey,
+        handledMessageIds: ["forged"],
+        trackRequestIds: [],
+      })
+    ).value.error.code,
+  ).toBe("INBOX_REVIEW_INPUT");
+  const verified = (await review(s)).value;
+  expect(
+    (await s.call("wait_for_message", { confirmed: true, reviewToken: "forged" })).result.isError,
+  ).toBe(true);
+  expect(
+    (await s.call("wait_for_message", { confirmed: true, reviewToken: verified.reviewToken }))
+      .waiting,
+  ).toBe("message");
+  await k.db.canvas(board, (tx) =>
+    k.conversations.append(tx, s.run.subject_id, key(), "user", { text: "new work" }, s.run.id),
+  );
+  expect(
+    (await s.call("wait_for_message", { confirmed: true, reviewToken: verified.reviewToken })).value
+      .error.code,
+  ).toBe("INBOX_REVIEW_REQUIRED");
+});
+
+it("keeps incoming and outgoing reply obligations until answered or explicitly tracked", async () => {
+  const a = await agent(),
+    b = await agent(),
+    sender = await start(a.id),
+    recipient = await start(b.id);
+  const sent = await sender.call("send_message", {
+    to: "agent",
+    id: b.id,
+    message: "answer me",
+    expectReply: true,
+  });
+  const req = sent.value.requests[0].id;
+  const mailbox = (await recipient.call("review_inbox", {})).value;
+  expect(mailbox.incoming.map((q: any) => q.id)).toContain(req);
+  expect(
+    (
+      await recipient.call("review_inbox", {
+        reviewKey: mailbox.reviewKey,
+        handledMessageIds: mailbox.messages.map((m: any) => m.id),
+        trackRequestIds: [],
+      })
+    ).value.error.code,
+  ).toBe("INBOX_REVIEW_INCOMPLETE");
+  const token = (await review(recipient)).value.reviewToken;
+  expect(
+    (await recipient.call("wait_for_message", { confirmed: true, reviewToken: token })).waiting,
+  ).toBe("message");
+  await recipient.call("send_message", {
+    to: "request",
+    id: req,
+    kind: "reply",
+    message: "answered",
+  });
+  expect(
+    (await k.db.pool.query("select state from message_requests where id=$1", [req])).rows[0].state,
+  ).toBe("replied");
+  expect(
+    (await recipient.call("wait_for_message", { confirmed: true, reviewToken: token })).result
+      .isError,
+  ).toBe(true);
+});
+
+it("emits one timeout hook per deadline version, wakes a waiting sender, and preserves read evidence", async () => {
+  const a = await agent(),
+    b = await agent(),
+    sender = await start(a.id),
+    recipient = await start(b.id);
+  const req = (
+    await sender.call("send_message", {
+      to: "agent",
+      id: b.id,
+      message: "check",
+      expectReply: true,
+    })
+  ).value.requests[0].id;
+  await consume(recipient);
+  await k.db.pool.query(
+    "update runs set state='waiting',reason='message',owner_id=null,lease_until=null where id=$1",
+    [sender.run.id],
+  );
+  await expire(req);
+  await Promise.all([k.tools.messages.tick(), k.tools.messages.tick()]);
+  const delivered = await notices(sender.run.subject_id);
+  expect(delivered).toHaveLength(1);
+  expect(delivered[0].content.readAt).toBeTruthy();
+  expect((await k.runs.get(sender.run.id)).state).toBe("queued");
+  await k.tools.messages.tick();
+  expect(await notices(sender.run.subject_id)).toHaveLength(1);
+  const state = (await k.db.pool.query("select version from message_requests where id=$1", [req]))
+    .rows[0];
+  await k.tools.messages.updateForOwner(req, "wait", 60, state.version);
+  await expire(req);
+  await k.tools.messages.tick();
+  expect(await notices(sender.run.subject_id)).toHaveLength(2);
+});
+
+it("routes a child reply back to the original workspace conversation and closes only that request", async () => {
+  const a = await agent(),
+    owner = await start(),
+    child = await start(a.id);
+  const first = (
+    await owner.call("send_message", { to: "agent", id: a.id, message: "first", expectReply: true })
+  ).value.requests[0].id;
+  const second = (
+    await owner.call("send_message", {
+      to: "agent",
+      id: a.id,
+      message: "second",
+      expectReply: true,
+    })
+  ).value.requests[0].id;
+  await child.call("send_message", {
+    to: "request",
+    id: first,
+    kind: "result",
+    message: "finished first",
+  });
+  const q = (
+    await k.db.pool.query("select id,state from message_requests where id=any($1)", [
+      [first, second],
+    ])
+  ).rows;
+  expect(q.find((r) => r.id === first).state).toBe("replied");
+  expect(q.find((r) => r.id === second).state).toBe("open");
+  expect(
+    (
+      await k.db.pool.query(
+        "select 1 from messages where conversation_id=$1 and content->>'text'='finished first'",
+        [owner.run.subject_id],
+      )
+    ).rowCount,
+  ).toBe(1);
+  await expire(first);
+  await k.tools.messages.tick();
+  expect(await notices(owner.run.subject_id)).toHaveLength(0);
+});
+
+it("wait extends the deadline without sending; expedite is bound to the original request and rate limited", async () => {
+  const adminNode = await agent(board, false, "admin"),
+    a = await agent(adminNode.id),
+    b = await agent(adminNode.id),
+    sender = await start(a.id),
+    recipient = await start(b.id);
+  const req = (
+    await sender.call("send_message", {
+      to: "agent",
+      id: b.id,
+      message: "original question",
+      expectReply: true,
+    })
+  ).value.requests[0].id;
+  const before = (
+    await k.db.pool.query("select message_seq from conversations where id=$1", [
+      recipient.run.subject_id,
+    ])
+  ).rows[0].message_seq;
+  await sender.call("update_message", { requestId: req, action: "wait", waitSeconds: 1 });
+  expect(
+    (
+      await k.db.pool.query("select message_seq from conversations where id=$1", [
+        recipient.run.subject_id,
+      ])
+    ).rows[0].message_seq,
+  ).toBe(before);
+  const expedited = await sender.call("update_message", {
+    requestId: req,
+    action: "expedite",
+    waitSeconds: 60,
+  });
+  expect(expedited.result.isError).not.toBe(true);
+  const follow = (
+    await k.db.pool.query(
+      "select content,expedite_run_id from messages where conversation_id=$1 and content->>'priority'='expedited'",
+      [recipient.run.subject_id],
+    )
+  ).rows[0];
+  expect(follow.content.text).toContain("original question");
+  expect(follow.content.replyTo.id).toBe(req);
+  expect(follow.expedite_run_id).toBe(recipient.run.id);
+  expect(
+    (await sender.call("update_message", { requestId: req, action: "expedite" })).value.error.code,
+  ).toBe("EXPEDITE_COOLDOWN");
+  await consume(recipient);
+  expect(
+    (await recipient.call("update_message", { requestId: req, action: "cancel" })).value.error.code,
+  ).toBe("FORBIDDEN");
+});
+
+it("stops tracking on sender Stop and never wakes stopped or deleted canvases", async () => {
+  const a = await agent(),
+    b = await agent(),
+    sender = await start(a.id),
+    recipient = await start(b.id);
+  const req = (
+    await sender.call("send_message", {
+      to: "agent",
+      id: b.id,
+      message: "deadline",
+      expectReply: true,
+    })
+  ).value.requests[0].id;
+  await k.runs.cancel(sender.run.id);
+  await expire(req);
+  await k.tools.messages.tick();
+  expect(await notices(sender.run.subject_id)).toHaveLength(0);
+  expect(
+    (await k.db.pool.query("select state from message_requests where id=$1", [req])).rows[0].state,
+  ).toBe("cancelled");
+  await k.db.pool.query("update canvases set deleted_at=now() where id=$1", [board]);
+  await k.tools.messages.tick();
+  expect((await k.runs.get(recipient.run.id)).state).toBe("running");
+});
+
+it("rejects stale deadline decisions and invalidates reviewed waits after a timeout", async () => {
+  const a = await agent(),
+    s = await start();
+  const req = (
+    await s.call("send_message", { to: "agent", id: a.id, message: "deadline", expectReply: true })
+  ).value.requests[0].id;
+  const token = (await review(s)).value.reviewToken;
+  await expire(req);
+  await k.tools.messages.tick();
+  await consume(s);
+  expect(
+    (await s.call("wait_for_message", { confirmed: true, reviewToken: token })).value.error.code,
+  ).toBe("INBOX_REVIEW_REQUIRED");
+  await s.call("update_message", { requestId: req, action: "wait", version: 1 });
+  expect(
+    (await s.call("update_message", { requestId: req, action: "cancel", version: 1 })).value.error
+      .code,
+  ).toBe("VERSION_CONFLICT");
+});
+
+it("coalesces equivalent pending permission requests and preserves the original executable receipt", async () => {
+  const manager = await agent(board, false, "admin"),
+    member = await agent(manager.id),
+    s = await start(member.id);
+  const n = (
+    await k.graph.createNode({
+      kind: "text",
+      title: "restricted",
+      text: "evidence",
+      parentId: board,
+      position,
+      idempotencyKey: key(),
+    })
+  ).node;
+  const args = { target: { kind: "node", nodeId: n.id } };
+  const first = await s.call("read", args);
+  expect(first.waiting).toBe("approval");
+  const repeated = await s.call("read", args);
+  expect(repeated.value.error.code).toBe("APPROVAL_PENDING");
+  expect(repeated.value.error.requestId).toBe(first.value.requestId);
+  expect(
+    (
+      await k.db.pool.query("select 1 from approvals where subject_id=$1 and status='pending'", [
+        member.id,
+      ])
+    ).rowCount,
+  ).toBe(1);
+  await k.access.decide(first.value.requestId, 1, "approve", "authorized");
+  const original = await s.call("read", args, first.logical);
+  expect(original.result.isError).not.toBe(true);
+  expect((await s.call("read", args)).result.isError).not.toBe(true);
+});
+
+it("conversation intrica-file references download immutable published bytes within the sender's resource grants", async () => {
+  const { FileReferences } = await import("../../apps/server/dist/modules/work/file-references.js");
+  const manager = await agent(board, false, "admin"),
+    member = await agent(manager.id),
+    outsider = await agent(),
+    s = await start(member.id);
+  const path = join(await k.host.workspace(board, member.id), "scene.html");
+  const bytes = Buffer.from("<!doctype html><canvas></canvas><script>renderScene()</script>");
+  await writeFile(path, bytes);
+  const artifact = (await s.call("create_artifact", { kind: "text", title: "scene.html", path }))
+    .value;
+  expect(artifact.sharedWith).toContain(manager.id);
+  const link = `intrica-file:${artifact.id}`;
+  const sent = await s.call("send_message", {
+    to: "manager",
+    kind: "result",
+    message: `[Download](${link})`,
+    fileIds: [artifact.id],
+  });
+  expect(sent.value.delivered).toBe(1);
+  const references = new FileReferences(k, "reference-server");
+  const ref = (id: string) =>
+    Buffer.from(
+      JSON.stringify({ serverId: "reference-server", origin: { kind: "agent", id }, path: link }),
+    ).toString("base64url");
+  const preview = await references.preview(ref(manager.id));
+  expect(preview.text).toContain("renderScene()");
+  await writeFile(path, "changed after publication");
+  const downloaded = await references.download(ref(manager.id), AbortSignal.timeout(5000));
+  const chunks: Buffer[] = [];
+  for await (const part of downloaded.stream) chunks.push(Buffer.from(part));
+  expect(Buffer.concat(chunks)).toEqual(bytes);
+  expect(downloaded.name).toBe("scene.html");
+  await expect(references.resolve(ref(outsider.id))).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
+
+it("delivers reply addresses and timeout hook arguments into actual model context", async () => {
+  const { Agent } = await import("../../apps/server/dist/adapters/model/agent.js");
+  const inputs: string[] = [];
+  const turn = Agent.prototype.turn;
+  vi.spyOn(Agent.prototype, "turn").mockImplementation(async function (
+    this: InstanceType<typeof Agent>,
+    ...args: Parameters<typeof turn>
+  ) {
+    inputs.push(
+      this.state.messages
+        .filter((m) => m.role === "user")
+        .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+        .join("\n"),
+    );
+    return turn.apply(this, args);
+  });
+  const a = await agent(),
+    b = await agent(),
+    sender = await start(a.id),
+    recipient = await start(b.id);
+  const requestId = (
+    await sender.call("send_message", {
+      to: "agent",
+      id: b.id,
+      message: "verify question",
+      expectReply: true,
+      replyWithinSeconds: 30,
+    })
+  ).value.requests[0].id;
+  await k.conversations.execute(recipient.ctx, (ctx, input) => k.tools.create(ctx, input));
+  const received = inputs
+    .flatMap((text) => text.split("\n"))
+    .find((line) => line.includes('"replyTo"'))!;
+  const address = JSON.parse(received.slice(received.indexOf("{")));
+  expect(address).toMatchObject({
+    requestId,
+    replyTo: { to: "request", id: requestId },
+    expectReply: true,
+    replyWithinSeconds: 30,
+  });
+  await expire(requestId);
+  await k.tools.messages.tick();
+  await k.conversations.execute(sender.ctx, (ctx, input) => k.tools.create(ctx, input));
+  expect(
+    inputs.some(
+      (text) =>
+        text.includes(requestId) &&
+        text.includes('"hook":"update_message"') &&
+        text.includes('"actions":["wait","expedite","cancel"]'),
+    ),
+  ).toBe(true);
+});

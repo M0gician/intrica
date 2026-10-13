@@ -128,6 +128,9 @@ export function toolLabel(name: string) {
     write: tr("写入文件"),
     report_result: tr("提交报告"),
     send_message: tr("发送协作消息"),
+    review_inbox: tr("复核信箱"),
+    update_message: tr("跟踪消息"),
+    list_agents: tr("查看团队成员"),
     wait_for_message: tr("等待消息"),
     web_search: tr("搜索网页"),
   };

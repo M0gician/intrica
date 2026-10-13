@@ -42,9 +42,13 @@ export type AccessIntent =
       message: string;
       messageKind: string;
       /** Missing on legacy resource-reader broadcasts. Recipients remain frozen. */
-      targetKind?: "agent" | "agents" | "canvas" | "resource_readers";
+      targetKind?: "agent" | "agents" | "canvas" | "resource_readers" | "team" | "user";
       resourceIds?: string[];
       fileIds?: string[];
+      expectReply?: boolean;
+      replyWithinSeconds?: number;
+      replyTo?: string;
+      priority?: "normal" | "expedite";
     };
 export type ApprovalRecord = {
   id: string;

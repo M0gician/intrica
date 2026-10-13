@@ -91,6 +91,7 @@ export async function createKernel(config: ApiConfig) {
           ),
       },
       async () => {
+        await tools.messages.tick();
         await access.maintain();
         await tools.tickSchedules();
         if (Date.now() - lastMaintenance > 3600000) {
