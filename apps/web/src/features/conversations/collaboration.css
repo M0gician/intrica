@@ -12,7 +12,7 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 10px 16px;
+  gap: 10px 8px;
   padding: 12px 20px;
   border-bottom: 1px solid var(--card-border);
   background: var(--card-bg);
@@ -25,7 +25,7 @@
 .collaboration-state-main {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: 1;
   min-width: 0;
 }
