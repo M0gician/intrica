@@ -83,9 +83,9 @@ it("shows outgoing recipients and incoming sender without confusing the inbox ow
   const { rerender } = render(
     <AgentTimeline events={[event({ recipients: ["child"] })]} nodes={nodes} />,
   );
-  expect(document.querySelector(".agent-event small")?.textContent).toBe("管理员 → 成员");
+  expect(document.querySelector(".activity-header")?.textContent).toBe("管理员发给 成员");
   rerender(<AgentTimeline events={[event({ from: "manager" }, "child")]} nodes={nodes} />);
-  expect(document.querySelector(".agent-event small")?.textContent).toBe("管理员 → 成员");
+  expect(document.querySelector(".activity-header")?.textContent).toBe("管理员发给 成员");
 });
 
 it("identifies deleted participants and workspace sends instead of Agent to Agent", () => {
@@ -102,8 +102,8 @@ it("identifies deleted participants and workspace sends instead of Agent to Agen
       nodes={new Map()}
     />,
   );
-  expect(document.querySelector(".agent-event small")?.textContent).toBe(
-    "旧管理员（已删除） → 旧成员（已删除）",
+  expect(document.querySelector(".activity-header")?.textContent).toBe(
+    "旧管理员（已删除）发给 旧成员（已删除）",
   );
   rerender(
     <AgentTimeline
@@ -111,8 +111,8 @@ it("identifies deleted participants and workspace sends instead of Agent to Agen
       nodes={nodes}
     />,
   );
-  expect(document.querySelector(".agent-event small")?.textContent).toBe(
-    "工作区助手 → 已删除的 Agent（12345678）",
+  expect(document.querySelector(".activity-header")?.textContent).toBe(
+    "工作区助手发给 已删除的 Agent（12345678）",
   );
 });
 

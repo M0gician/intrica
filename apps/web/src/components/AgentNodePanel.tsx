@@ -3,6 +3,7 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { useSessionConnection } from "../api/connection";
 import { AgentProfile } from "../features/conversations/AgentProfile";
 import { AgentTimeline } from "../features/conversations/AgentTimeline";
+import { CollaborationState } from "../features/conversations/CollaborationState";
 import { ConversationPause } from "../features/conversations/ConversationPause";
 import { activityRecipient } from "../features/conversations/model";
 import { ResourceResponse } from "../features/conversations/ResourceResponse";
@@ -106,25 +107,19 @@ export function AgentNodePanel({
   return (
     <div className="agent-node-panel" ref={panel}>
       <ConversationPause reason={data.runReason} />
-      <div className="collaboration-state">
-        <span role="status">
-          {data.collaborationPaused ? tr("协作已暂停") : tr("自动协作已开启")}
-        </span>
-        <Button
-          disabled={busy}
-          variant="quiet"
-          onClick={() =>
-            void act(
-              `canvas-agents/${node.id}/${data.collaborationPaused ? "run" : "stop"}`,
-              data.collaborationPaused
-                ? { message: tr("恢复协作，检查未完成的请求和已授权资源。") }
-                : {},
-            )
-          }
-        >
-          {data.collaborationPaused ? tr("恢复协作") : tr("暂停协作")}
-        </Button>
-      </div>
+      <CollaborationState
+        paused={data.collaborationPaused}
+        respondsToResources={draft.enabled}
+        busy={busy}
+        onToggle={() =>
+          void act(
+            `canvas-agents/${node.id}/${data.collaborationPaused ? "run" : "stop"}`,
+            data.collaborationPaused
+              ? { message: tr("恢复协作，检查未完成的请求和已授权资源。") }
+              : {},
+          )
+        }
+      />
       {data.configurationBlocked && data.resourceResponse?.reason !== "model_not_configured" && (
         <p role="status">{tr("自动任务等待模型配置。")}</p>
       )}

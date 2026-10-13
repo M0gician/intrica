@@ -108,14 +108,6 @@ export function AgentProfile({
           </button>
         </div>
         <div className="agent-profile-info">
-          <small>{tr("Agent · 已连接 {{v0}} 项", { v0: linkedCount })}</small>
-          <span className="agent-manager-field">
-            {node.parentId && nodes.get(node.parentId)?.kind === "agent"
-              ? tr("直属管理：{{v0}}", {
-                  v0: nodes.get(node.parentId)?.title || node.parentId,
-                })
-              : tr("独立 Agent")}
-          </span>
           <input
             type="text"
             aria-label={tr("Agent 姓名")}
@@ -129,7 +121,14 @@ export function AgentProfile({
             }}
           />
           <span className="agent-profile-mode">
-            {roleLabels[draft.role]} · {draft.enabled ? tr("自动响应资源") : tr("手动响应资源")}
+            {roleLabels[draft.role]} · {tr("已连接 {{count}} 项资源", { count: linkedCount })}
+          </span>
+          <span className="agent-manager-field">
+            {node.parentId && nodes.get(node.parentId)?.kind === "agent"
+              ? tr("直属管理：{{v0}}", {
+                  v0: nodes.get(node.parentId)?.title || node.parentId,
+                })
+              : tr("独立 Agent")}
           </span>
         </div>
       </section>
@@ -139,7 +138,7 @@ export function AgentProfile({
         onToggle={(event) => setSettingsOpen(event.currentTarget.open)}
       >
         <summary>
-          {tr("设置")}
+          {tr("性格与职责")}
           <span className="agent-save-state" role="status">
             {
               {
@@ -153,7 +152,7 @@ export function AgentProfile({
         </summary>
         <section className="agent-settings" aria-label={tr("Agent 配置")}>
           <label className="agent-persona-field">
-            <span>{tr("性格与职责")}</span>
+            <span>{tr("说明职责、交付要求和表达偏好。")}</span>
             <textarea
               ref={personaField}
               aria-label={tr("Agent 性格与职责")}

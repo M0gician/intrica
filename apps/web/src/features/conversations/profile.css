@@ -62,11 +62,6 @@
   display: grid;
   gap: 5px;
 }
-.agent-profile-info > small {
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  color: #787164;
-}
 .panel-body .agent-profile-info input[type="text"] {
   width: 100%;
   min-width: 0;
@@ -89,7 +84,7 @@
   border-bottom-color: var(--primary);
 }
 .agent-profile-info > .agent-profile-mode {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 .agent-settings-disclosure {
@@ -182,6 +177,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
 }

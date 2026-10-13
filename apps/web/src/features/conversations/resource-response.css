@@ -4,7 +4,7 @@
   align-items: center;
   flex-shrink: 0;
   gap: 8px 12px;
-  margin: 8px 12px;
+  margin: 10px 20px;
   padding: 8px 12px;
   border: 1px solid var(--card-border);
   border-radius: 8px;
@@ -20,4 +20,16 @@
 }
 .resource-response button {
   flex: 0 0 auto;
+}
+
+.resource-response[data-state="blocked"] {
+  border-inline-start: 3px solid var(--latest-border);
+  background: var(--status-warning-bg);
+  color: var(--status-warning);
+}
+.resource-response[data-state="consumed"],
+.resource-response[data-state="cancelled"] {
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
 }

@@ -99,10 +99,11 @@ test("collaboration receipts and priority survive refresh, and pause is persiste
     const bubble = panel
       .locator("article.agent-event-message")
       .filter({ hasText: "请查看这条协作消息" });
-    await expect(bubble.getByText("未读", { exact: true })).toBeVisible();
+    await expect(bubble.getByRole("status", { name: "未读", exact: true })).toBeVisible();
+    await bubble.hover();
     await bubble.getByRole("button", { name: "加急消息", exact: true }).click();
     await expect(bubble).toHaveClass(/agent-event-expedited/);
-    await expect(bubble.getByText("加急中", { exact: false })).toBeVisible();
+    await expect(bubble.getByRole("status", { name: "加急中", exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath("unread-expedited.png") });
     await db.query("BEGIN");
     await db.query(
@@ -127,13 +128,13 @@ test("collaboration receipts and priority survive refresh, and pause is persiste
     );
     await db.query("select pg_notify('intrica_changes',$1)", [board.id]);
     await db.query("COMMIT");
-    await expect(bubble.getByText("已读", { exact: true })).toBeVisible();
-    await expect(bubble.getByText("已优先送达", { exact: false })).toBeVisible();
+    await expect(bubble.getByRole("status", { name: "已读", exact: true })).toBeVisible();
+    await expect(bubble.getByRole("status", { name: "已优先送达", exact: true })).toBeVisible();
     await expect(bubble.getByRole("button", { name: "加急消息" })).toHaveCount(0);
     await page.reload();
     await page.locator(`[data-node-id="${sender.id}"]`).dblclick();
     await expect(bubble).toHaveClass(/agent-event-expedited/);
-    await expect(bubble.getByText("已读", { exact: true })).toBeVisible();
+    await expect(bubble.getByRole("status", { name: "已读", exact: true })).toBeVisible();
     await panel.getByRole("button", { name: "暂停协作", exact: true }).click();
     await expect(panel.getByText("协作已暂停", { exact: true })).toBeVisible();
     await page.reload();

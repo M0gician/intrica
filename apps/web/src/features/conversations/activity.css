@@ -143,9 +143,19 @@
   border-left: 2px solid var(--card-border);
   padding-left: 10px;
 }
-.agent-event-message {
-  border-left: 2px solid #7f9b91;
-  padding-left: 12px;
+.agent-event-message,
+.agent-event-broadcast,
+.agent-event-report {
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 12px 16px 22px;
+  background: var(--card-bg);
+}
+.agent-event-message_notice {
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--card-bg);
 }
 .agent-event-tool {
   font-size: 12px;
@@ -249,10 +259,7 @@
   min-width: 0;
   padding: 4px;
 }
-.agent-event-broadcast {
-  border-left: 2px solid #7f9b91;
-  padding-left: 12px;
-}
+
 .agent-event-time {
   margin-left: 7px;
   opacity: 0;
@@ -260,8 +267,8 @@
   font-variant-numeric: tabular-nums;
 }
 .agent-collaboration .agent-event-time,
-.agent-event:hover .agent-event-time,
-.agent-event:focus-within .agent-event-time {
+:where(.agent-event):hover .agent-event-time,
+:where(.agent-event):focus-within .agent-event-time {
   opacity: 1;
 }
 .broadcast-scope {
@@ -320,43 +327,57 @@
 }
 
 .agent-event.agent-event-expedited {
-  border-inline-start: 3px solid #b97712;
-  background: var(--latest-bg);
+  border-inline-start: 3px solid var(--latest-border);
+  background: var(--status-warning-bg);
 }
-.message-priority {
-  display: inline-flex;
-  margin-inline-end: 6px;
-  color: #98620c;
-  font-size: 11px;
+
+.activity-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 5px 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.activity-participants {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.activity-participants strong {
+  color: var(--text-primary);
+  font-size: 13px;
   font-weight: 600;
 }
-.collaboration-state {
+.activity-header-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--card-border);
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-.delivery-receipts {
   font-size: 11px;
-  margin-top: 8px;
-  color: var(--text-secondary);
 }
-.delivery-receipts ul {
-  list-style: none;
-  padding: 0;
+.activity-header .agent-event-time {
   margin: 0;
+  opacity: 1;
 }
-.delivery-receipt {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+.agent-event-message > .markdown-lite,
+.agent-event-report > .markdown-lite,
+.agent-event-broadcast > .markdown-lite {
+  font-size: 14px;
+  line-height: 1.65;
 }
-.delivery-receipts summary {
-  cursor: pointer;
+.agent-event > .markdown-lite > :first-child {
+  margin-top: 0;
+}
+.agent-event > .markdown-lite > :last-child {
+  margin-bottom: 0;
+}
+.agent-event-message_notice .activity-header {
+  margin-bottom: 12px;
 }

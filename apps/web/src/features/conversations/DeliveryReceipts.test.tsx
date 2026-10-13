@@ -40,9 +40,9 @@ it("shows aggregate and individual receipts and expedites only the selected unre
       />
     </ConnectionServices.Provider>,
   );
-  fireEvent.click(screen.getByText("已读 1/2"));
-  expect(screen.getByText("已读").title).toContain("已加入模型上下文");
-  expect(screen.getByText("未读")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "接收者状态 · 已读 1/2" }));
+  expect(screen.getByRole("status", { name: "已读" }).title).toContain("已加入模型上下文");
+  expect(screen.getByRole("status", { name: "未读" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "加急消息" }));
   await waitFor(() =>
     expect(connection.transport.json).toHaveBeenCalledWith(
@@ -61,7 +61,8 @@ it("shows paused unread messages without offering an action that would resume th
       <DeliveryReceipts receipts={[receipt({ paused: true })]} />
     </ConnectionServices.Provider>,
   );
-  expect(screen.getByRole("status").textContent).toContain("未读 · 协作已暂停");
+  expect(screen.getByRole("status", { name: "未读" }).textContent).toBe("");
+  expect(screen.getByRole("status", { name: "未读" }).title).toContain("对方已暂停协作");
   expect(screen.queryByRole("button", { name: "加急消息" })).toBeNull();
   connection.dispose();
 });
@@ -89,7 +90,32 @@ it("retains the expedite marker after a user input has been consumed", () => {
       />
     </ConnectionServices.Provider>,
   );
-  expect(screen.getByText("⚡ 加急")).toBeTruthy();
+  expect(screen.getByRole("status", { name: "已优先送达" })).toBeTruthy();
   expect(screen.getByRole("status", { name: "已读" })).toBeTruthy();
+  connection.dispose();
+});
+
+it("keeps a single priority label and prevents repeat expediting while the reminder is unread", () => {
+  const connection = createSessionConnection("", "pending-priority");
+  render(
+    <ConnectionServices.Provider value={connection}>
+      <TimelineEvent
+        event={{
+          seq: 1,
+          agentId: "a",
+          kind: "message",
+          data: {
+            text: "Please review",
+            priority: "expedited",
+            deliveryReceipts: [receipt({ priority: "expedited" })],
+          },
+        }}
+        nodes={new Map()}
+        requestEvent={new Map()}
+      />
+    </ConnectionServices.Provider>,
+  );
+  expect(screen.getAllByRole("status", { name: "加急中" })).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: "加急消息" })).toBeNull();
   connection.dispose();
 });

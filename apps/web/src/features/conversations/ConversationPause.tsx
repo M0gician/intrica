@@ -4,7 +4,7 @@ export function ConversationPause({ reason }: { reason?: string | null | undefin
   if (reason === "inbox_review")
     return (
       <p role="status" className="conversation-pause">
-        {tr("结束检查尚未完成，请检查未读消息和未结请求后继续。")}
+        {tr("Agent 需要检查未读消息和待回复请求。点击继续以完成检查。")}
       </p>
     );
   if (reason !== "tool_contract_upgrade") return null;

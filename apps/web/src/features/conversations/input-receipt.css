@@ -1,5 +1,5 @@
 .chat-user,
-.agent-event-user {
+.agent-event {
   position: relative;
 }
 .input-receipt {
@@ -14,7 +14,7 @@
   white-space: nowrap;
   color: var(--text-secondary, #5f646c);
 }
-.input-receipt [role="status"] {
+.receipt-status {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
@@ -25,17 +25,23 @@
   color: inherit;
   font-size: 10px;
 }
-:is(.chat-user, .agent-event-user):is(:hover, :focus-visible, :has(:focus-visible))
+:is(.chat-user, .agent-event):is(:hover, :focus-visible, :has(:focus-visible))
   > .input-receipt:has(.agent-event-time) {
   margin-left: 16px;
 }
-:is(.chat-user, .agent-event-user):is(:hover, :focus-visible, :has(:focus-visible))
+:is(.chat-user, .agent-event):is(:hover, :focus-visible, :has(:focus-visible))
   > .input-receipt
   .agent-event-time {
   display: block;
   opacity: 1;
 }
+.input-expedite,
 .input-expedite.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  flex: none;
   position: absolute;
   top: -7px;
   left: -7px;
@@ -57,7 +63,7 @@
   position: absolute;
   inset: -2px;
 }
-:is(.chat-user, .agent-event-user):hover .input-expedite,
+:is(.chat-user, .agent-event):hover .input-expedite,
 .input-expedite:focus-visible {
   opacity: 1;
   pointer-events: auto;
@@ -74,4 +80,60 @@
   display: block;
   margin-top: 4px;
   font-size: 12px;
+}
+
+.input-expedite[data-expedited="true"],
+.input-expedite.ui-button[data-expedited="true"]:disabled {
+  opacity: 1;
+  pointer-events: auto;
+  color: var(--status-warning);
+  border-color: var(--latest-border);
+  background: var(--status-warning-bg);
+}
+.input-expedite[role="status"] {
+  cursor: help;
+}
+.input-expedite.input-expedite-inline {
+  position: relative;
+  top: auto;
+  left: auto;
+  opacity: 1;
+  pointer-events: auto;
+}
+.delivery-receipt-summary {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 10px;
+  line-height: 12px;
+  height: 12px;
+  cursor: pointer;
+}
+.delivery-receipt-summary::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+.delivery-receipt-summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+@media (pointer: coarse) {
+  .input-expedite {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .input-expedite::after {
+    inset: -11px;
+  }
+  .delivery-receipt-summary::after {
+    inset: -16px -8px;
+  }
 }

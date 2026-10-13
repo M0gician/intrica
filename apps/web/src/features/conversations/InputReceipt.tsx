@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import { tr } from "../../i18n";
-import { Button } from "../../ui/button";
+import { PriorityControl, ReceiptStatus } from "./MessageIndicators";
 import "./input-receipt.css";
 
 export type Receipt = {
@@ -63,62 +63,31 @@ export function InputReceipt({
       )}
       <span className="input-receipt">
         {time}
-        <span
-          role="status"
-          aria-label={label}
+        <ReceiptStatus
+          state={state}
+          label={label}
           title={state === "read" ? tr("已加入模型上下文") : label}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 20 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            {["read", "unread"].includes(state) ? (
-              <>
-                <path d="m1 7 4 4 8-9" />
-                {state === "read" && <path d="m7 7 4 4 8-9" />}
-              </>
-            ) : (
-              <>
-                <circle cx="10" cy="7" r="5.5" />
-                <path
-                  d={["sending", "expediting"].includes(state) ? "M10 3v4l3 2" : "M10 3v5m0 2v1"}
-                />
-              </>
-            )}
-          </svg>
-        </span>
+        />
       </span>
-      {conversationId && ["unread", "expediting"].includes(state) && (
-        <Button
-          variant="quiet"
-          size="icon"
-          className="input-expedite"
-          disabled={state === "expediting"}
-          aria-label={state === "expediting" ? tr("加急中") : tr("加急")}
-          title={state === "expediting" ? tr("加急中") : tr("加急")}
-          onClick={() => void expedite()}
-        >
-          <svg
-            width="10"
-            height="14"
-            viewBox="0 0 18 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.25"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M11 1 4 13h4l-1 10 7-13h-4l1-9Z" />
-          </svg>
-        </Button>
+      {((conversationId && ["unread", "expediting"].includes(state)) || receipt.expeditedAt) && (
+        <PriorityControl
+          active={state === "expediting" || Boolean(receipt.expeditedAt)}
+          label={
+            state === "expediting"
+              ? tr("加急中")
+              : receipt.expeditedAt
+                ? state === "read"
+                  ? tr("已优先送达")
+                  : tr("加急中")
+                : tr("加急")
+          }
+          disabled={state === "expediting" || Boolean(receipt.expeditedAt)}
+          onClick={
+            conversationId && ["unread", "expediting"].includes(state)
+              ? () => void expedite()
+              : undefined
+          }
+        />
       )}
     </>
   );

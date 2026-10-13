@@ -21,8 +21,8 @@ export function ResourceResponse({
     queue_full: tr("资源响应正在等待队列空位，将自动重试。"),
     retry_pending: tr("资源响应暂时无法启动，将自动重试。"),
     legacy_configuration: tr("升级前的资源响应已保留。配置模型后可重试。"),
-    stopped: tr("旧资源响应已停止。新的资源变化仍会触发。"),
-    disabled: tr("持续协作已关闭，待处理的资源响应已取消。"),
+    stopped: tr("旧资源响应已停止。恢复协作后，新的资源变化才会触发。"),
+    disabled: tr("自动响应资源变化已关闭，待处理的响应已取消。"),
     permissions_changed: tr("权限已变化，旧资源响应已取消。"),
     legacy_inactive: tr("升级前未启用的资源响应已取消。"),
   };

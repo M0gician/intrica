@@ -172,7 +172,7 @@ it("resolves the home directory on the server and distinguishes the canvas root 
   const dialog = await screen.findByRole("dialog", { name: "文件位置" });
   expect(within(dialog).getByText("服务器账户的主目录")).toBeTruthy();
   expect(within(dialog).getByText("包含共享目录和所有成员工作目录。")).toBeTruthy();
-  expect(within(dialog).getByText(listing.path)).toBeTruthy();
+  expect(within(dialog).getByRole("button", { name: "共享目录" }).title).toBe(listing.path);
   fireEvent.click(within(dialog).getByRole("button", { name: "画布工作目录" }));
   expect(onRoot).toHaveBeenCalledWith(listing.parent);
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

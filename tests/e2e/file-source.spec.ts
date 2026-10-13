@@ -151,6 +151,10 @@ test("文件目录导航单行显示，主目录与画布目录可直达，窄�
       const details = page.getByRole("dialog", { name: "文件位置", exact: true });
       await expect(details).toBeVisible();
       await expect(details.getByText(serverName, { exact: true })).toBeVisible();
+      await expect(details.getByText(UI_URL, { exact: true })).toBeHidden();
+      await details.getByRole("button", { name: "画布工作目录", exact: true }).hover();
+      await details.screenshot({ path: test.info().outputPath(`file-locations-${width}.png`) });
+      await details.getByText("完整路径与连接", { exact: true }).click();
       await expect(details.getByText(UI_URL, { exact: true })).toBeVisible();
       await expect(details.getByText(directory, { exact: true })).toBeVisible();
       await expect(details.getByText("所在服务器", { exact: true })).toBeVisible();

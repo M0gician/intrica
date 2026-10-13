@@ -98,15 +98,15 @@ test("自动分派在协作历史中保留身份，删除旧团队后可筛选�
     await page.getByRole("button", { name: "协作消息", exact: true }).click();
     const panel = page.locator(".agent-collaboration");
     await expect(panel.locator(".agent-event-message time").first()).toHaveCSS("opacity", "1");
-    await expect(panel.locator(".agent-event-message > small").first()).toContainText(
-      "Acceptance manager →",
-    );
+    await expect(
+      panel.locator(".agent-event-message .activity-participants").first(),
+    ).toContainText("Acceptance manager发给 ");
     const firstIdentity = (await panel
-      .locator(".agent-event-message > small")
+      .locator(".agent-event-message .activity-participants")
       .first()
       .textContent())!;
     const recipient = members.find((m: { title: string }) =>
-      firstIdentity.includes(`→ ${m.title}`),
+      firstIdentity.includes(`发给 ${m.title}`),
     );
     expect(recipient).toBeDefined();
     await page.screenshot({ path: test.info().outputPath("initial-task-collaboration.png") });
@@ -115,9 +115,9 @@ test("自动分派在协作历史中保留身份，删除旧团队后可筛选�
       nodeIds: [journey.manager.id],
       idempotencyKey: crypto.randomUUID(),
     });
-    await expect(panel.locator(".agent-event-message > small").first()).toContainText(
-      `Acceptance manager（已删除） → ${recipient!.title}（已删除）`,
-    );
+    await expect(
+      panel.locator(".agent-event-message .activity-participants").first(),
+    ).toContainText(`Acceptance manager（已删除）发给 ${recipient!.title}（已删除）`);
     const manager = (
       await call("nodes", "POST", {
         kind: "agent",

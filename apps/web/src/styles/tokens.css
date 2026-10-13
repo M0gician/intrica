@@ -18,6 +18,10 @@
   --error-soft: #fbeaea;
   --latest-bg: #fdf3e0;
   --latest-border: #e0a94f;
+  --status-warning: #80520d;
+  --status-warning-bg: #fff4dd;
+  --status-positive: #26664e;
+  --status-error: #a43f34;
   --shadow-card: 0 2px 3px #43351e09, 0 6px 16px #43351e06;
   --shadow-panel: 0 8px 30px rgba(35, 38, 45, 0.16);
   font-size: 14px;
