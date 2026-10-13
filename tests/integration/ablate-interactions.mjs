@@ -103,10 +103,10 @@ const cases = [
     "T47 multimodal read",
   ],
   [
-    "read model vision boundary",
-    "../adapters/host/media-read.js",
-    'if (!supportsVision && (!pdf || args.mode === "image"))',
-    "if (false)",
+    "nonvisual image metadata fallback",
+    "../adapters/host/image-read.js",
+    'if (args.mode === "text" || (!supportsVision && args.mode !== "image"))',
+    'if (args.mode === "text")',
     "T47 multimodal read",
   ],
   [
@@ -196,9 +196,9 @@ const cases = [
   ["fair inbox scan", "access/service.js", "(c.id<=$1)", "($1::text='')", "C31 a page"],
   [
     "pending resource trigger cancellation",
-    "execution/cancellation.js",
-    "kind='resource_change'",
-    "kind='ablation_disabled'",
+    "execution/schedules.js",
+    "where agent_id=any($1::text[]) and kind='resource_change' and",
+    "where agent_id=any($1::text[]) and kind='ablation_disabled' and",
     "C32 concurrent recruitment",
   ],
   [
@@ -231,7 +231,7 @@ const cases = [
   ],
   [
     "completion transaction input recheck",
-    "work/conversations.js",
+    "work/conversation-runtime/finish.js",
     "if ((await hasUnread(tx)) ||",
     "if (false ||",
     "L11 input arriving before",
@@ -322,14 +322,14 @@ const cases = [
   ],
   [
     "nonblocking limit summary",
-    "work/conversations.js",
+    "work/conversation-runtime/execute.js",
     "const closing = ctx.store.limits.conversationTurns > 0 && budget >= ctx.store.limits.conversationTurns;",
     "const closing = ctx.store.limits.conversationTurns > 0 && budget >= ctx.store.limits.conversationTurns; if (closing) while (await background.deliver()) await background.wait();",
     "L21 a limit summary",
   ],
   [
     "empty summary fallback",
-    "work/conversations.js",
+    "work/conversation-runtime/execute.js",
     'if (closing && !message.content.some((p) => p.type === "text" && p.text.trim())) {',
     "if (false) {",
     "L22 an empty limit",
@@ -377,10 +377,10 @@ const cases = [
     "T25 private member",
   ],
   [
-    "private-source communication boundary",
+    "team communication independent of private resource grants",
     "access/policy.js",
-    '(await agentIdentity(sql, id)).config.role === "admin" &&\n            (await canReadAgentResources(sql, id, left)) &&\n            (await canReadAgentResources(sql, id, right))',
-    '(await agentIdentity(sql, id)).config.role === "admin"',
+    'if ((await agentIdentity(sql, id)).config.role === "admin")',
+    'if ((await agentIdentity(sql, id)).config.role === "admin" && (await canReadAgentResources(sql, id, left)) && (await canReadAgentResources(sql, id, right)))',
     "T25 private member",
   ],
   [
@@ -427,7 +427,7 @@ const cases = [
   ],
   [
     "turn budget persisted across approval",
-    "work/conversations.js",
+    "work/conversation-runtime/execute.js",
     "let budget = Number(conversation.context?.turnsSinceInput ?? 0);",
     "let budget = 0;",
     "L26 an explicit turn budget",
@@ -442,8 +442,8 @@ const cases = [
   [
     "file attachment receiver coverage",
     "graph/mutation.js",
-    '!(await coveringGrant(await grantsFor(this.tx, manager), { resource: input.resource }, "read"))',
-    "false",
+    "if (input.resource &&\n                    !input.publishFile &&",
+    "if (false && input.resource &&\n                    !input.publishFile &&",
     "T37 an imported external",
   ],
   [
@@ -476,9 +476,9 @@ const cases = [
   ],
   [
     "strict tool input fields",
-    "execution/tool-calls.js",
-    "if (!Value.Check(parameters, validationArgs))",
-    "if (false)",
+    "execution/tool-validation.js",
+    "if (Value.Check(schema, args))",
+    "if (true)",
     "T35 missing attachments",
   ],
   [
@@ -505,8 +505,8 @@ const cases = [
   [
     "content-only resource subscription",
     "graph/mutation.js",
-    '["text", "resource", "todo", "alt"]',
-    '["text", "resource", "todo", "alt", "title"]',
+    '["text", "summary", "resource", "todo", "alt"]',
+    '["text", "summary", "resource", "todo", "alt", "title"]',
     "T39 cosmetic report",
   ],
   [
@@ -518,7 +518,7 @@ const cases = [
   ],
   [
     "limit summary checkpoint preserves unfinished state",
-    "work/conversations.js",
+    "work/conversation-runtime/execute.js",
     "let exhausted = conversation.context?.turnLimitReached === true;",
     "let exhausted = false;",
     "L28 recovery after a persisted",

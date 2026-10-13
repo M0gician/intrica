@@ -156,6 +156,7 @@ for (const mode of modes) {
         );
         await files.getByRole("button", { name: "查看文件位置", exact: true }).click();
         let locations = page.getByRole("dialog", { name: "文件位置", exact: true });
+        await locations.getByText("完整路径与连接", { exact: true }).click();
         await expect(locations.getByText(workspace.canvasRoot, { exact: true })).toBeVisible();
         await locations.getByRole("button", { name: "画布工作目录", exact: true }).click();
         await expect(locations).toHaveCount(0);

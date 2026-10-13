@@ -180,7 +180,7 @@ test("Agent 自动命名、设置快速保存与失败恢复、会话收起设�
   await page.getByText("调整角色", { exact: true }).click();
   await page.getByRole("radio", { name: "读写", exact: true }).check();
   await page.getByRole("button", { name: "Agent 能力与设置" }).click();
-  await page.getByRole("switch", { name: "持续协作" }).check();
+  await page.getByRole("switch", { name: "自动响应资源变化" }).check();
   await page.keyboard.press("Escape");
   await expect(async () => {
     const s = await (await request.get(`${api}/api/v2/bootstrap?canvasId=${root.id}`)).json();
