@@ -5,9 +5,68 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileIdentity, installReplacement } from "./update-helper.mjs";
-import { createUpdateInstaller, verifyMacIdentity } from "./update-installer.mjs";
+import {
+  createUpdateInstaller,
+  supportsMacAutomaticUpdates,
+  verifyMacIdentity,
+} from "./update-installer.mjs";
 import { markUpdateStartup, readUpdateOperation, writeUpdateOperation } from "./update-journal.mjs";
-import { needsMacTransition, selectTransitionTarget } from "./update-transition.mjs";
+import {
+  needsMacTransition,
+  runMacTransition,
+  selectTransitionTarget,
+} from "./update-transition.mjs";
+
+test("macOS automatic updates require a valid signature and Gatekeeper acceptance", async () => {
+  const executable = "/Applications/Intrica.app/Contents/MacOS/Intrica";
+  assert.equal(
+    await supportsMacAutomaticUpdates(executable, {
+      execute: async () => ({ stderr: "Identifier=com.intrica.desktop\nSignature=adhoc\n" }),
+    }),
+    false,
+  );
+  assert.equal(
+    await supportsMacAutomaticUpdates(executable, {
+      execute: async (command) => {
+        if (command.endsWith("spctl")) throw new Error("rejected");
+        return { stderr: "Identifier=com.intrica.desktop\nTeamIdentifier=TEAM\n" };
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    await supportsMacAutomaticUpdates(executable, {
+      execute: async () => ({ stderr: "Identifier=com.intrica.desktop\nTeamIdentifier=TEAM\n" }),
+    }),
+    true,
+  );
+});
+
+test("ad-hoc DMG launch provides manual installation instructions without touching apps or data", async () => {
+  for (const locale of ["en-US", "zh-CN"]) {
+    let shown;
+    const handled = await runMacTransition({
+      platform: "darwin",
+      app: { isPackaged: true, whenReady: async () => {}, getLocale: () => locale },
+      dialog: {
+        showMessageBox: async (options) => {
+          shown = options;
+        },
+      },
+      executable: "/Volumes/Intrica/Intrica.app/Contents/MacOS/Intrica",
+      run: async (command) => {
+        assert.equal(command, "/usr/bin/codesign");
+        return { stderr: "Identifier=com.intrica.desktop\nSignature=adhoc\n" };
+      },
+    });
+    assert.equal(handled, true);
+    assert.equal(shown.type, "info");
+    assert.match(
+      shown.detail,
+      locale === "zh-CN" ? /退出.*拖入.*工作区.*仍要打开/ : /quit.*drag.*workspace.*Open Anyway/,
+    );
+  }
+});
 
 const checksum = (bytes) => createHash("sha256").update(bytes).digest("hex");
 async function fixture(t, suffix = "linux-x86_64.AppImage") {
@@ -182,14 +241,13 @@ test("macOS staging validates signatures and identity before the helper can repl
 });
 
 test("macOS rejects ad-hoc signatures and unrelated application identifiers", async () => {
-  for (const stderr of [
-    "Identifier=com.intrica.desktop\nSignature=adhoc\n",
-    "Identifier=other.app\nTeamIdentifier=TEAM\n",
+  for (const [stderr, code] of [
+    ["Identifier=com.intrica.desktop\nSignature=adhoc\n", "UPDATE_SIGNATURE_REQUIRED"],
+    ["Identifier=other.app\nTeamIdentifier=TEAM\n", "UPDATE_IDENTITY_MISMATCH"],
   ]) {
-    await assert.rejects(
-      verifyMacIdentity("fixture.app", { execute: async () => ({ stderr }) }),
-      /UPDATE_SIGNATURE_REQUIRED/,
-    );
+    await assert.rejects(verifyMacIdentity("fixture.app", { execute: async () => ({ stderr }) }), {
+      code,
+    });
   }
 });
 

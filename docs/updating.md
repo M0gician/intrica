@@ -11,7 +11,14 @@ Packaged Desktop checks after startup and then every six hours. Automatic
 download is optional. Checks and downloads do not stop Agents or install
 software. Failures use bounded backoff.
 
-Select **Update and restart**. Intrica downloads the matching package, checks
+For macOS ad-hoc releases (including v0.4.0), choose **Download and install manually**.
+Quit Intrica, copy the new app from the DMG to Applications, replace the previous
+copy and reopen it. Workspace data is preserved. These packages are not notarized
+by Apple; if macOS blocks startup, use System Settings → Privacy & Security →
+Open Anyway. The app still checks for updates, but disables automatic download
+and replacement when the installed app cannot pass trusted signature checks.
+
+For installations supporting automatic replacement, select **Update and restart**. Intrica downloads the matching package, checks
 its bytes and application identity, saves drafts and connection state, stops
 its local services, replaces the application and starts it again. Background
 checks and downloads never trigger installation or exit.
@@ -21,7 +28,7 @@ startup-validation states across processes. Completion requires the selected
 client version, bundled server version, database schema and original server
 identity to match. Remote runs continue while the local connection closes.
 
-macOS arm64 uses a signed, notarized ZIP and a detached installer. Both the
+Automatic macOS arm64 replacement uses a signed, notarized ZIP and a detached installer. Both the
 current app and candidate must pass strict signature checks. Their bundle
 identifier and signing team must match. Linux x64 AppImage uses a staged file
 beside the installed executable and retains the previous executable. Debian
@@ -29,8 +36,8 @@ uses the system permission dialog and package manager, and retains the previous
 application files. The current executable must belong to the Intrica package.
 A non-writable installation location stops before local services are closed.
 
-For an old macOS client that only opens a DMG, open Intrica inside the new
-signed DMG. Its transition launcher offers **Install and restart**, closes
+When a Developer ID signed and notarized release is available, an old macOS client
+that only opens a DMG can open Intrica inside that signed DMG. Its transition launcher offers **Install and restart**, closes
 the previous application, replaces it and restarts with the same data folder.
 No dragging or manual exit is required. A signed candidate can replace the
 legacy ad-hoc bundle; multiple running installation locations are rejected.

@@ -5,10 +5,12 @@ import { signAsync } from "@electron/osx-sign";
 // Electron's linker signature on the renamed bundle produces a "damaged" app.
 export default async function signMac(options) {
   const trusted = Boolean(options.identity && options.identity !== "-");
-  if (process.env.INTRICA_REQUIRE_TRUSTED_MAC === "1" && !trusted)
+  if (process.env.INTRICA_MAC_SIGNING_MODE === "trusted" && !trusted)
     throw new Error(
       "Trusted macOS releases require a Developer ID certificate and Apple notarization credentials. Configure the release secrets before publishing.",
     );
+  if (process.env.INTRICA_MAC_SIGNING_MODE === "adhoc" && trusted)
+    throw new Error("Ad-hoc releases must not use a Developer ID identity.");
   await signAsync({
     ...options,
     identity: options.identity || "-",

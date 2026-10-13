@@ -14,6 +14,7 @@ export async function createUpdater({
   version,
   build,
   packaged,
+  manualInstallRequired = false,
   installer,
   beforeInstall = async () => ({}),
   recoverAfterFailure = async () => {},
@@ -64,6 +65,7 @@ export async function createUpdater({
     }),
     version,
     packaged,
+    manualInstallRequired,
     phase: "idle",
     downloadedBytes: 0,
     asset: null,
@@ -150,6 +152,7 @@ export async function createUpdater({
     );
   const canAutomaticallyDownload = () =>
     !disposed &&
+    !state.manualInstallRequired &&
     persisted.autoCheck &&
     persisted.autoDownload &&
     !state.error &&
@@ -221,7 +224,14 @@ export async function createUpdater({
     return result();
   };
   const download = async (automatic = false, forInstall = false) => {
-    if ((busy() && !forInstall) || disposed || !packaged || !state.check?.available || !state.asset)
+    if (
+      (busy() && !forInstall) ||
+      disposed ||
+      !packaged ||
+      state.manualInstallRequired ||
+      !state.check?.available ||
+      !state.asset
+    )
       return result();
     if (state.phase === "downloading") {
       await downloading;
@@ -281,6 +291,7 @@ export async function createUpdater({
     if (
       disposed ||
       !packaged ||
+      state.manualInstallRequired ||
       !state.check?.available ||
       !state.asset ||
       ["checking", "restarting", "validating", "complete"].includes(state.phase)
@@ -320,6 +331,8 @@ export async function createUpdater({
         await phase("restarting");
         await prepared.apply();
       } catch (error) {
+        if (platform === "darwin" && error?.code === "UPDATE_SIGNATURE_REQUIRED")
+          state.manualInstallRequired = true;
         try {
           await installer?.dispose();
           if (error?.code === "UPDATE_CHECKSUM_FAILED") localFile = undefined;

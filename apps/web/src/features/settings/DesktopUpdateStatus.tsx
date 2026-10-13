@@ -13,7 +13,9 @@ export function DesktopUpdateStatus({
   action: (command: "check" | "install" | "cancel") => Promise<void>;
 }) {
   const { t } = useTranslation();
-  const asset = state.packaged ? state.asset : null;
+  const manual = state.packaged && state.manualInstallRequired;
+  const manualRelease = manual && state.check?.available ? state.check.release : null;
+  const asset = state.packaged && !manual ? state.asset : null;
   const command = state.phase === "downloading" ? "cancel" : asset ? "install" : "check";
   const label =
     command === "cancel"
@@ -54,14 +56,28 @@ export function DesktopUpdateStatus({
             </p>
           )}
         </div>
-        <Button
-          variant={command === "cancel" ? "default" : "primary"}
-          disabled={command !== "cancel" && disabled}
-          onClick={() => void action(command)}
-        >
-          {t(label)}
-        </Button>
+        {manualRelease ? (
+          <a
+            className="ui-button"
+            data-variant="primary"
+            data-size="default"
+            href={manualRelease.url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t("manualInstallUpdate")}
+          </a>
+        ) : (
+          <Button
+            variant={command === "cancel" ? "default" : "primary"}
+            disabled={command !== "cancel" && disabled}
+            onClick={() => void action(command)}
+          >
+            {t(label)}
+          </Button>
+        )}
       </div>
+      {manual && <p>{t("manualMacUpdate")}</p>}
       <Notice error={state.error ? t(`error_${state.error}`) : ""} />
       {state.check && (
         <p>
@@ -71,7 +87,9 @@ export function DesktopUpdateStatus({
           </a>
         </p>
       )}
-      {state.check?.available && state.packaged && !asset && <p>{t("unsupportedUpdate")}</p>}
+      {state.check?.available && state.packaged && !asset && !manual && (
+        <p>{t("unsupportedUpdate")}</p>
+      )}
       {asset && state.phase === "downloading" && (
         <>
           <progress

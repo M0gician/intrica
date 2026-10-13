@@ -118,7 +118,7 @@ export function Updates({ ready }: { ready: boolean }) {
                     <Input
                       type="checkbox"
                       checked={desktop.preferences.autoDownload}
-                      disabled={!desktop.preferences.autoCheck}
+                      disabled={!desktop.preferences.autoCheck || desktop.manualInstallRequired}
                       onChange={(event) => void configure({ autoDownload: event.target.checked })}
                     />
                     {t("automaticUpdateDownloads")}

@@ -29,6 +29,7 @@ function bridgeFixture() {
   let state: DesktopUpdateState = {
     version: "0.2.0",
     packaged: true,
+    manualInstallRequired: false,
     phase: "idle",
     downloadedBytes: 0,
     asset: null,

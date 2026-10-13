@@ -21,7 +21,7 @@ import { createConnections } from "./connections.mjs";
 import { createFileDownloads } from "./files.mjs";
 import { registerAppProtocol } from "./protocol.mjs";
 import { createSshManager } from "./ssh.mjs";
-import { createUpdateInstaller } from "./update-installer.mjs";
+import { createUpdateInstaller, supportsMacAutomaticUpdates } from "./update-installer.mjs";
 import { markUpdateStartup, readUpdateOperation } from "./update-journal.mjs";
 import { runMacTransition } from "./update-transition.mjs";
 import { createUpdater } from "./updates.mjs";
@@ -243,6 +243,10 @@ async function start() {
     userData: app.getPath("userData"),
     version,
     packaged: app.isPackaged,
+    manualInstallRequired:
+      process.platform === "darwin" &&
+      app.isPackaged &&
+      !(await supportsMacAutomaticUpdates(process.execPath)),
     installer: createUpdateInstaller({ app }),
     beforeInstall: async () => {
       const previous = await localIdentity();

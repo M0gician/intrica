@@ -30,10 +30,11 @@ export async function runMacTransition({
   dialog,
   version,
   schemaVersion,
+  platform = process.platform,
   executable = process.execPath,
   run = execute,
 }) {
-  if (!needsMacTransition(process.platform, app.isPackaged, executable)) return false;
+  if (!needsMacTransition(platform, app.isPackaged, executable)) return false;
   await app.whenReady();
   const current = bundlePath(executable);
   const zh = /^zh/i.test(app.getLocale());
@@ -162,13 +163,20 @@ export async function runMacTransition({
         ? "无法写入安装目录。请检查目录权限后重试。"
         : "The installation folder is not writable. Check its permissions and try again.",
       UPDATE_SIGNATURE_REQUIRED: zh
-        ? "安装包缺少可信签名。请从正式发布页下载签名安装包。"
-        : "The installer lacks a trusted signature. Download the signed installer from the release page.",
+        ? "此版本需要手动安装。请退出正在运行的 Intrica，将 Intrica.app 拖入“应用程序”并替换旧版，再从“应用程序”打开。工作区数据会保留；若 macOS 拦截启动，请在“系统设置 → 隐私与安全性”中选择“仍要打开”。"
+        : "Install this version manually: quit the running Intrica, drag Intrica.app into Applications and replace the previous copy, then open it from Applications. Your workspace is preserved. If macOS blocks startup, use System Settings → Privacy & Security → Open Anyway.",
     };
     await dialog.showMessageBox({
-      type: "error",
+      type: error?.code === "UPDATE_SIGNATURE_REQUIRED" ? "info" : "error",
       title: "Intrica",
-      message: zh ? "Intrica 安装未完成" : "Intrica installation could not finish",
+      message:
+        error?.code === "UPDATE_SIGNATURE_REQUIRED"
+          ? zh
+            ? "请将 Intrica 拖入“应用程序”"
+            : "Drag Intrica into Applications"
+          : zh
+            ? "Intrica 安装未完成"
+            : "Intrica installation could not finish",
       detail:
         details[error?.code] ??
         (zh

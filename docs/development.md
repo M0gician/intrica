@@ -86,8 +86,12 @@ Review [distribution licenses](development/distribution-licenses.md) for
 each platform. Developer ID signing and Apple notarization use
 `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` in the packaging job.
-Incomplete signing credentials fail the build. Without them, the macOS
-package uses an ad-hoc signature and requires explicit first-launch approval.
+The repository variable `MACOS_SIGNING_MODE` defaults to `adhoc`: no Apple
+credentials may be configured, certificate discovery is disabled and the package
+requires manual installation and first-launch approval. Set it to `trusted` only
+with all five secrets configured; partial credentials fail the build. Trusted mode
+requires notarization and Gatekeeper acceptance. Both modes verify the resource
+seal and exercise installed DMG/ZIP applications.
 
 Keep model keys, host identities, logs, database copies, screenshots of
 private data and experiment outputs outside version control.

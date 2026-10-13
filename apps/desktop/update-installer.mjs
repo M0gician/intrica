@@ -20,15 +20,23 @@ import { fileIdentity } from "./update-helper.mjs";
 const run = promisify(execFile);
 export const bundlePath = (executable) =>
   executable.match(/^(.*\.app)\/Contents\/MacOS\/[^/]+$/)?.[1];
+export async function supportsMacAutomaticUpdates(executable, options) {
+  const path = bundlePath(executable);
+  if (!path) return false;
+  try {
+    await verifyMacIdentity(path, options);
+    return true;
+  } catch {
+    return false;
+  }
+}
 export async function verifyMacIdentity(path, { execute = run, requireTrust = true } = {}) {
   await execute("/usr/bin/codesign", ["--verify", "--deep", "--strict", path]);
   const details = await execute("/usr/bin/codesign", ["--display", "--verbose=4", path]);
   const teamId = details.stderr.match(/^TeamIdentifier=(\w+)$/m)?.[1];
   const appId = details.stderr.match(/^Identifier=(.+)$/m)?.[1];
-  if (
-    appId !== "com.intrica.desktop" ||
-    (requireTrust && (!teamId || teamId === "not" || /Signature=adhoc/.test(details.stderr)))
-  )
+  if (appId !== "com.intrica.desktop") throw new UpdateError("UPDATE_IDENTITY_MISMATCH");
+  if (requireTrust && (!teamId || teamId === "not" || /Signature=adhoc/.test(details.stderr)))
     throw new UpdateError("UPDATE_SIGNATURE_REQUIRED");
   if (requireTrust) await execute("/usr/sbin/spctl", ["--assess", "--type", "execute", path]);
   return { teamId, appId };

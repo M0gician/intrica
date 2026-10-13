@@ -16,6 +16,7 @@ export type DesktopUpdateState = {
   build?: BuildIdentity;
   version: string;
   packaged: boolean;
+  manualInstallRequired: boolean;
   phase:
     | "idle"
     | "checking"

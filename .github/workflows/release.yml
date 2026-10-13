@@ -34,7 +34,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     env:
-      INTRICA_REQUIRE_TRUSTED_MAC: "1"
+      INTRICA_MAC_SIGNING_MODE: ${{ vars.MACOS_SIGNING_MODE || 'adhoc' }}
     strategy:
       fail-fast: false
       matrix:
@@ -90,13 +90,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           pnpm --filter @intrica/desktop run prepare:app
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD"
-            test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
-          else
-            unset CSC_LINK CSC_KEY_PASSWORD
-          fi
-          pnpm --filter @intrica/desktop exec electron-builder --publish never
+          node apps/desktop/scripts/release-signing.mjs
 
       - name: Verify installed Linux app
         if: runner.os == 'Linux'
@@ -122,12 +116,18 @@ jobs:
           ditto "$RUNNER_TEMP/intrica-dmg/Intrica.app" "$RUNNER_TEMP/Intrica.app"
           hdiutil detach "$RUNNER_TEMP/intrica-dmg"
           codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/Intrica.app"
-          xcrun stapler validate "$RUNNER_TEMP/Intrica.app"
-          spctl --assess --type execute --verbose=4 "$RUNNER_TEMP/Intrica.app"
           mkdir -p "$RUNNER_TEMP/intrica-zip"
           ditto -x -k "apps/desktop/release/Intrica-${RELEASE_TAG#v}-mac-arm64.zip" "$RUNNER_TEMP/intrica-zip"
           codesign --verify --deep --strict "$RUNNER_TEMP/intrica-zip/Intrica.app"
-          spctl --assess --type execute --verbose=4 "$RUNNER_TEMP/intrica-zip/Intrica.app"
+          for app in "$RUNNER_TEMP/Intrica.app" "$RUNNER_TEMP/intrica-zip/Intrica.app"; do
+            if [ "$INTRICA_MAC_SIGNING_MODE" = trusted ]; then
+              xcrun stapler validate "$app"
+              spctl --assess --type execute --verbose=4 "$app"
+            else
+              codesign --display --verbose=4 "$app" 2>&1 | grep -q '^Signature=adhoc$'
+            fi
+          done
+          echo "macOS signing mode: $INTRICA_MAC_SIGNING_MODE" >> "$GITHUB_STEP_SUMMARY"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$RUNNER_TEMP/intrica-zip/Intrica.app/Contents/Info.plist")" = "${RELEASE_TAG#v}"
           node --test --test-reporter=tap --test-concurrency=1 apps/desktop/standalone.test.mjs apps/desktop/remote.test.mjs
           INTRICA_MATRIX_MODES=desktop INTRICA_MATRIX_REPORT_DIR=tests/e2e/test-results/installed-matrix node --test --test-concurrency=1 tests/e2e/client-matrix.test.mjs

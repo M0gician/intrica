@@ -125,7 +125,7 @@ jobs:
         run: pnpm --filter @intrica/desktop run icons
 
       - name: Desktop connection and update modules
-        run: node --test apps/desktop/connections.test.mjs apps/desktop/ssh.test.mjs apps/desktop/ssh-operations.test.mjs apps/desktop/updates.test.mjs apps/desktop/update-installer.test.mjs apps/desktop/files.test.mjs
+        run: node --test apps/desktop/connections.test.mjs apps/desktop/ssh.test.mjs apps/desktop/ssh-operations.test.mjs apps/desktop/updates.test.mjs apps/desktop/update-installer.test.mjs apps/desktop/files.test.mjs apps/desktop/scripts/release-signing.test.mjs
 
       - name: Electron E2E on Linux
         if: runner.os == 'Linux'

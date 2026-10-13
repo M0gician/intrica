@@ -3,8 +3,47 @@ import { mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { UpdateError } from "@intrica/releases";
 import { releaseManifest } from "../../tests/fixtures/releases.mjs";
 import { createUpdater } from "./updates.mjs";
+
+test("manual macOS installs still discover releases without downloading or stopping services", async (t) => {
+  const f = await fixture(t, {
+    manualInstallRequired: true,
+    beforeInstall: () => assert.fail("must not stop services"),
+  });
+  const updater = await f.create();
+  await updater.configure({ autoDownload: true });
+  updater.start();
+  f.tick();
+  await f.settled(updater);
+  await updater.download();
+  await updater.install();
+  assert.equal(updater.state().check.available, true);
+  assert.equal(updater.state().manualInstallRequired, true);
+  assert.equal(updater.state().notice.status, "available");
+  assert.equal(f.calls.downloads, 0);
+  assert.equal(f.calls.open.length, 0);
+});
+
+test("an untrusted candidate switches to manual installation before stopping services", async (t) => {
+  const f = await fixture(t, {
+    installer: {
+      prepare: async () => {
+        throw new UpdateError("UPDATE_SIGNATURE_REQUIRED");
+      },
+      dispose() {},
+    },
+    beforeInstall: () => assert.fail("must not stop services"),
+  });
+  const updater = await f.create();
+  await updater.check();
+  await updater.install();
+  assert.equal(updater.state().manualInstallRequired, true);
+  assert.equal(updater.state().error, "UPDATE_SIGNATURE_REQUIRED");
+  await updater.install();
+  assert.equal(f.calls.downloads, 1);
+});
 
 test("explicit installation downloads, verifies, stops services, and restarts once", async (t) => {
   const phases = [];

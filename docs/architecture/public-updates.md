@@ -61,9 +61,11 @@ host and digest before applying it. See [SSH deployment](ssh-server-deployment.m
 
 GitHub HTTPS and release controls establish publisher trust. Checksums
 detect changed bytes, not a compromised publisher. Enable immutable releases;
-publish corrections as new versions. macOS publication requires Developer ID signing and notarization credentials.
-The release workflow verifies both the DMG application and update ZIP. Local
-development packaging can use ad-hoc signing, but cannot pass trusted update checks.
+publish corrections as new versions. macOS automatic replacement requires
+Developer ID signing and notarization. The release workflow supports an explicit
+ad-hoc mode without Apple credentials and verifies both DMG and ZIP resource seals
+and installed applications. Ad-hoc releases require manual installation, state
+that they are not notarized, and never bypass trusted automatic-update checks.
 
 ## Publication and validation
 

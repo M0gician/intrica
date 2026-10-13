@@ -39,7 +39,11 @@ Existing releases are not overwritten.
 Only container publication gets `packages: write`; only release publication
 gets `contents: write`. Their `GH_TOKEN` is the ephemeral
 `${{ github.token }}`, not a repository secret or personal access token.
-Apple signing credentials are scoped to the packaging step.
+Apple signing credentials are scoped to the packaging step. `MACOS_SIGNING_MODE`
+defaults to `adhoc`, with no Apple credentials and no certificate discovery. It
+verifies resource seals and installed apps, without claiming notarization.
+`trusted` mode requires all signing secrets, notarization and Gatekeeper checks.
+Release notes must state the chosen mode and manual-install requirements.
 
 Consumers and the manual Update acceptance workflow download anonymously.
 The acceptance workflow requires two published versions implementing the

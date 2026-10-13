@@ -310,6 +310,9 @@ export const en = {
   error_UPDATE_OPEN_FAILED:
     "The installer could not be opened automatically. Its folder has been opened so you can install it manually.",
   installUpdate: "Update and restart",
+  manualInstallUpdate: "Download and install manually",
+  manualMacUpdate:
+    "Automatic replacement requires an Apple-trusted signature. Download the DMG from the release page, quit Intrica, replace it in Applications and reopen it. Your workspace is preserved.",
   updateStage_verifying: "Verifying update…",
   updateStage_installing: "Installing update…",
   updateStage_restarting: "Restarting…",
@@ -318,7 +321,7 @@ export const en = {
   error_UPDATE_INSTALL_FAILED:
     "Installation did not finish. The app and recovery records are retained. Try again.",
   error_UPDATE_SIGNATURE_REQUIRED:
-    "This app lacks a trusted signature. Download the signed installer from the release page for the transition install.",
+    "The app or update lacks a trusted signature. Download the release and install it manually.",
   error_UPDATE_SIGNATURE_OR_PACKAGE_INVALID:
     "The update signature or package is invalid. Installation stopped.",
   error_UPDATE_IDENTITY_MISMATCH: "The update application identity or version does not match.",
