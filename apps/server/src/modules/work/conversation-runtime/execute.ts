@@ -219,7 +219,7 @@ export async function executeConversation(
         }
         waitingForInput = false;
       }
-      await refreshTools();
+      model.state.tools = await refreshTools();
       // A stored assistant tool call is resumed before another model call. Its
       // logical ID survives attempts, including approvals and unknown outcomes.
       const assistant = [...model.state.messages].reverse().find((m) => m.role === "assistant");
@@ -446,17 +446,12 @@ export async function executeConversation(
           sources,
           capabilities?.saveMemory ?? identity?.config.saveMemoryBeforeCompaction !== false,
           persist,
-          () => {
-            compactions++;
+          (delta) => {
+            compactions += delta;
           },
         );
         // New instructions arriving during compaction must be consumed before inference.
         if (await hasUnread(conversations.db.pool)) continue;
-        if (contextUsage(model, config).tokens >= contextUsage(model, config).safeLimit)
-          throw new DomainError(
-            "INSTRUCTION_CONTEXT_LIMIT",
-            "Required context exceeds the model budget / 必需上下文超过模型预算",
-          );
       }
       // Refresh after input and compaction, immediately before every model request.
       const currentTools = await refreshTools();

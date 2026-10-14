@@ -156,10 +156,12 @@ export function scheduledStream(source: StreamFn, runtime: Options): StreamFn {
               status,
             );
             const delay = retryDelay(admission?.row.attempts ?? 1, headers["retry-after"]);
+            const validationLimit =
+              failure.code === "CONTEXT_SUMMARY_INVALID" && (admission?.row.attempts ?? 1) >= 3;
             const retry = Boolean(
               queue &&
                 failure.retryable &&
-                (failure.code !== "CONTEXT_SUMMARY_INVALID" || admission!.row.attempts < 3) &&
+                !validationLimit &&
                 Date.now() +
                   delay -
                   new Date(admission!.row.first_failure_at ?? Date.now()).getTime() <
@@ -175,7 +177,7 @@ export function scheduledStream(source: StreamFn, runtime: Options): StreamFn {
               );
             if (!retry)
               throw new Error(
-                `${failure.code}: ${failure.message}${queue && failure.retryable ? " — automatic retry window ended / 自动重试窗口已结束" : ""}`,
+                `${failure.code}: ${failure.message}${validationLimit ? " — summary validation failed after 3 attempts / 摘要校验连续 3 次失败" : queue && failure.retryable ? " — automatic retry window ended / 自动重试窗口已结束" : ""}`,
               );
           } finally {
             clearTimeout(timer);

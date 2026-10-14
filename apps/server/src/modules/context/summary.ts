@@ -12,6 +12,7 @@ import type { ModelConfig } from "../../adapters/model/types.js";
 import { modelPurposeRequestId, withModelPurpose } from "../../adapters/model/usage.js";
 import { DomainError, digest, id } from "../../adapters/postgres/database.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
+import { contextFailure } from "./errors.js";
 import { cleanContext, isSummary } from "./messages.js";
 import { parseContextSummary, type SummaryContent } from "./summary-contract.js";
 
@@ -54,6 +55,7 @@ export async function summarizeContext(
   saveMemory: boolean,
   signal?: AbortSignal,
   language: PromptLanguage = "en",
+  onSource?: (count: number) => void,
 ): Promise<ContextSummary> {
   signal?.throwIfAborted();
   const parts = contextTail(
@@ -61,11 +63,12 @@ export async function summarizeContext(
     modelContextWindow(config).contextWindow,
     language,
   );
-  const original = checkpointMessages(parts.older, language);
+  // A retained old summary must become evidence for its replacement, never disappear.
+  const original = checkpointMessages([...parts.older, ...parts.tail.filter(isSummary)], language);
   const source = sourceMessages(original);
-  const sources = source.length
-    ? source.map((message, index) => ({ ref: `s${index + 1}`, hash: digest(message) }))
-    : [{ ref: "s1", hash: digest([]) }];
+  onSource?.(source.length);
+  if (!source.length) throw contextFailure("CONTEXT_EMPTY_SOURCE", language);
+  const sources = source.map((message, index) => ({ ref: `s${index + 1}`, hash: digest(message) }));
   const requestId = modelPurposeRequestId("compaction", digest(original));
   const metadata = {
     id: id("summary"),
@@ -98,14 +101,9 @@ export async function summarizeContext(
   if (modelCapabilities(config).thinkingLevels.includes("off"))
     summarizer.state.thinkingLevel = "off";
   summarizer.state.systemPrompt = buildCompactionPrompt(language, saveMemory);
-  const transcript = source.length
-    ? source
-        .map(
-          (message, index) =>
-            `[source ${sources[index]!.ref}]\n${serializeConversation([message])}`,
-        )
-        .join("\n\n")
-    : "[source s1]\nNo earlier messages.";
+  const transcript = source
+    .map((message, index) => `[source ${sources[index]!.ref}]\n${serializeConversation([message])}`)
+    .join("\n\n");
   if (
     estimatedMessageTokens({ role: "user", content: transcript, timestamp: 0 }) >
     modelContextWindow(config).contextWindow * 0.8

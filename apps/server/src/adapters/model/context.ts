@@ -2,7 +2,6 @@ import {
   type AgentMessage,
   estimateContextTokens,
   estimateTokens,
-  prepareCompaction,
   serializeConversation,
 } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
@@ -30,58 +29,58 @@ export function contextTail(
   contextWindow: number,
   language: PromptLanguage = "en",
 ) {
-  const entries = checkpointMessages(messages, language).map((message, i) => ({
-    type: "message" as const,
-    id: String(i),
-    parentId: i ? String(i - 1) : null,
-    seq: i,
-    timestamp: message.timestamp ?? Date.now(),
-    message,
-  }));
-  for (
-    let keep = Math.min(4096, Math.floor(contextWindow * 0.05));
-    keep >= 1;
-    keep = Math.floor(keep / 2)
-  ) {
-    const result = prepareCompaction(entries, {
-      enabled: true,
-      reserveTokens: Math.floor(contextWindow * 0.2),
-      keepRecentTokens: keep,
-    });
-    if (!result.ok || !result.value) break;
-    const tail = result.value.retainedTail.map((m) =>
+  const saved = checkpointMessages(messages, language);
+  // A cut is legal only after every call in an assistant message has its result.
+  // The final complete group may be summarized too, even when it is the only group.
+  const boundaries = [0],
+    pending = new Set<string>();
+  for (const [index, message] of saved.entries()) {
+    if (message.role === "assistant")
+      for (const part of message.content) if (part.type === "toolCall") pending.add(part.id);
+    if (message.role === "toolResult") pending.delete(message.toolCallId);
+    if (!pending.size) boundaries.push(index + 1);
+  }
+  const budget = Math.min(4096, Math.floor(contextWindow * 0.05));
+  let cut = saved.length,
+    tokens = 0;
+  for (let index = boundaries.length - 2; index >= 1; index--) {
+    const start = boundaries[index]!;
+    const size = saved.slice(start, cut).reduce((total, m) => total + estimatedMessageTokens(m), 0);
+    if (tokens + size > budget) break;
+    tokens += size;
+    cut = start;
+  }
+  return {
+    older: saved.slice(0, cut),
+    tail: saved.slice(cut).map((m) =>
       m.role === "assistant"
         ? {
             ...m,
             usage: { ...m.usage, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
           }
         : m,
-    );
-    if (tail.reduce((n, m) => n + estimatedMessageTokens(m), 0) < contextWindow * 0.3 || keep === 1)
-      return {
-        older: [...result.value.messagesToSummarize, ...result.value.turnPrefixMessages],
-        tail,
-      };
-  }
-  return { older: messages, tail: messages.slice(-1).filter((m) => m.role === "user") };
+    ),
+  };
 }
 
 export function contextUsage(
   agent: Agent,
   config: ModelConfig,
   messages = agent.state.messages,
+  options: { estimateOnly?: boolean } = {},
 ): AgentContextUsage {
   // Zero usage from a mock/endpoint is unavailable, not proof of an empty context.
   const usable = messages.map((m) =>
     m.role === "assistant" &&
-    m.usage &&
-    !(
-      m.usage.totalTokens ||
-      m.usage.input ||
-      m.usage.output ||
-      m.usage.cacheRead ||
-      m.usage.cacheWrite
-    )
+    (options.estimateOnly ||
+      (m.usage &&
+        !(
+          m.usage.totalTokens ||
+          m.usage.input ||
+          m.usage.output ||
+          m.usage.cacheRead ||
+          m.usage.cacheWrite
+        )))
       ? ({ ...m, usage: undefined } as unknown as AgentMessage)
       : m,
   );
