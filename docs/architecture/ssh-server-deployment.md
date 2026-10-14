@@ -42,6 +42,11 @@ time. Cancellation aborts safe transfer steps and waits for critical installatio
 steps to finish. An interrupted operation re-inspects remote state before retrying.
 Health-checked installations are saved and activated through the private connection
 manager, which notifies the renderer of the new connection.
+Saved operations are restored only for the current client's release. An older
+completion cannot hide the upgrade action. Opening the panel and finishing an
+operation trigger a fresh remote inspection outside active installation; success
+requires a healthy, active service running the requested version. The displayed
+current version comes from that inspection, not the saved operation receipt.
 
 ## Downloads and activation
 

@@ -1011,6 +1011,7 @@
   "上次安装被中断。重试会先核查远端实际状态。": "The previous installation was interrupted. Retrying checks the remote state first.",
   "没有与此客户端匹配的服务器安装包。": "No server package matches this client.",
   "安装并连接": "Install and connect",
+  "升级并连接": "Upgrade and connect",
   "安装未完成，请查看诊断详情。": "Installation did not complete. See diagnostics.",
   "诊断详情": "Diagnostics",
   "复制命令": "Copy command",

@@ -1,3 +1,4 @@
+import { compareStableVersions } from "@intrica/contracts";
 import type {
   SshInspection,
   SshOperation,
@@ -128,11 +129,21 @@ export function SshSetup({
   const completed = useRef<string | null>(null);
   const restored = useRef<string | null>(null);
   const modeChosen = useRef(false);
-  const operation = state?.operation;
+  const operation =
+    state?.operation && state.operation.release === state.release ? state.operation : null;
   const running = Boolean(
     operation && !["completed", "failed", "cancelled"].includes(operation.phase),
   );
-  const success = operation?.phase === "completed";
+  const success =
+    operation?.phase === "completed" &&
+    inspection?.healthy === true &&
+    inspection.service === "active" &&
+    inspection.version === operation.release.slice(1);
+  const upgrading = Boolean(
+    inspection?.version &&
+      state?.release &&
+      compareStableVersions(state.release.slice(1), inspection.version) > 0,
+  );
   const retry = operation?.phase === "failed" || operation?.phase === "cancelled";
   const target =
     typeof initialTarget === "string"
@@ -149,19 +160,44 @@ export function SshSetup({
       setError("");
     }
     let current = true;
+    let inspected: string | null | undefined;
     let timer: ReturnType<typeof setTimeout>;
     const read = async () => {
       try {
         const next = await ssh.state(initialTarget);
         if (!current) return;
         setState(next);
-        if (next.operation && restored.current !== next.operation.id) {
-          restored.current = next.operation.id;
-          setNoSandbox(next.operation.sandbox === "disabled");
+        const nextOperation = next.operation?.release === next.release ? next.operation : null;
+        if (nextOperation && restored.current !== nextOperation.id) {
+          restored.current = nextOperation.id;
+          if (nextOperation.phase !== "completed")
+            setNoSandbox(nextOperation.sandbox === "disabled");
         }
-        if (next.operation?.phase === "completed" && completed.current !== next.operation.id) {
-          completed.current = next.operation.id;
-          await actionsRef.current.refresh?.();
+        const active =
+          nextOperation && !["completed", "failed", "cancelled"].includes(nextOperation.phase);
+        const inspectionKey = nextOperation
+          ? `${nextOperation.id}:${nextOperation.phase}`
+          : next.release;
+        // A completion receipt is history, not a current health check. Inspect
+        // on entry and after each terminal transition, outside active execution.
+        if (!active && inspected !== inspectionKey) {
+          inspected = inspectionKey;
+          setInspection(null);
+          const value = await ssh.inspect(initialTarget);
+          if (!current) return;
+          setInspection(value);
+          if (!modeChosen.current && (!nextOperation || nextOperation.phase === "completed"))
+            setNoSandbox(value.sandbox === "disabled");
+          if (
+            nextOperation?.phase === "completed" &&
+            value.healthy === true &&
+            value.service === "active" &&
+            value.version === nextOperation.release.slice(1) &&
+            completed.current !== nextOperation.id
+          ) {
+            completed.current = nextOperation.id;
+            await actionsRef.current.refresh?.();
+          }
         }
       } catch (e) {
         if (current) setError(settingsError(e));
@@ -170,17 +206,6 @@ export function SshSetup({
       }
     };
     void read();
-    void ssh
-      .inspect(initialTarget)
-      .then((value) => {
-        if (current) {
-          setInspection(value);
-          if (!restored.current && !modeChosen.current) setNoSandbox(value.sandbox === "disabled");
-        }
-      })
-      .catch((e) => {
-        if (current) setError(settingsError(e));
-      });
     return () => {
       current = false;
       clearTimeout(timer);
@@ -216,11 +241,9 @@ export function SshSetup({
     setInspection(null);
     setInspectionAttempt((value) => value + 1);
   };
-  const code = operation
-    ? operation.error?.code
-    : (inspection?.errorCode ?? inspection?.prerequisiteError);
-  const details = operation ? operation.error?.message : inspection?.error;
-  const remediation = operation ? operation.error?.remediation : inspection?.remediation;
+  const code = operation?.error?.code ?? inspection?.errorCode ?? inspection?.prerequisiteError;
+  const details = operation?.error?.message ?? inspection?.error;
+  const remediation = operation?.error?.remediation ?? inspection?.remediation;
   const missingRelease = Boolean(state && !state.release);
   const message =
     error ||
@@ -238,7 +261,15 @@ export function SshSetup({
     <Dialog className="settings-editor ssh-setup" label={t("安装并连接")} onClose={onBack}>
       <header className="ssh-setup-heading">
         <h2>
-          {t(success ? "服务器已连接" : running || starting ? "正在安装并连接" : "安装并连接")}
+          {t(
+            success
+              ? "服务器已连接"
+              : running || starting
+                ? "正在安装并连接"
+                : upgrading
+                  ? "升级并连接"
+                  : "安装并连接",
+          )}
         </h2>
         <Button variant="quiet" size="icon" aria-label={t("关闭")} onClick={onBack}>
           <IconClose />
@@ -382,11 +413,11 @@ export function SshSetup({
           <dd>{t("与客户端匹配，无需手动选择。")}</dd>
           <dt>{t("当前版本")}</dt>
           <dd>
-            {success
-              ? operation.release
-              : inspection
-                ? (inspection.version ?? t("未安装"))
-                : t("正在检查服务器…")}
+            {inspection
+              ? inspection.version
+                ? `v${inspection.version}`
+                : t("未安装")
+              : t("正在检查服务器…")}
           </dd>
           {(running || success) && (
             <>
@@ -448,7 +479,9 @@ export function SshSetup({
                       ? "重新检查服务器"
                       : retry
                         ? "重新检查并继续"
-                        : "安装并连接",
+                        : upgrading
+                          ? "升级并连接"
+                          : "安装并连接",
                 )}
               </Button>
             </>

@@ -86,20 +86,24 @@ test("connection dialogs preserve credential drafts and restore one-click instal
             return {
               alias,
               supported: true,
-              version: null,
-              service: "inactive",
+              version: window.remoteVersion ?? null,
+              service: window.remoteVersion ? "active" : "inactive",
+              healthy: Boolean(window.remoteVersion),
               sandbox: "required",
               sandboxAvailable: true,
             };
           },
-          state: async () => ({ release: "v0.2.5", operation: window.sshOperation ?? null }),
+          state: async () => ({
+            release: window.sshRelease ?? "v0.2.5",
+            operation: window.sshOperation ?? null,
+          }),
           install: async (input) => {
             window.calls.push({ name: "install", input });
             window.sshOperation = {
               id: input.operationId ?? "install-1",
               alias: "research",
               target: input.target,
-              release: "v0.2.5",
+              release: window.sshRelease ?? "v0.2.5",
               sandbox: input.sandbox,
               phaseStartedAt: Date.now(),
               phase: window.rejectInstall ? "failed" : "uploading",
@@ -231,6 +235,7 @@ test("connection dialogs preserve credential drafts and restore one-click instal
     await page.getByRole("button", { name: "查看服务器安装", exact: true }).click();
     await expect(deployment.getByRole("progressbar")).toHaveAttribute("value", "20");
     await page.evaluate(() => {
+      window.remoteVersion = "0.2.5";
       window.sshOperation.phase = "completed";
     });
     await expect(deployment.getByText("安装完成，已连接服务器", { exact: true })).toBeVisible();
@@ -249,6 +254,56 @@ test("connection dialogs preserve credential drafts and restore one-click instal
         { target: "research", sandbox: "required", operationId: "install-1" },
       ],
     );
+    await deployment.getByRole("button", { name: "返回服务器列表", exact: true }).click();
+
+    // A new client must offer an upgrade even when the old client saved success.
+    await page.evaluate(() => {
+      window.sshRelease = "v0.5.0";
+    });
+    await page.getByRole("button", { name: "查看服务器安装", exact: true }).click();
+    await deployment.locator(".ssh-install-details summary").click();
+    await expect(deployment.locator(".ssh-install-details dd")).toContainText([
+      "与客户端匹配",
+      "v0.2.5",
+    ]);
+    await expect(deployment.getByText("安装完成，已连接服务器", { exact: true })).toHaveCount(0);
+    await expect(deployment.getByRole("button", { name: "升级并连接", exact: true })).toBeEnabled();
+    await page.evaluate(async () => {
+      const { setLanguage } = await import("/src/i18n/index.ts");
+      await setLanguage("en");
+    });
+    await expect(
+      page.getByRole("button", { name: "Upgrade and connect", exact: true }),
+    ).toBeEnabled();
+    await page.evaluate(async () => {
+      const { setLanguage } = await import("/src/i18n/index.ts");
+      await setLanguage("zh-CN");
+    });
+    await deployment.getByRole("button", { name: "升级并连接", exact: true }).click();
+    await expect(deployment.getByRole("progressbar")).toBeVisible();
+    assert.deepEqual(
+      await page.evaluate(
+        () => window.calls.filter((item) => item.name === "install").at(-1).input,
+      ),
+      { target: "research", sandbox: "required" },
+    );
+    await page.evaluate(() => {
+      window.remoteVersion = "0.5.0";
+      window.sshOperation.phase = "completed";
+    });
+    await expect(deployment.getByText("安装完成，已连接服务器", { exact: true })).toBeVisible();
+    await expect(deployment.locator(".ssh-install-details dd").nth(1)).toHaveText("v0.5.0");
+    await deployment.getByRole("button", { name: "返回服务器列表", exact: true }).click();
+
+    // Even a matching completion cannot override a fresh remote version check.
+    await page.evaluate(() => {
+      window.remoteVersion = "0.4.0";
+    });
+    await page.getByRole("button", { name: "查看服务器安装", exact: true }).click();
+    await expect(deployment.getByRole("button", { name: "升级并连接", exact: true })).toBeEnabled();
+    await expect(deployment.getByText("安装完成，已连接服务器", { exact: true })).toHaveCount(0);
+    await deployment.locator(".ssh-install-details summary").click();
+    await expect(deployment.locator(".ssh-install-details dd").nth(1)).toHaveText("v0.4.0");
     await deployment.getByRole("button", { name: "返回服务器列表", exact: true }).click();
     await page.reload();
     await page.evaluate(() => {

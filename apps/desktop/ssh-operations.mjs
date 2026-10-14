@@ -16,7 +16,13 @@ export function createSshOperations({ version, userData, execute, now = Date.now
   if (path) {
     try {
       const saved = JSON.parse(readFileSync(path, "utf8"));
-      if (saved.format === 1 && typeof saved.operation?.id === "string") {
+      // A persisted receipt belongs to its original client release. A newer
+      // client must inspect and plan its own installation, even after success.
+      if (
+        saved.format === 1 &&
+        saved.operation?.release === release &&
+        typeof saved.operation?.id === "string"
+      ) {
         operation = saved.operation;
         sshTarget(operation.target);
         if (!terminal.has(operation.phase)) {

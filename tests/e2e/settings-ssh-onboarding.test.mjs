@@ -108,7 +108,7 @@ test("SSH onboarding installs the client-matched release and automatically activ
         if (command === "ssh" && args.includes("-G"))
           return "user example\nhostname empty-linux-machine\nport 22\n";
         if (options.input === engine.preflightScript)
-          return "platform=linux\narchitecture=x64\ninstallation=/home/example/.local/share/intrica-server\nconfig=/home/example/.config/intrica/server.json\nconfigured=no\ncurrent=\nrelease=\nservice=inactive\nhealthy=no\nsandbox=required\nsandboxAvailable=no\nuser=example\nuid=1000\nlinger=yes\nuserManager=yes\nprerequisiteError=\n";
+          return `platform=linux\narchitecture=x64\ninstallation=/home/example/.local/share/intrica-server\nconfig=/home/example/.config/intrica/server.json\nconfigured=${installed ? "yes" : "no"}\ncurrent=\nrelease=${installed ? JSON.stringify({ version: "0.2.5" }) : ""}\nservice=${installed ? "active" : "inactive"}\nhealthy=${installed ? "yes" : "no"}\nsandbox=${installed ? "disabled" : "required"}\nsandboxAvailable=no\nuser=example\nuid=1000\nlinger=yes\nuserManager=yes\nprerequisiteError=\n`;
         if (options.input?.startsWith("umask 077\nmktemp")) return "/tmp/intrica-deploy.ABC1234567";
         if (options.inputFile) {
           assert.deepEqual(await readFile(options.inputFile), archive);
