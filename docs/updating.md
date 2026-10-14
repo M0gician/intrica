@@ -11,7 +11,7 @@ Packaged Desktop checks after startup and then every six hours. Automatic
 download is optional. Checks and downloads do not stop Agents or install
 software. Failures use bounded backoff.
 
-For macOS ad-hoc releases (including v0.4.0), choose **Download and install manually**.
+For macOS ad-hoc releases (including v0.4.0 and v0.5.0), choose **Download and install manually**.
 Quit Intrica, copy the new app from the DMG to Applications, replace the previous
 copy and reopen it. Workspace data is preserved. These packages are not notarized
 by Apple; if macOS blocks startup, use System Settings → Privacy & Security →

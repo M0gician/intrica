@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0
+
+- Preserve original instructions separately from structured context summaries and reject stale compaction results.
+- Review remaining work, message obligations and delivery evidence before waiting or ending a conversation.
+- Replace the inbox/wait handshake with `read_inbox`, `review_progress` and flat message decisions.
+- Coordinate model requests through durable shared quotas, fair admission, bounded retries and endpoint cooldowns.
+- Stream large UTF-8 files through scoped persistent cursors and correct multi-page PDF read positions.
+- Report tool state, phase and effects explicitly, with updated English and Chinese prompts and UI.
+- Stabilize CI approval recovery and browser cleanup; pin checked commits and install Chromium before sandbox tests.
+- Database schema 17 and tool schema 6; obsolete unstarted calls are sealed for replanning, while completed receipts and unknown-outcome barriers are retained.
+
+See [release notes](docs/releases/v0.5.0.md) and [upgrade safety](docs/updating.md).
+
 ## 0.4.0
 
 - Durable collaboration messages with read/reply reminders, explicit inbox review, prioritization and pause/resume controls.

@@ -1,7 +1,7 @@
 # Tool contracts
 
-This page specifies the replacement contract implemented on the runtime redesign
-branch: database schema 17 and tool schema 6. The released v0.4.0 uses the earlier contract.
+Intrica v0.5.0 uses database schema 17 and tool schema 6, as specified here.
+The v0.4.0 release uses the earlier contract.
 Implementation and verification status are tracked in the
 [implementation plan](../development/runtime-reliability-implementation.md).
 The confirmed architecture is in [Runtime reliability redesign](runtime-reliability-redesign.md).
