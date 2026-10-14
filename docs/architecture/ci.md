@@ -11,6 +11,9 @@ Pull requests use read-only permissions and no release secrets. Secret scanning
 also runs on hosted Linux. Maintainers must review any selected source ref
 before dispatching it to a persistent runner. Actions are pinned to commit
 hashes; checkout does not persist credentials.
+Ordinary CI checks out the event's exact commit (the merge commit for a pull
+request), so queued jobs and retries cannot silently pick up a later branch
+revision. Explicit verification refs remain available to release callers.
 
 ## Verification
 
