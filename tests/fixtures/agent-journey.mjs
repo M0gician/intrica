@@ -558,10 +558,15 @@ export async function verifyPendingApproval(call, journey, saved) {
       (e) => [e.from, e.to].includes(saved.member.id) && [e.from, e.to].includes(saved.resource.id),
     ),
   );
-  const request = (await call(`canvas-agents/${saved.member.id}`)).requests.find(
-    (r) => r.id === saved.request.id,
-  );
-  assert.equal(request.status, "pending");
+  // A resumed manager can still be forwarding this user-only request. Wait for
+  // that durable routing result before submitting the owner's versioned decision.
+  const request = await until(async () => {
+    const current = (await call(`canvas-agents/${saved.member.id}`)).requests.find(
+      (r) => r.id === saved.request.id,
+    );
+    assert.equal(current?.status, "pending");
+    return current.reviewerId === null ? current : null;
+  });
   await call(`agent-access/${request.id}`, "POST", {
     version: request.version,
     decision: "approve",
