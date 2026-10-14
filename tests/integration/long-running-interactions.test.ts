@@ -566,9 +566,13 @@ it("L28 recovery after a persisted limit summary cannot mark unfinished work suc
   });
   await expect(execute(s)).rejects.toThrow("shutdown after summary checkpoint");
   crash.mockRestore();
+  // Review-hook inference is excluded from the business-turn fixture counter.
+  // Recovery must not invoke either kind of inference for an already saved limit summary.
+  const inferenceCount = vi.mocked(Agent.prototype.turn).mock.calls.length;
   await k.runs.fail(s.run, new Error("shutdown"), true);
   await execute(await claim(target));
   expect(await k.runs.get(s.run.id)).toMatchObject({ state: "waiting", reason: "turn_limit" });
+  expect(vi.mocked(Agent.prototype.turn).mock.calls).toHaveLength(inferenceCount);
   expect(seen(target)).toHaveLength(2);
   expect(await calls(s.run)).toHaveLength(1);
   plan(target, () => ({ text: "user continued" }));

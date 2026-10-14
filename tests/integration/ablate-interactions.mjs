@@ -544,22 +544,28 @@ assert.deepEqual(
   "Every mutation must have one valid anchor before tests start",
 );
 const sha = (value) => createHash("sha256").update(value).digest("hex");
-function run(pattern, name) {
+function run(
+  pattern,
+  name,
+  files = [
+    "collaboration.test.ts",
+    "conversation-coordination.test.ts",
+    "long-running-interactions.test.ts",
+    "approvals.test.ts",
+    "multi-level-interactions.test.ts",
+    "runtime.test.ts",
+    "pdf.test.ts",
+    "tool-contracts.test.ts",
+    "tool-upgrade.test.ts",
+  ],
+) {
   const report = join(output, `${name}.json`);
   const child = spawnSync(
     process.execPath,
     [
       "scripts/ci-tests.mjs",
       "integration",
-      "collaboration.test.ts",
-      "conversation-coordination.test.ts",
-      "long-running-interactions.test.ts",
-      "approvals.test.ts",
-      "multi-level-interactions.test.ts",
-      "runtime.test.ts",
-      "pdf.test.ts",
-      "tool-contracts.test.ts",
-      "tool-upgrade.test.ts",
+      ...files,
       "-t",
       pattern,
       "--reporter=json",
@@ -572,7 +578,7 @@ function run(pattern, name) {
   return {
     code: child.status,
     tests: data.testResults
-      .flatMap((s) => s.assertionResults)
+      .flatMap((s) => s.assertionResults.map((test) => ({ ...test, file: s.name })))
       .filter((t) => t.status !== "pending" && t.status !== "skipped"),
   };
 }
@@ -589,7 +595,9 @@ for (const [removed, file, from, to, test] of cases) {
   let result;
   try {
     await writeFile(path, original.replace(from, to));
-    result = run(test, String(results.length));
+    // The passing baseline identifies one exact test. Run its file only, while
+    // retaining the single-test failure check below and every mutation case.
+    result = run(test, String(results.length), [controls[0].file]);
   } finally {
     await writeFile(path, original);
     assert.equal(sha(await readFile(path)), sha(original));
