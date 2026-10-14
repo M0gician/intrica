@@ -97,3 +97,28 @@ test("an interrupted operation resumes with its identity and rechecks through th
   held.resolve({ id: "old-process" });
   await first.settle();
 });
+
+test("a client upgrade starts a new installation instead of restoring an older completion", async (t) => {
+  const userData = await mkdtemp(join(tmpdir(), "intrica-operation-upgrade-"));
+  t.after(() => rm(userData, { recursive: true, force: true }));
+  const releases = [];
+  const execute = async (operation) => {
+    releases.push(operation.release);
+    return { id: "preserved-profile" };
+  };
+  const previous = createSshOperations({ version: "0.4.0", userData, execute });
+  const old = previous.install(request).operation;
+  await previous.settle();
+  const sameVersion = createSshOperations({ version: "0.4.0", userData, execute });
+  assert.equal(sameVersion.state().operation.phase, "completed");
+
+  const updated = createSshOperations({ version: "0.5.0", userData, execute });
+  assert.deepEqual(updated.state(), { release: "v0.5.0", operation: null });
+  assert.throws(() => updated.install({ ...request, operationId: old.id }), /changed/);
+  const current = updated.install(request).operation;
+  assert.notEqual(current.id, old.id);
+  await updated.settle();
+  assert.equal(updated.state().operation.phase, "completed");
+  assert.equal(updated.state().operation.release, "v0.5.0");
+  assert.deepEqual(releases, ["v0.4.0", "v0.5.0"]);
+});

@@ -125,7 +125,7 @@ export async function searchFiles(
     } catch {
       throw new DomainError(
         "RG_UNAVAILABLE",
-        "Server 缺少当前平台的 ripgrep；请重新安装平台 optionalDependencies，或由管理员配置 INTRICA_RG_PATH",
+        "Server 缺少当前平台的 ripgrep；请更新或重新安装 Intrica。源码部署需安装平台依赖；管理员也可配置 INTRICA_RG_PATH",
       );
     }
   }
@@ -236,7 +236,9 @@ export async function searchFiles(
           error.code === "ENOENT"
             ? new DomainError(
                 "RG_UNAVAILABLE",
-                "Server 的 ripgrep (rg) 不可用；请重新安装平台依赖，或由管理员配置 INTRICA_RG_PATH",
+                options.executable
+                  ? "配置的 ripgrep 不存在；请由管理员检查 INTRICA_RG_PATH 指向的可执行文件"
+                  : "Server 的 ripgrep 不可用；请更新或重新安装 Intrica。源码部署需安装平台依赖",
               )
             : error,
         );

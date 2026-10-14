@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.1
+
+- Include the ripgrep platform binary in desktop packages so file searches work without a separately installed `rg`.
+- Require real Agent file searches in desktop and native-server package acceptance, and cover exported Go method searches.
+- Restore remote server upgrades after a desktop client update by excluding installation records from older client releases.
+- Recheck the remote service when opening the installation panel and after installation; report success only when its health and running version match.
+- Show the inspected current version and an explicit English/Chinese upgrade action.
+- Cover client-version changes and stale completion records in SSH and browser regression tests.
+- Correct upgrade documentation to database schema 17 and tool schema 6; neither schema changes from 0.5.0.
+
+See [release notes](docs/releases/v0.5.1.md) and [upgrade safety](docs/updating.md).
+
 ## 0.5.0
 
 - Preserve original instructions separately from structured context summaries and reject stale compaction results.

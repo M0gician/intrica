@@ -222,12 +222,32 @@ it("admits 64 active Agent conversations plus independent generation capacity", 
         ).rows[0].n === 64,
     );
     const admissionMs = performance.now() - started;
-    await delay(5500);
-    const renewed = (
+    const leases = (
       await k.db.pool.query(
-        "select count(*)::int as n from runs where state='running' and lease_until>clock_timestamp()+interval '25 seconds'",
+        "select id,epoch,owner_id,lease_until::text as lease_until from runs where state='running'",
       )
-    ).rows[0].n;
+    ).rows;
+    expect(leases).toHaveLength(72);
+    // Admission staggers heartbeat deadlines. Observe each lease advancing from
+    // its own snapshot while retaining its owner/epoch, rather than sampling a
+    // narrow remaining-time window between renewal ticks.
+    let renewed = 0;
+    await until(async () => {
+      const current = (
+        await k.db.pool.query(
+          `select count(*)::int as active,
+            count(*) filter(where r.lease_until>previous.lease_until)::int as renewed
+           from runs r join jsonb_to_recordset($1::jsonb)
+            as previous(id text,epoch integer,owner_id text,lease_until timestamptz)
+            on r.id=previous.id and r.epoch=previous.epoch and r.owner_id=previous.owner_id
+           where r.state='running' and r.lease_until>clock_timestamp()`,
+          [JSON.stringify(leases)],
+        )
+      ).rows[0];
+      expect(current.active).toBe(72);
+      renewed = current.renewed;
+      return renewed === 72;
+    });
     expect(renewed).toBe(72);
     const counts = (
       await k.db.pool.query(

@@ -64,7 +64,12 @@ const request = (path, options = {}) =>
 const start = async () => {
   child = spawn(join(app, "bin/intrica-server"), [], {
     cwd: root,
-    env: { ...process.env, INTRICA_SERVICE_CONFIG: config, MODEL_KIND: "mock" },
+    env: {
+      ...process.env,
+      INTRICA_SERVICE_CONFIG: config,
+      MODEL_KIND: "mock",
+      INTRICA_RG_PATH: "",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stdout.on("data", (chunk) => {

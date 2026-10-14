@@ -207,7 +207,20 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
               content: `${"Observed mechanism; not a confirmed incident cause.\n".repeat(220)}\nTail evidence: ${evidence[member - 1]}`,
             },
           };
+        else if (!toolResults(body.messages, "rg").length)
+          reply = {
+            tool: "rg",
+            args: {
+              path: `acceptance-report-${member}.md`,
+              pattern: "^Tail evidence: READ_VERIFIED_[0-9a-f-]+$",
+            },
+          };
         else if (!artifacts.length) {
+          const search = toolResults(body.messages, "rg")[0].value;
+          assert.equal(search.truncated, false, "Bundled rg must finish the real file search");
+          assert.equal(search.matches.length, 1, "Bundled rg must find exactly one evidence line");
+          assert.equal(search.matches[0].text, `Tail evidence: ${evidence[member - 1]}`);
+          assert.equal(search.matches[0].lineNumber, 222);
           assert.ok(
             reads.some((r) => r.value.content.includes(evidence[member - 1])),
             "A member must read its selected nested resource before creating a report",

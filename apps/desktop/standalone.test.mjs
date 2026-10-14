@@ -50,6 +50,7 @@ async function launch(profile) {
   delete env.DATABASE_URL;
   delete env.PORT;
   delete env.ELECTRON_RUN_AS_NODE;
+  delete env.INTRICA_RG_PATH;
   const app = await _electron.launch({
     timeout: 30000,
     executablePath: process.env.INTRICA_TEST_EXECUTABLE || (await import("electron")).default,
