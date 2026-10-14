@@ -68,6 +68,29 @@ test("patterns cannot inject flags or a shell and ambient rg config is ignored",
   await expect(access(join(directory, "injected"))).rejects.toMatchObject({ code: "ENOENT" });
 });
 
+test("bundled rg finds exported Go methods using escaped parentheses and character classes", async () => {
+  await writeFile(
+    join(directory, "methods.go"),
+    "package example\nfunc (s *Store) FindByID() {}\nfunc (s *Store) findInternal() {}\nfunc Standalone() {}\n",
+  );
+  const result = await searchFiles(
+    { path: directory, pattern: String.raw`^func \([^)]*\) [A-Z][A-Za-z0-9_]*\(` },
+    options(),
+  );
+  expect(result).toMatchObject({
+    scannedFiles: 1,
+    truncated: false,
+    matches: [
+      {
+        path: join(directory, "methods.go"),
+        lineNumber: 2,
+        columnBytes: 1,
+        text: "func (s *Store) FindByID() {}",
+      },
+    ],
+  });
+});
+
 test("hidden paths are opt-in, explicit hidden files work, and .gitignore is not applied", async () => {
   await writeFile(join(directory, ".hidden"), "needle");
   await writeFile(join(directory, "ignored.txt"), "needle");

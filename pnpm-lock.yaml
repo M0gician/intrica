@@ -79,6 +79,12 @@ importers:
       '@napi-rs/canvas-linux-x64-gnu':
         specifier: 1.0.9
         version: 1.0.9
+      '@vscode/ripgrep-darwin-arm64':
+        specifier: 1.18.0
+        version: 1.18.0
+      '@vscode/ripgrep-linux-x64':
+        specifier: 1.18.0
+        version: 1.18.0
 
   apps/server:
     dependencies:
