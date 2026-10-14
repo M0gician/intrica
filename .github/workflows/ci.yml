@@ -82,6 +82,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --store-dir "$RUNNER_TOOL_CACHE/intrica-pnpm-store" --frozen-lockfile
 
+      # Functional tests launch Chromium inside OS isolation too. Install the
+      # pinned headless distribution before they run, rather than relying on
+      # whatever interactive Chrome happens to be on the runner image.
+      - name: Install browser system dependencies
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: pnpm --filter @intrica/tests-e2e exec playwright install-deps chromium
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @intrica/tests-e2e exec playwright install chromium
+
       - name: Build all packages
         run: pnpm build
 
@@ -104,13 +114,6 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 20
         run: node tests/integration/ablate-interactions.mjs
-
-      - name: Install browser system dependencies
-        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
-        run: pnpm --filter @intrica/tests-e2e exec playwright install-deps chromium
-
-      - name: Install Playwright Chromium
-        run: pnpm --filter @intrica/tests-e2e exec playwright install chromium
 
       - name: Browser E2E
         env:

@@ -19,6 +19,9 @@ revision. Explicit verification refs remain available to release callers.
 
 Jobs build before running type checks, lint, functional/database tests,
 public-release HTTP/file tests, browser workflows and Electron checks.
+Pinned Playwright Chromium and its system dependencies are installed before
+functional tests, which also verify headless browsing inside OS isolation.
+Those tests do not depend on the runner image's interactive Chrome version.
 Each database test wrapper owns its ports and temporary PostgreSQL cluster.
 Generated-code ablations run sequentially with other tests that use dist.
 Secret scanning covers fetched history.
