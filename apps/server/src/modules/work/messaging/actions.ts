@@ -27,7 +27,7 @@ export async function updateDelivery(
   const status = (await deliveries(tx, conversationId, [deliveryId])).find((d) => d.id === q.id)!;
   if (version !== undefined && q.version !== version)
     throw new DomainError("VERSION_CONFLICT", "消息状态已变化；按当前回执重新决定操作", {
-      executed: false,
+      effect: "none",
       version: q.version,
       receipt: status,
       allowedActions: !status.pending
@@ -41,14 +41,14 @@ export async function updateDelivery(
   if (!status.pending) return { deliveryId, status: q.state, changed: false };
   if (status.closed && action !== "cancel")
     throw new DomainError("RECIPIENT_REMOVED", "接收者已移除；核查结果并重新分配工作后停止跟踪", {
-      executed: false,
+      effect: "none",
       receipt: status,
       allowedActions: ["cancel"],
     });
   if (action === "expedite") {
     if (status.blocked)
       throw new DomainError("MESSAGE_BLOCKED", "消息达到自动协作上限；需要用户恢复任务后再处理", {
-        executed: false,
+        effect: "none",
       });
     const target = await agentIdentity(tx, q.recipient_agent_id);
     if (

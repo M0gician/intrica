@@ -39,7 +39,7 @@ export function resourceHandoffTools(context: ToolContext) {
           !(await managementChain(tx, args.agentId)).includes(actor.agentId)))
     )
       throw new DomainError("FORBIDDEN", "只能向当前管理范围内的 Agent 委派资源", {
-        executed: false,
+        effect: "none",
       });
     const mutation = new GraphMutation(tx, ctx.run.canvas_id, OWNER, registry.graph.queries);
     const ids = new Set<string>();
@@ -48,7 +48,7 @@ export function resourceHandoffTools(context: ToolContext) {
       if (ids.has(entry.nodeId))
         throw new DomainError("VALIDATION", "resources 中的 nodeId 不能重复", {
           path: "resources",
-          executed: false,
+          effect: "none",
         });
       ids.add(entry.nodeId);
       const node = await mutation.row(entry.nodeId);
@@ -56,7 +56,7 @@ export function resourceHandoffTools(context: ToolContext) {
         throw new DomainError("VERSION_CONFLICT", "资源版本已变化；重新读取节点后委派", {
           nodeId: entry.nodeId,
           revision: node.content_version,
-          executed: false,
+          effect: "none",
         });
       await authorize(tx, actor, ctx.run.canvas_id, entry.nodeId, entry.mode);
       const delegatedBy = actor.kind === "agent" ? actor.agentId : null;
@@ -124,7 +124,7 @@ export function resourceHandoffTools(context: ToolContext) {
           throw new DomainError(
             "TARGET_CHANGED",
             "需要当前版本的已发布文件快照；重新 read 节点后使用其 revision",
-            { executed: false, nodeId: node.id, revision: node.revision },
+            { effect: "none", nodeId: node.id, revision: node.revision },
           );
         const workspace = await registry.host.workspace(
           ctx.run.canvas_id,

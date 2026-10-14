@@ -7,6 +7,7 @@ export type ExecutionContext = {
   signal: AbortSignal;
   store: RunStore;
   progress: () => void;
+  suspend?: (reason: string | null) => Promise<void>;
 };
 export type RunHandler = (context: ExecutionContext) => Promise<void>;
 export class Worker {
@@ -19,6 +20,7 @@ export class Worker {
       promise: Promise<void>;
       renewedAt: number;
       progressAt: number;
+      suspended: boolean;
     }
   >();
   private stopping = false;
@@ -43,7 +45,11 @@ export class Worker {
       await this.store.recover();
       await this.schedule();
       const limits = await this.store.settings.limits();
-      while (!this.stopping && this.active.size < limits.agents + limits.generations) {
+      while (
+        !this.stopping &&
+        [...this.active.values()].filter((entry) => !entry.suspended).length <
+          limits.agents + limits.generations
+      ) {
         const run = await this.store.claim(this.ownerId);
         if (!run) break;
         if (this.stopping) {
@@ -57,12 +63,21 @@ export class Worker {
           renewedAt: performance.now(),
           progressAt: performance.now(),
           promise: Promise.resolve(),
+          suspended: false,
+          modelWaitReason: null as string | null,
         };
         this.active.set(run.id, entry);
         entry.promise = this.handlers[run.kind]({
           run,
           signal: abort.signal,
           store: this.store,
+          suspend: async (reason) => {
+            entry.progressAt = performance.now();
+            if (entry.modelWaitReason === reason) return;
+            entry.suspended = Boolean(reason);
+            entry.modelWaitReason = reason;
+            await this.store.modelWaiting(run, reason);
+          },
           progress: () => {
             entry.progressAt = performance.now();
           },

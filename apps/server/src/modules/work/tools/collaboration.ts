@@ -59,7 +59,7 @@ export function collaborationTools(context: ToolContext) {
     const single = ["agent", "reply"].includes(args.to),
       multiple = ["agents", "resource_readers"].includes(args.to);
     const invalid = (field: string, message: string): never => {
-      throw new DomainError("MESSAGE_INPUT", message, { path: field, executed: false });
+      throw new DomainError("MESSAGE_INPUT", message, { path: field, effect: "none" });
     };
     if (single && !args.id) invalid("id", `${args.to} 目标需要 id`);
     if (!single && args.id !== undefined)
@@ -149,7 +149,7 @@ export function collaborationTools(context: ToolContext) {
       )
         throw new DomainError("VALIDATION", "fileIds 必须引用当前画布已发布的文件快照", {
           path: "fileIds",
-          executed: false,
+          effect: "none",
         });
       await registry.assets.assertAvailable(node.assetId);
     }

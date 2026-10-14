@@ -1,26 +1,54 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { type AssistantMessage, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import { type Database, id } from "../postgres/database.js";
+import { ModelQueue } from "../../modules/model-runtime/queue.js";
+import { scheduledStream } from "../../modules/model-runtime/stream.js";
+import { type Database, digest, id } from "../postgres/database.js";
 import { modelProgress } from "./progress.js";
 import type { FrozenModel } from "./registry.js";
 
 type Scope = {
   db: Database;
   purpose: string;
+  validateResponse?: ((message: AssistantMessage) => void) | undefined;
   model: FrozenModel;
-  runId?: string;
+  runId?: string | undefined;
+  runEpoch?: number | undefined;
   attemptId?: string;
   canvasId?: string;
   conversationId?: string;
   requestId?: string;
+  logicalRequestId?: string;
+  progress?: (() => void) | undefined;
+  suspend?: ((reason: string | null) => Promise<void>) | undefined;
 };
 const scope = new AsyncLocalStorage<Scope>();
 export const withModelUsage = <T>(context: Scope, action: () => T): T => scope.run(context, action);
-export const withModelPurpose = <T>(purpose: string, action: () => T): T => {
+export const withModelPurpose = <T>(
+  purpose: string,
+  action: () => T,
+  requestId?: string,
+  validateResponse?: (message: AssistantMessage) => void,
+): T => {
   const current = scope.getStore();
-  return current ? scope.run({ ...current, purpose }, action) : action();
+  return current
+    ? scope.run(
+        {
+          ...current,
+          purpose,
+          validateResponse,
+          ...(requestId ? { requestId, logicalRequestId: requestId } : {}),
+        },
+        action,
+      )
+    : action();
 };
+export function modelPurposeRequestId(purpose: string, sourceHash: string) {
+  const current = scope.getStore();
+  return current
+    ? `model-request-${digest([current.runId ?? current.requestId ?? id("request"), current.model, purpose, sourceHash])}`
+    : id("model-request");
+}
 export async function startModelCall() {
   const current = scope.getStore();
   if (!current) return null;
@@ -167,7 +195,9 @@ export function meteredStream(source: StreamFn): StreamFn {
               error instanceof Error &&
               /timeout|timed out|etimedout|\b408\b|\b504\b/i.test(error.message)
                 ? "Model request timed out"
-                : "Model request failed or was interrupted",
+                : error instanceof Error
+                  ? error.message
+                  : "Model request failed or was interrupted",
           },
         });
       } finally {
@@ -175,5 +205,41 @@ export function meteredStream(source: StreamFn): StreamFn {
       }
     })();
     return output;
+  };
+}
+
+/** Scheduling wraps metering so each network attempt has one receipt. */
+export function modelStream(source: StreamFn): StreamFn {
+  return (model, context, options) => {
+    const current = scope.getStore();
+    if (!current) return scheduledStream(meteredStream(source), {})(model, context, options);
+    const frozen = JSON.parse(
+      JSON.stringify({
+        ...context,
+        messages: context.messages.map(({ timestamp: _timestamp, ...message }) => message),
+      }),
+    );
+    const sourceHash = digest([model, frozen, current.model.credentialRef]);
+    const requestId =
+      current.logicalRequestId ??
+      `model-request-${digest([current.runId ?? current.requestId ?? id("request"), current.purpose, sourceHash])}`;
+    const queue = new ModelQueue(current.db, {
+      id: requestId,
+      runId: current.runId,
+      runEpoch: current.runEpoch,
+      conversationId: current.conversationId ?? current.runId ?? requestId,
+      purpose: current.purpose,
+      endpointId: current.model.endpointId,
+      endpointKey: model.baseUrl,
+      sourceHash,
+    });
+    return scope.run({ ...current, requestId }, () =>
+      scheduledStream(meteredStream(source), {
+        queue,
+        progress: current.progress,
+        suspend: current.suspend,
+        validate: current.validateResponse,
+      })(model, context, options),
+    );
   };
 }

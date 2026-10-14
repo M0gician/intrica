@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { expect, test } from "@playwright/test";
+import { reviewedReply } from "../fixtures/journey-protocol.mjs";
 import { API_URL } from "./environment.mjs";
 
 test.use({ actionTimeout: 10000 });
@@ -28,8 +29,27 @@ test.beforeAll(async () => {
     const body = JSON.parse(Buffer.concat(chunks).toString());
     requests.push(body);
     response.writeHead(200, { "content-type": "text/event-stream" });
+    const reply = body.messages.some(
+      (m: any) => m.role === "user" && String(m.content).includes('"hook":"review_progress"'),
+    )
+      ? reviewedReply(body.messages, { text: `当前回答模型 ${body.model}` })
+      : { text: `当前回答模型 ${body.model}` };
+    const delta =
+      "tool" in reply
+        ? {
+            role: "assistant",
+            tool_calls: [
+              {
+                index: 0,
+                id: randomUUID(),
+                type: "function",
+                function: { name: reply.tool, arguments: JSON.stringify(reply.args) },
+              },
+            ],
+          }
+        : { role: "assistant", content: reply.text };
     response.end(
-      `data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", model: body.model, choices: [{ index: 0, delta: { role: "assistant", content: `当前回答模型 ${body.model}` }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", model: body.model, choices: [{ index: 0, delta, finish_reason: "tool" in reply ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`,
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -172,6 +192,11 @@ test("Agent 与模型会话独立选择模型及推理强度，并保留服务�
   await expect(page.getByText("当前回答模型 research-11", { exact: true }).last()).toBeVisible();
   expect(requests.at(-1)).toMatchObject({ model: "research-11", reasoning_effort: "low" });
   expect((await snapshot()).agent.model.thinkingLevel).toBe("max");
+  await expect(
+    page
+      .getByRole("region", { name: "会话记录", exact: true })
+      .getByText("本次运行已结束。", { exact: true }),
+  ).toBeVisible();
   await page.getByLabel("对话模型", { exact: true }).click();
   await page.getByRole("option", { name: /跟随服务器默认/ }).click();
   await page.keyboard.press("Escape");

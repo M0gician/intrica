@@ -136,7 +136,13 @@ export function toolOutcomeLabel(data: Record<string, unknown>) {
   const failed =
     ["failed", "error"].includes(status) || (isRecord(data.result) && data.result.isError === true);
   if (failed) return tr("失败");
-  if (data.name === "wait_for_message" && ["complete", "succeeded"].includes(status))
+  if (
+    (data.name === "wait_for_message" ||
+      (data.name === "review_progress" &&
+        isRecord(data.args) &&
+        data.args.outcome === "waiting")) &&
+    ["complete", "succeeded"].includes(status)
+  )
     return tr("已让出执行，等待新消息");
   if (data.name === "review_access_request" && ["complete", "succeeded"].includes(status)) {
     if (output?.status === "pending")

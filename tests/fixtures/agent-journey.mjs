@@ -58,15 +58,15 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
               /(?:status: |状态：)succeeded/.test(JSON.stringify(m.content)),
           );
         reply = body.messages.some((m) => m.role === "tool")
-          ? {
-              text: !granted
-                ? "APPROVAL_STILL_PENDING"
-                : body.messages.some(
-                      (m) => m.role === "user" && m.content === "UPGRADE_BUFFERED_INPUT",
-                    )
+          ? !granted
+            ? { text: "APPROVAL_STILL_PENDING" }
+            : reviewedReply(body.messages, {
+                text: body.messages.some(
+                  (m) => m.role === "user" && m.content === "UPGRADE_BUFFERED_INPUT",
+                )
                   ? "APPROVAL_RESUMED_WITH_BUFFERED_INPUT"
                   : "APPROVAL_RESUMED",
-            }
+              })
           : {
               tool: "request_permission",
               args: { scope: { kind: "role", role: "admin" }, reason: "Upgrade acceptance" },
@@ -98,7 +98,7 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
             (m) => m.role === "user" && m.content === "Run the recruitment acceptance journey.",
           )
         )
-          reply = { text: "Approval forwarded" };
+          reply = reviewedReply(body.messages, { text: "Approval forwarded" });
         else {
           const hires = toolResults(body.messages, "hire_agent");
           const followups = toolResults(body.messages, "send_message");
@@ -142,15 +142,12 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
             else {
               const reads = toolResults(body.messages, "read");
               for (const [i, id] of reports.entries()) {
-                const pages = reads.filter((r) => r.args.target?.nodeId === id);
+                const pages = reads.filter((r) => r.value.id === id || r.value.nodeId === id);
                 const last = pages.at(-1)?.value;
                 if (!last || last.nextCursor !== null) {
                   reply = {
                     tool: "read",
-                    args: {
-                      target: { kind: "node", nodeId: id },
-                      ...(last ? { cursor: last.nextCursor } : {}),
-                    },
+                    args: last ? { cursor: last.nextCursor } : { nodeId: id },
                   };
                   break;
                 }
@@ -165,11 +162,11 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
               }
               if (!reply) {
                 const updates = toolResults(body.messages, "update_node");
-                const plans = reads.filter((r) => r.args.target?.nodeId === todo.id);
+                const plans = reads.filter((r) => r.args.nodeId === todo.id);
                 if (updates.length < 2) {
                   reply =
                     plans.length <= updates.length
-                      ? { tool: "read", args: { target: { kind: "node", nodeId: todo.id } } }
+                      ? { tool: "read", args: { nodeId: todo.id } }
                       : {
                           tool: "update_node",
                           args: {
@@ -200,14 +197,14 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
         if (!reads.length)
           reply = {
             tool: "read",
-            args: { target: { kind: "node", nodeId: evidenceNodes[member - 1].id } },
+            args: { nodeId: evidenceNodes[member - 1].id },
           };
         else if (!toolResults(body.messages, "write").length)
           reply = {
             tool: "write",
             args: {
               path: `acceptance-report-${member}.md`,
-              content: `${"Observed mechanism; not a confirmed incident cause.\n".repeat(140)}\nTail evidence: ${evidence[member - 1]}`,
+              content: `${"Observed mechanism; not a confirmed incident cause.\n".repeat(220)}\nTail evidence: ${evidence[member - 1]}`,
             },
           };
         else if (!artifacts.length) {
@@ -221,7 +218,7 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
               kind: "text",
               title: `Acceptance report ${member}`,
               path: `acceptance-report-${member}.md`,
-              text: `${"Observed mechanism; not a confirmed incident cause.\n".repeat(140)}\nTail evidence: ${evidence[member - 1]}`,
+              text: `${"Observed mechanism; not a confirmed incident cause.\n".repeat(220)}\nTail evidence: ${evidence[member - 1]}`,
             },
           };
         } else if (!toolResults(body.messages, "send_message").length) {
@@ -476,7 +473,7 @@ export async function verifyJourney(call, journey, existingRequestIds = []) {
     assert.equal(
       feed.events.filter(
         (e) =>
-          e.kind === "tool" && e.data.status === "waiting" && e.data.name !== "wait_for_message",
+          e.kind === "tool" && e.data.status === "waiting" && e.data.name !== "review_progress",
       ).length,
       0,
       "Completed delivery cannot leave stale waiting receipts",
@@ -583,5 +580,14 @@ export async function verifyPendingApproval(call, journey, saved) {
       (e) => e.kind === "assistant" && e.data.text === "APPROVAL_RESUMED_WITH_BUFFERED_INPUT",
     ).length,
     1,
+    JSON.stringify({
+      message: "Approval recovery must deliver the buffered request exactly once",
+      events: feed.events.map((e) => ({
+        kind: e.kind,
+        text: e.data.text,
+        name: e.data.name,
+        status: e.data.status,
+      })),
+    }),
   );
 }

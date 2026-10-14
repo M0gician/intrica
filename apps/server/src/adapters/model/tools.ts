@@ -6,7 +6,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
 import { result } from "../../modules/execution/tool-calls.js";
 import { fileParameters, pathParameter } from "../host/file-contracts.js";
-import { FILE_IO_SCRIPT } from "../host/file-io.js";
+import { FILE_IO_ENTRY } from "../host/file-io.js";
 import { readMedia } from "../host/media-read.js";
 import { canonicalPath, runProcess } from "../host/sandbox.js";
 import { type SearchArguments, searchFiles } from "../host/search.js";
@@ -40,7 +40,10 @@ export function createWorkspaceTools(
       signal.throwIfAborted();
       const args = { ...(input as any), path: await canonicalPath((input as any).path, cwd) };
       const directory = name === "read" && (await stat(args.path)).isDirectory();
-      if (directory && [args.line, args.page, args.frame, args.mode].some((v) => v !== undefined))
+      if (
+        directory &&
+        ([args.line, args.page, args.frame].some((v) => v !== undefined) || args.mode === "image")
+      )
         throw new DomainError("VALIDATION", "目录不接受行、页、帧或图像显示选项");
       if (name === "read" && !directory && args.offset === 0)
         throw new DomainError("VALIDATION", "文本行从 1 开始");
@@ -55,9 +58,7 @@ export function createWorkspaceTools(
         const response = await execFileAsync(
           process.execPath,
           [
-            "--input-type=module",
-            "-e",
-            FILE_IO_SCRIPT,
+            FILE_IO_ENTRY,
             JSON.stringify({
               name: directory ? "list_directory" : name,
               path: args.path,

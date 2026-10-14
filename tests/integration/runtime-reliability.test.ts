@@ -19,7 +19,7 @@ import {
 import { Activity } from "../../apps/server/dist/modules/work/activity.js";
 import { finishConversation } from "../../apps/server/dist/modules/work/conversation-runtime/finish.js";
 import { recoverCheckpointTools } from "../../apps/server/dist/modules/work/conversation-runtime/recovery.js";
-import { completionState } from "../../apps/server/dist/modules/work/messaging/completion.js";
+import { completionState } from "../../apps/server/dist/modules/work/progress/completion.js";
 
 const key = () => randomUUID();
 const database = `intrica_reliability_${key().replaceAll("-", "")}`;
@@ -118,14 +118,21 @@ async function artifact(s: Session, name = "evidence.txt") {
   return { path, bytes, node };
 }
 async function review(s: Session, decide?: (item: any) => object) {
-  const inspected = (await s.call("review_inbox", { action: "inspect" })).value;
-  return s.call("review_inbox", {
-    action: "confirm",
-    reviewId: inspected.reviewId,
-    decisions: inspected.items.map((item: any) => ({
-      itemId: item.id,
-      ...(decide ? decide(item) : { action: "handled" }),
-    })),
+  await consume(s);
+  if (decide) {
+    const inbox = (await s.call("read_inbox", {})).value;
+    for (const item of inbox.items) {
+      const decision = decide(item) as any;
+      await s.call("update_message", {
+        [item.kind === "removal" ? "message_id" : "delivery_id"]: item.ref,
+        action: item.kind === "removal" ? "handled" : "cancel",
+        reason: decision.reason,
+      });
+    }
+  }
+  return s.call("review_progress", {
+    outcome: "completed",
+    reason: "Assigned deliverable verified; remaining reassignment is explicitly recorded",
   });
 }
 async function consume(s: Session) {
@@ -156,15 +163,11 @@ it("keeps snapshots out of raw path authority and bounds repeated approval maint
   expect(
     await coveringGrant(grants, { resource: { type: "file", path: file.path } }, "read"),
   ).toBeUndefined();
-  const pending = await reader.call("read", { target: { kind: "path", path: file.path } });
+  const pending = await reader.call("read", { path: file.path });
   expect(pending.waiting).toBe("approval");
   for (let i = 0; i < 6; i++) {
     await k.access.maintain();
-    const receipt = await reader.call(
-      "read",
-      { target: { kind: "path", path: file.path } },
-      pending.logical,
-    );
+    const receipt = await reader.call("read", { path: file.path }, pending.logical);
     expect(receipt.value.requestId).toBe(pending.value.requestId);
   }
   const approvals = (
@@ -179,13 +182,9 @@ it("keeps snapshots out of raw path authority and bounds repeated approval maint
   await k.db.pool.query("update tool_calls set state='prepared',result=null where approval_id=$1", [
     pending.value.requestId,
   ]);
-  const stopped = await reader.call(
-    "read",
-    { target: { kind: "path", path: file.path } },
-    pending.logical,
-  );
+  const stopped = await reader.call("read", { path: file.path }, pending.logical);
   expect(stopped.value).toMatchObject({
-    executed: false,
+    call: { effect: "none" },
     error: { code: "AUTHORIZATION_CHANGED" },
   });
   expect(
@@ -198,7 +197,7 @@ it("keeps snapshots out of raw path authority and bounds repeated approval maint
   });
   expect(request.waiting).toBe("approval");
   await k.access.decide(request.value.requestId, 1, "approve", "source read", sender.actor);
-  const loaded = await reader.call("read", { target: { kind: "path", path: file.path } });
+  const loaded = await reader.call("read", { path: file.path });
   expect(loaded.value.text).toBe(file.bytes.toString());
   const rawGrant = await coveringGrant(
     await grantsFor(k.db.pool, member.id),
@@ -216,7 +215,7 @@ it("keeps snapshots out of raw path authority and bounds repeated approval maint
     decision: "approve",
     reason: "old decision",
   });
-  expect(stale.value.executed).toBe(false);
+  expect(stale.value.call.effect).toBe("none");
 });
 
 it("copies only the authorized snapshot, verifies bytes, and refuses symlinks, overwrites and stale revisions", async () => {
@@ -246,11 +245,11 @@ it("copies only the authorized snapshot, verifies bytes, and refuses symlinks, o
   const scratch = await k.host.workspace(board, member.id);
   await symlink(file.path, join(scratch, "link.txt"));
   expect(
-    (await reader.call("copy_artifact", { ...args, fileName: "link.txt" })).value.executed,
-  ).toBe(false);
+    (await reader.call("copy_artifact", { ...args, fileName: "link.txt" })).value.call.effect,
+  ).toBe("none");
   expect(
-    (await reader.call("copy_artifact", { ...args, fileName: "../escape" })).value.executed,
-  ).toBe(false);
+    (await reader.call("copy_artifact", { ...args, fileName: "../escape" })).value.call.effect,
+  ).toBe("none");
   expect(
     (await reader.call("copy_artifact", { ...args, expectedRevision: file.node.revision + 1 }))
       .value.error.code,
@@ -336,24 +335,26 @@ it("keeps the manager running on dismissal and requires explicit handling of unf
   });
   expect((await completionState(k.db.pool, s.run.subject_id, s.run.id)).kind).toBe("review");
   const missing = await review(s);
-  expect(missing.value.error.code).toBe("INBOX_REVIEW_INPUT");
+  expect(missing.value.error.code).toBe("PROGRESS_OBLIGATIONS");
   const confirmed = await review(s, () => ({
     action: "handled",
     reason: "The remaining validation is reassigned to the manager; delivery is still pending.",
   }));
-  expect(confirmed.value.completion).toBe("ready");
+  expect(confirmed.value.outcome).toBe("completed");
   expect(await k.tools.messages.status(delivery)).toMatchObject({
     tracking_stopped: true,
     state: "open",
   });
   expect(
     (
-      await s.call("wait_for_message", {
-        confirmed: true,
-        reviewToken: confirmed.value.reviewToken,
+      await s.call("review_progress", {
+        outcome: "waiting",
+        reason: "Nothing pending",
+        remaining_work: "None",
+        dependency_ids: [],
       })
     ).value.error.code,
-  ).toBe("NO_WAIT_DEPENDENCY");
+  ).toBe("PROGRESS_DEPENDENCY");
 });
 
 it("preserves unread input when resource authority is revoked", async () => {
@@ -385,29 +386,22 @@ it("preserves unread input when resource authority is revoked", async () => {
   ).toMatchObject({ consumed_at: null, run_id: null });
 });
 
-it("finishes a ready delivery normally and permits an explicitly assigned future wait", async () => {
+it("finishes verified delivery and requires real wake dependencies for waiting", async () => {
   const a = await agent(),
     s = await start(a.id);
   await consume(s);
   const confirmed = await review(s);
-  expect(confirmed.value.completion).toBe("ready");
+  expect(confirmed.value.outcome).toBe("completed");
   expect(
     (
-      await s.call("wait_for_message", {
-        confirmed: true,
-        reviewToken: confirmed.value.reviewToken,
+      await s.call("review_progress", {
+        outcome: "waiting",
+        reason: "Future watch needs a real schedule",
+        remaining_work: "Watch",
+        dependency_ids: ["nonexistent"],
       })
     ).value.error.code,
-  ).toBe("NO_WAIT_DEPENDENCY");
-  expect(
-    (
-      await s.call("wait_for_message", {
-        confirmed: true,
-        reviewToken: confirmed.value.reviewToken,
-        reason: "The user assigned a watch for the next revision",
-      })
-    ).waiting,
-  ).toBe("message");
+  ).toBe("PROGRESS_DEPENDENCY");
   expect(
     (await s.call("send_message", { to: "user", kind: "result", message: "Validated delivery" }))
       .result.isError,
@@ -532,24 +526,13 @@ it("reports current receipts on conflicts, structural repairs, and model respons
     expectReply: true,
   });
   const delivery = sent.value.deliveries[0].id;
-  await s.call("update_message", { deliveryId: delivery, action: "wait", version: 1 });
-  const conflict = await s.call("update_message", {
-    deliveryId: delivery,
-    action: "expedite",
-    version: 1,
-  });
-  expect(conflict.value).toMatchObject({
-    executed: false,
-    error: {
-      code: "VERSION_CONFLICT",
-      version: 2,
-      receipt: { deliveryId: delivery },
-      allowedActions: ["wait", "expedite", "cancel"],
-    },
-  });
+  await k.tools.messages.updateForOwner(delivery, "wait", 120, 1);
+  await expect(k.tools.messages.updateForOwner(delivery, "expedite", 120, 1)).rejects.toMatchObject(
+    { code: "VERSION_CONFLICT", details: { version: 2, receipt: { deliveryId: delivery } } },
+  );
   const malformed = await s.call("read", { target: '{"kind":"path","path":"/tmp/a"}' });
-  expect(malformed.value.error.nextAction).toContain('target:{kind:"path"');
-  expect(malformed.value.executed).toBe(false);
+  expect(malformed.value.error.nextAction).toContain("flat target");
+  expect(malformed.value.call.effect).toBe("none");
   const id = key();
   await k.db.pool.query(
     "insert into model_calls(id,run_id,attempt_id,provider,model_id,protocol,purpose) values($1,$2,$3,'mock','mock','mock','conversation')",
@@ -576,7 +559,7 @@ it("reports current receipts on conflicts, structural repairs, and model respons
       selection: [],
       asyncSeconds: 5,
     });
-    expect(prompt).toContain("completion=ready");
+    expect(prompt).toContain("review_progress");
     expect(prompt).toContain("handoffResourceIds");
     expect(prompt).toContain("grant_resources");
     expect(prompt).toContain("copy_artifact");

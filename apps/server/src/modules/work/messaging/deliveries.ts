@@ -48,12 +48,12 @@ export async function replyAddress(sql: Sql, conversationId: string, deliveryId:
     throw new DomainError(
       "MESSAGE_TARGET",
       "id 必须是当前收件箱返回的 deliveryId；复制 replyTo 地址",
-      { path: "id", executed: false },
+      { path: "id", effect: "none" },
     );
   if (row.state !== "open")
     throw new DomainError("MESSAGE_CLOSED", "此消息已回复或关闭；新消息使用 to=agent", {
       path: "id",
-      executed: false,
+      effect: "none",
     });
   return row;
 }

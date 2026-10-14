@@ -153,6 +153,9 @@ async function checkpoint(calls: Array<{ providerId: string; name: string; args:
 }
 async function version(value: 8 | 9) {
   await k.db.pool.query(
+    "drop table context_summaries,read_cursors,model_requests,model_fairness,message_dispositions,mailbox_refs,mailbox_pages,progress_reviews; drop sequence mailbox_ref_seq; alter table conversations drop column context_version; alter table model_endpoints drop column quota_group_id; drop table model_quota_groups",
+  );
+  await k.db.pool.query(
     "alter table model_calls drop column last_response_at, drop column response_phase",
   );
   await k.db.pool.query(
@@ -220,7 +223,7 @@ it.each([8, 9] as const)(
       .rows;
     await version(schema);
     await reopen();
-    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(16);
+    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(17);
     expect((await stored(success.id)).result).toEqual(result({ written: true }));
     expect((await stored(prepared.id)).state).toBe("failed");
     expect((await stored(dispatched.id)).state).toBe("unknown");
@@ -366,8 +369,15 @@ it("older unknown calls remain reviewable; resolution and explicit continuation 
     progress() {},
   });
   expect(
-    (await k.db.pool.query("select name,state from tool_calls where run_id=$1", [current.id])).rows,
-  ).toEqual([{ name: "read_canvas", state: "succeeded" }]);
+    (
+      await k.db.pool.query("select name,state from tool_calls where run_id=$1 order by name", [
+        current.id,
+      ])
+    ).rows,
+  ).toEqual([
+    { name: "read_canvas", state: "succeeded" },
+    { name: "review_progress", state: "succeeded" },
+  ]);
   expect(await readFile(first.args.path, "utf8")).toBe("already committed");
 });
 

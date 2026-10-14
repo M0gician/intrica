@@ -1,7 +1,7 @@
 /** Scripted model choices for integration journeys using the current review/reply contract. */
 export const messageText = (m: any): string =>
   typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-export function replyAddresses(messages: any[]) {
+export function replyAddresses(messages: any[], from?: string) {
   return messages
     .filter((m) => m.role === "user")
     .flatMap((m) => {
@@ -9,7 +9,7 @@ export function replyAddresses(messages: any[]) {
       if (!line.includes('"expectReply":true')) return [];
       try {
         const data = JSON.parse(line.slice(line.indexOf("{")));
-        return data.replyTo ? [data.replyTo] : [];
+        return data.replyTo && (!from || data.from === from) ? [data.replyTo] : [];
       } catch {
         return [];
       }
@@ -24,21 +24,24 @@ export function finishReview(
   try {
     value = JSON.parse(typeof last?.content === "string" ? last.content : last?.content?.[0]?.text);
   } catch {}
-  if (value?.reviewToken) return { text };
-  if (value?.reviewId)
+  if (value?.reviewed) return { text };
+  if (value?.error?.code === "PROGRESS_OBLIGATIONS" || (value?.action && value?.item_id))
+    return { tool: "read_inbox", args: {} };
+  if (value?.items?.length) {
+    const item = value.items[0];
+    if (item.kind === "incoming")
+      return { tool: "send_message", args: { ...item.replyTo, kind: "result", message: text } };
     return {
-      tool: "review_inbox",
+      tool: "update_message",
       args: {
-        action: "confirm",
-        reviewId: value.reviewId,
-        decisions: value.items.map((item: any) => ({
-          itemId: item.id,
-          action:
-            item.kind === "message" ? "handled" : item.kind === "incoming" ? "wait" : "background",
-          reason:
-            "The result is delivered; remaining informational messages can be followed in the background.",
-        })),
+        [item.kind === "removal" ? "message_id" : "delivery_id"]: item.ref,
+        action: item.kind === "removal" ? "handled" : "background",
+        reason: "The assigned result has been delivered; follow up remaining information later.",
       },
     };
-  return { tool: "review_inbox", args: { action: "inspect" } };
+  }
+  return {
+    tool: "review_progress",
+    args: { outcome: "completed", reason: "The assigned result and verification are delivered." },
+  };
 }

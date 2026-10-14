@@ -6,6 +6,7 @@ import { type Database, DomainError, digest, type Tx } from "../../adapters/post
 import { agentIdentity } from "../access/policy.js";
 import { Events } from "../execution/events.js";
 import { resourceResponse } from "../execution/schedules.js";
+import { modelRequestProjection } from "../model-runtime/status.js";
 import { CollaborationReader } from "./collaboration-reader.js";
 import { ConversationNavigation } from "./conversation-navigation.js";
 import { projectInputReceipts } from "./input-receipts.js";
@@ -186,7 +187,7 @@ export class ConversationReader {
     return (
       (
         await this.db.pool.query(
-          `select id,state,reason,last_event_seq,superseded_by_run_id from runs where subject_id=$1
+          `select id,state,reason,last_event_seq,superseded_by_run_id,${modelRequestProjection("r.id")} as model_request from runs r where subject_id=$1
            order by coalesce(reason='tool_contract_upgrade',false) desc,
              (state in('queued','running','waiting')) desc,created_at desc,id desc limit 1`,
           [conversationId],
@@ -206,6 +207,7 @@ export class ConversationReader {
           id: current.id,
           state: current.state,
           reason: current.reason,
+          modelRequest: current.model_request,
           last_event_seq: current.last_event_seq,
         }
       : null;
@@ -277,6 +279,7 @@ export class ConversationReader {
       runId: run?.id,
       runState: run?.state,
       runReason: run?.reason,
+      modelRequest: run?.model_request ?? null,
       supersededByRunId: run?.superseded_by_run_id ?? null,
       unknownTools: unknown,
       collaborationPaused: Boolean((await agentIdentity(this.db.pool, agentId)).paused),

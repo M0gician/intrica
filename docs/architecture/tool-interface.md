@@ -1,5 +1,11 @@
 # Tool contracts
 
+This page specifies the replacement contract implemented on the runtime redesign
+branch: database schema 17 and tool schema 6. The released v0.4.0 uses the earlier contract.
+Implementation and verification status are tracked in the
+[implementation plan](../development/runtime-reliability-implementation.md).
+The confirmed architecture is in [Runtime reliability redesign](runtime-reliability-redesign.md).
+
 The registry defines 28 tools. Each model request receives the subset and
 parameter schemas that match its current capabilities. Workspace sessions use
 the owner's authority. Model visibility is a discovery decision; every
@@ -10,7 +16,7 @@ execution checks its current authority and run lease.
 | Content and execution | `read`, `write`, `edit`, `rg`, `bash` |
 | External capabilities | `web_search`, `mcp`, `list_capabilities` |
 | Canvas | `read_canvas`, `create_artifact`, `copy_artifact`, `update_node` |
-| Collaboration | `send_message`, `review_inbox`, `update_message`, `list_agents`, `read_conversation`, `get_agent_status`, `get_tool_result`, `wait_for_message` |
+| Collaboration | `send_message`, `read_inbox`, `review_progress`, `update_message`, `list_agents`, `read_conversation`, `get_agent_status`, `get_tool_result` |
 | Team | `hire_agent`, `configure_agent`, `dismiss_agent`, `take_over_run` |
 | Permissions | `request_permission`, `list_access_requests`, `review_access_request`, `grant_resources` |
 
@@ -32,26 +38,26 @@ definitions remain available for durable recovery and enforce current permission
 
 ## Reading
 
-`read` accepts one typed target:
+`read` has flat arguments. An initial request selects exactly one of `path`,
+`nodeId` and `skillId`; continuation supplies only `cursor`.
 
 ```json
-{"target":{"kind":"path","path":"/workspace/notes.md"}}
-{"target":{"kind":"node","nodeId":"node-id"}}
-{"target":{"kind":"skill","skillId":"/indexed/skill/SKILL.md"}}
+{"path":"/workspace/census.json","mode":"text","line":1}
+{"nodeId":"published-node-id","page":1}
+{"skillId":"/indexed/skill/SKILL.md"}
+{"cursor":"read-cursor"}
 ```
 
-Paths use host authorization; nodes use canvas authorization; skills must
-match the installed catalog. Authorization failure stays within the
-selected target. A directory returns entries. Text stays text and images
-remain image content parts. Canvas results carry node identity and revision.
-
-Continue with the same target and the returned `nextCursor`. Cursors bind
-the target and preserve PDF display mode. Each continuation checks current
-permissions. Explicit `line` and PDF `page` are one-based; image `frame`
-is zero-based. Do not combine explicit positioning with a cursor. An explicit mode is allowed
-only when it equals the cursor mode (or the target default when omitted in the
-cursor). Conflicting modes fail without changing read permissions.
-An empty PDF text layer is not OCR; page images can contain unread evidence.
+Paths, nodes and skills retain separate authorization. Directories accept auto/text
+and return entries; inappropriate line/page/frame/image options fail precisely.
+File lines and PDF pages are one-based; image frames are zero-based. Mode and
+position are top-level initial parameters, subsequently bound by the cursor.
+Text reads stream bounded pages even when the complete UTF-8 file exceeds 1MiB.
+A bounded scan toward a distant line returns positioning with a continuation,
+not a false EOF. Unicode boundaries and long-line continuations preserve content.
+Cursors bind the canvas, conversation, source, version, mode, position and expiry; every page
+reauthorizes. Mutable-source changes return SOURCE_CHANGED. Node bytes bind the
+published snapshot. No target/cursor compatibility aliases are retained.
 
 ## Typed mutations
 
@@ -103,7 +109,7 @@ exit codes and SIGPIPE are not silently converted to success.
 ## Collaboration and permissions
 
 `send_message` uses flat structured arguments. `report_result` is retired and has
-no execution alias. Tool schema version 5 is persisted in each new receipt.
+no execution alias. The replacement tool schema is persisted in each new receipt.
 Completed historical receipts retain their original result and argument digest.
 
 ```json
@@ -143,62 +149,77 @@ deliveries by sender and original activation cause in each bounded batch, emits
 one `message_notice` with a `deliveries` array, and coalesces simultaneous
 conditions. Durable flags suppress repeats of the same condition and version.
 Consumed or superseded notices stop being actionable. Notices can wake completed
-or message-waiting senders and steer active inference; dispatched tools retain
+or message-waiting senders; active inference receives them at a safe boundary; dispatched tools retain
 their existing call IDs. Pause, approval, activation budgets, unknown outcomes
 and deleted contexts remain execution barriers.
 
-`update_message({deliveryId,action,waitSeconds?,version?})` supports `wait`,
-`expedite` and `cancel`. Waiting postpones reminders, preserving the original
-deadlines. Expediting adds a priority follow-up linked to the original delivery,
-checks current communication authority and has a recipient-wide 30 second
-cooldown. Cancelling stops tracking while preserving read status and permitting
-a late reply. Pausing an Agent preserves its inbox and tracking. Direct run
-cancellation cancels the sender's open deliveries.
-Expediting interrupts active model inference. The tool description asks the sender
-to assess response activity and dependencies before interrupting a long generation.
-Version conflicts return the current receipt, version and available actions.
-
-Before `wait_for_message`, call `review_inbox({action:"inspect"})` and follow
-`nextAfter` for all `items`. Reply to required incoming requests using `replyTo`,
-then inspect again. Confirm with:
+`update_message` processes one message obligation with flat arguments:
 
 ```json
-{"action":"confirm","reviewId":"review-id","decisions":[{"itemId":"message:message-id","action":"handled"},{"itemId":"delivery:delivery-id","action":"background","reason":"This informational update does not block the current task"}]}
+{"delivery_id":"delivery-id","action":"wait","wait_seconds":120,"reason":"The result is still needed"}
+{"delivery_id":"delivery-id","action":"background","reason":"This result does not block the current delivery"}
+{"delivery_id":"delivery-id","action":"expedite","reason":"This result now blocks delivery"}
+{"delivery_id":"delivery-id","action":"cancel","reason":"The work has been reassigned"}
+{"message_id":"notice-id","action":"handled","reason":"The removed member's work was reassigned"}
 ```
 
-Each item lists its `allowedActions`. Messages require `handled`; outstanding
-incoming requests require a reply or `wait`; outgoing deliveries accept `wait`
-or `background` with a reason. Removed-recipient deliveries and member-removal
-notices require a reason explaining handling, reassignment or cancellation.
-Complete coverage produces `reviewToken` and an explicit completion/next-action
-branch. `completion:waiting` permits `wait_for_message({confirmed:true,reviewToken})`;
-`completion:ready` directs the model to verify deliverables, submit its final result
-and finish. Without a current dependency, prospective waiting requires `reason`
-describing an explicitly assigned monitoring task. Missing fields, unknown IDs,
-duplicate decisions, incomplete coverage and stale inspections return corrective
-errors. New messages, read receipts, replies, notices and delivery changes
-invalidate confirmation. These tools are sequential.
+Every model action includes a reason. Owner UI actions retain version checks; model actions read current server state. Waiting defers
+reminders; cancellation stops tracking but preserves late replies and receipts.
+Background records a reason without claiming that the underlying work finished.
+Expediting references the original delivery and checks current authority and
+recipient cooldown. Only explicit expedite interrupts current inference.
 
-Natural completion uses the same review when collaboration obligations remain.
-An up-to-date `background` disposition permits completion; `wait` keeps the run
-waiting for messages. Missing or stale review adds a durable `completion_review`
-hook. Two ignored hooks for the same snapshot pause at `inbox_review`, avoiding
-an inference loop. Conversations without pending deliveries or unreviewed removal
-notices finish normally. Removing a member does not complete its unfinished work;
-its name and outstanding delivery IDs remain in a durable `member_removed` notice.
-Normal inbox admission enforces pause and activation limits when waking senders.
-The final decision is rechecked under the run fence in the canvas transaction.
-The server verifies coverage and state; the model judges the adequacy of its
-answers and whether a pending reply blocks the task.
+`read_inbox({cursor?})` returns incremental pages with scoped short references and
+actual permitted operations. Normal messages keep their persistent consumption
+boundary. Resolved read receipts automatically leave the pending set. A reference
+cannot be used by another canvas/conversation or after its source becomes invalid.
 
-Argument failures persist a failed receipt before dispatch and return
-`{error:{code,message,issues?,nextAction?},executed:false}`. Schema issues identify
-field paths, expected types and received types without echoing message bodies.
-Preflight failures roll back the canvas transaction. Failures after dispatch
-retain execution evidence and existing unknown-outcome safeguards. Models
-correct the indicated field instead of repeating an ambiguous operation.
-Known no-effect rejections retain `executed:false` even when the executor entered
-the handler. A JSON string in `read.target` returns a structured-object example.
+`review_progress` performs the single final review before waiting or ending:
+
+```json
+{"outcome":"continue","reason":"The reviewed slice is delivered","remaining_work":"Read and verify the remaining source files"}
+{"outcome":"waiting","reason":"The implementation needs the test result","remaining_work":"Check the result and deliver","dependency_ids":["delivery-id"]}
+{"outcome":"completed","reason":"The requested scope is delivered and checked","evidence_refs":["artifact-id","tool-call-id"]}
+{"outcome":"blocked","reason":"The required credential is unavailable; reviewed files are saved","remaining_work":"Restore access and finish the remaining review"}
+```
+
+outcome and reason are required. Remaining work is required for continue/waiting/
+blocked; waiting names existing wake dependencies. Each supplied evidence reference must identify an accessible artifact or a
+succeeded call from the conversation. The server checks pending executions; the
+model is responsible for deciding whether the evidence fulfills the request. All references
+are strings; there are no nested decision arrays and no confirmation token to
+pass to a second wait tool. review_inbox and wait_for_message are retired.
+
+The server reads current mailbox/authority/lease state, returns specific unresolved
+items if necessary, and persists the review conclusion with its source boundary.
+Waiting directly registers the allowed dependencies. Completed permits final
+send_message delivery and normal ending; it does not itself send a second result.
+Blocked identifies an incomplete objective and needed help. Continue advances the
+current work. Partial delivery and receipt acknowledgements do not prove completion.
+A user-requested stage can be completed without inventing additional scope.
+
+Only affected decisions are invalidated by new inputs or responsibilities. Reading
+or resolving an item shrinks pending work instead of invalidating all prior checks.
+Natural completion without a valid review gets a bounded runtime hook. User stop,
+cancellation, execution budgets, unknown outcomes and errors retain their own
+semantics and cannot be overridden by a review or infinite recovery.
+A previously displayed final answer is reused only if no new input or substantive
+tool result followed it. A pre-approval waiting reply cannot replace the final
+answer after permission is granted.
+
+The runtime retains the actual user and authorized delegation messages separately
+from summaries. Only one effective summary enters model context as background;
+structured compaction rejects arbitrary prose and out-of-range source references.
+Existing native inputs keep their chronological positions; only missing originals
+are restored separately. These checks do not prove generated prose is semantically correct. Historical checkpoints remain
+available for recovery. No independent task tree or mandatory taskId is introduced.
+
+Tool results expose call.state, call.phase and call.effect in content and details rather than an executed flag. Domain output stays intact; a conflicting domain call field is retained under data. States are
+rejected/queued/running/succeeded/failed/unknown; phases are validate/authorize/
+dispatch/execute/commit; effects are none/committed/partial/unknown. Durable effects
+are not erased by a later error. Unknown effects block automatic replay; partial
+effects identify their scope. Errors give precise fields and minimal repairs in
+the current language without exposing private arguments or credentials.
 
 `request_permission({scope,reason})` uses one scope:
 
@@ -276,9 +297,9 @@ manager can review, wait for or expedite the expected result.
 
 New hire calls reject `title`, `name`, `displayName` and other unknown fields.
 The saved node ID and name are returned on replay; the first task is not submitted
-again. Old durable calls and version-1 conversation checkpoints remove only the
-obsolete title before validation. The original argument digest is preserved.
-New assistant turns persist tool schema version 5. Completed receipts keep their
+again. Protocol migration preserves completed receipts and original argument digests.
+Unstarted obsolete calls are sealed for replanning, while unknown effects remain
+blocked. New assistant turns persist the current tool schema version. Completed receipts keep their
 historical result. Existing names and human renaming remain supported; Agent
 tools cannot rename Agent nodes.
 
@@ -336,7 +357,7 @@ ablation checks run separately with `node tests/integration/ablate-interactions.
 
 ## Sandbox runtime support
 
-Schema 15 stores delivery lifecycle, inbox decisions and Agent pause state.
+Delivery lifecycle, message decisions and Agent pause state are persisted.
 Runtime discovery
 reports the actual bundled Node interpreter (including Electron's Node mode)
 and readable Chromium distributions. Agent workspaces have a `node` command

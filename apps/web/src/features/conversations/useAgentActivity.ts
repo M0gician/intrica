@@ -1,4 +1,8 @@
-import type { AgentContextUsage, ResourceResponseStatus } from "@intrica/contracts";
+import type {
+  AgentContextUsage,
+  ModelRequestStatus,
+  ResourceResponseStatus,
+} from "@intrica/contracts";
 import { type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import type { AccessRecord } from "../../components/AgentAccessCard";
@@ -18,6 +22,7 @@ type AgentFeed = {
   runId?: string;
   runState?: string;
   runReason?: string | null;
+  modelRequest?: ModelRequestStatus | null;
   configurationBlocked?: boolean;
   collaborationPaused?: boolean;
   resourceResponse?: ResourceResponseStatus | null;

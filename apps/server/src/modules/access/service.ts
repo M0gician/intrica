@@ -18,6 +18,7 @@ import {
 import type { AssetStore } from "../../adapters/storage/assets.js";
 import { pendingInboxMessage, projectToolOutcome } from "../execution/messages.js";
 import { result, type ToolResult } from "../execution/tool-calls.js";
+import { withOutcome } from "../execution/tool-outcome.js";
 import type { GraphCommands } from "../graph/commands.js";
 import { GraphMutation } from "../graph/mutation.js";
 import type { Conversations } from "../work/conversations.js";
@@ -153,7 +154,7 @@ export class AccessService {
         {
           requestId: prior.id,
           status: prior.status,
-          executed: false,
+          effect: "none",
           nextAction:
             "检查目标和当前权限。快照授权只允许读取固定节点；复制文件使用 copy_artifact。解决权限变化后再提交新调用，勿重复申请原操作。",
         },
@@ -613,7 +614,7 @@ export class AccessService {
           "update approvals set status='approved',version=version+1,decision=$2,decided_by=$3,decided_at=now() where id=$1",
           [requestId, reason, actor.kind === "owner" ? "owner" : actor.agentId],
         );
-        const output = result(
+        let output = result(
           await this.apply(
             tx,
             r.subject_id,
@@ -622,6 +623,13 @@ export class AccessService {
             actor.kind === "agent" ? actor.agentId : null,
           ),
         );
+        if (r.complete_tool && r.origin_call_id)
+          output = withOutcome(output, {
+            callId: r.origin_call_id,
+            state: "succeeded",
+            phase: "commit",
+            effect: "committed",
+          });
         const basis = await intentBasis(
           tx,
           r.subject_id,
@@ -656,7 +664,7 @@ export class AccessService {
     });
     if ("conflict" in response)
       throw new DomainError("VERSION_CONFLICT", `申请当前状态为 ${response.status}，此审查未执行`, {
-        executed: false,
+        effect: "none",
         requestId,
         status: response.status,
         nextAction:

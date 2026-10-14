@@ -84,22 +84,16 @@ export function nodeReader(context: ToolContext): Pick<ExecutionTool, "prepare" 
         !node.resource.snapshot.mime.startsWith("image/")
       ) {
         if (args.mode === "image") throw new DomainError("VALIDATION", "此文件没有图像内容");
-        const file = await registry.assets.preview(node.assetId, node.resource.snapshot.name);
-        const offset = args.offset ?? 0,
-          limit = Math.min(args.limit ?? 6000, 48000);
-        const content = file.text?.slice(offset, offset + limit) ?? "";
+        const page = await registry.assets.readText(node.assetId, args);
         await requireResource(args.nodeId, "read");
         return result({
           ...nodeContent(node),
+          ...page,
           attachment: node.resource.snapshot,
-          content,
+          content: page.text,
+          text: undefined,
           field: "attachment",
-          offset,
-          nextOffset:
-            file.text && offset + content.length < file.text.length
-              ? offset + content.length
-              : null,
-          ...(file.previewError ? { previewError: file.previewError } : {}),
+          nextOffset: undefined,
         });
       }
       if (args.mode === "image" && !node.assetId)

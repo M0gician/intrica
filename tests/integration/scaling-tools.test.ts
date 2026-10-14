@@ -11,6 +11,7 @@ import { Database } from "../../apps/server/dist/adapters/postgres/database.js";
 import { DEFAULT_LIMITS } from "../../apps/server/dist/modules/execution/limits.js";
 import { invokeTool, result } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { Worker } from "../../apps/server/dist/modules/execution/worker.js";
+import { executeConversation } from "./helpers/execute-conversation.js";
 
 const key = () => randomUUID();
 const adminUrl = process.env.INTRICA_TEST_ADMIN_URL ?? "postgres://127.0.0.1:5432/postgres";
@@ -77,7 +78,7 @@ it("upgrades the published schema without discarding graph data", async () => {
     expect(
       (await db.pool.query("select status from approvals where id='old-approval'")).rows[0].status,
     ).toBe("cancelled");
-    expect((await db.pool.query("select version from schema_info")).rows[0].version).toBe(16);
+    expect((await db.pool.query("select version from schema_info")).rows[0].version).toBe(17);
     expect(
       (await db.pool.query("select title from canvases where id='migration-canvas'")).rows[0].title,
     ).toBe("preserved");
@@ -137,7 +138,7 @@ it("T16 schema upgrades preserve approval identity and resource provenance", asy
     );
     await db.migrate();
     await db.migrate();
-    expect((await db.pool.query("select version from schema_info")).rows[0].version).toBe(16);
+    expect((await db.pool.query("select version from schema_info")).rows[0].version).toBe(17);
   } finally {
     await db.close();
     await admin.query(`drop database if exists ${migrationName} with(force)`);
@@ -180,7 +181,7 @@ it("admits 64 active Agent conversations plus independent generation capacity", 
     await ctx.store.finish(ctx.run, "succeeded");
   };
   const conversation = async (ctx: any) =>
-    k.conversations.execute(ctx, async () => [
+    executeConversation(k, ctx, async () => [
       {
         name: "read_canvas",
         label: "read",
@@ -307,7 +308,7 @@ async function prepared() {
     [
       submitted.conversationId,
       JSON.stringify([message]),
-      JSON.stringify({ pendingTurnId: "saved-turn" }),
+      JSON.stringify({ pendingTurnId: "saved-turn", toolSchemaVersion: 6 }),
     ],
   );
   return { c, submitted, run };
@@ -331,7 +332,8 @@ it("detaches without restarting, notifies periodically, and returns results into
       return result(`completed-${args.value}`);
     },
   };
-  const execution = k.conversations.execute(
+  const execution = executeConversation(
+    k,
     { run, store: k.runs, signal: new AbortController().signal, progress() {} },
     async () => [tool],
   );
@@ -380,7 +382,8 @@ it("keeps uncertain asynchronous effects for explicit resolution after cancellat
   const { submitted, run } = await prepared();
   const abort = new AbortController();
   let calls = 0;
-  const execution = k.conversations.execute(
+  const execution = executeConversation(
+    k,
     { run, store: k.runs, signal: abort.signal, progress() {} },
     async () => [
       {
@@ -400,8 +403,11 @@ it("keeps uncertain asynchronous effects for explicit resolution after cancellat
   void execution.catch(() => {});
   await until(
     async () =>
-      (await k.db.pool.query("select is_async from tool_calls where run_id=$1", [run.id])).rows[0]
-        ?.is_async,
+      (
+        await k.db.pool.query("select is_async from tool_calls where run_id=$1 and name='slow'", [
+          run.id,
+        ])
+      ).rows[0]?.is_async,
   );
   await k.runs.cancel(run.id);
   abort.abort();
@@ -431,7 +437,8 @@ it("uses the real 30 second boundary while retaining the original tool call", as
     release = r;
   });
   const started = performance.now();
-  const execution = k.conversations.execute(
+  const execution = executeConversation(
+    k,
     { run, store: k.runs, signal: new AbortController().signal, progress() {} },
     async () => [
       {
@@ -481,7 +488,8 @@ it("resumes a persisted async call even when its pending receipt was not checkpo
     ],
   );
   let calls = 0;
-  await k.conversations.execute(
+  await executeConversation(
+    k,
     { run, store: k.runs, signal: new AbortController().signal, progress() {} },
     async () => [
       {
@@ -559,7 +567,8 @@ it("ablation compares a blocking tool with the same tool detached", async () => 
       release = resolve;
     });
     const started = performance.now();
-    const execution = k.conversations.execute(
+    const execution = executeConversation(
+      k,
       { run, store: k.runs, signal: new AbortController().signal, progress() {} },
       async () => [
         {
@@ -609,7 +618,11 @@ it("ablation compares a blocking tool with the same tool detached", async () => 
     }
     expect((await k.runs.get(run.id)).state).toBe("succeeded");
     expect(
-      (await k.db.pool.query("select is_async from tool_calls where run_id=$1", [run.id])).rows,
+      (
+        await k.db.pool.query("select is_async from tool_calls where run_id=$1 and name='slow'", [
+          run.id,
+        ])
+      ).rows,
     ).toEqual([{ is_async: threshold === 50 }]);
   }
   expect(measurements[0]!.repliedBeforeCompletion).toBe(false);
@@ -670,13 +683,13 @@ it("parks before external dispatch and resumes the same model tool after approva
     signal: new AbortController().signal,
     progress() {},
   });
-  await k.conversations.execute(context(run), factory);
+  await executeConversation(k, context(run), factory);
   expect(calls).toBe(0);
   expect((await k.runs.get(run.id)).state).toBe("waiting");
   await k.access.decide(requestId, 1, "approve", "allowed");
   const resumed = (await k.runs.claim("approved"))!;
   expect(resumed.id).toBe(run.id);
-  await k.conversations.execute(context(resumed), factory);
+  await executeConversation(k, context(resumed), factory);
   expect(calls).toBe(1);
   expect((await k.runs.get(run.id)).state).toBe("succeeded");
 });

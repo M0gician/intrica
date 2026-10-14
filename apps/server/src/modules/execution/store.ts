@@ -154,7 +154,8 @@ export class RunStore {
         if (
           prior.state === "waiting" &&
           (prior.reason === "message" ||
-            prior.reason === "inbox_review" ||
+            prior.reason === "progress_review" ||
+            prior.reason === "progress_blocked" ||
             prior.reason === "approval" ||
             (["turn_limit", "unknown"].includes(prior.reason) && input.userInitiated))
         ) {
@@ -319,6 +320,23 @@ export class RunStore {
     return this.db.transaction(async (tx) => {
       await assertFence(tx, lease.id, lease.epoch);
       return this.eventTx(tx, lease.id, lease.attemptId, type, payload);
+    });
+  }
+  async modelWaiting(lease: Lease, reason: string | null) {
+    await this.db.canvas(lease.canvas_id, async (tx) => {
+      await assertFence(tx, lease.id, lease.epoch);
+      const changed = await tx.query(
+        "update runs set reason=$2 where id=$1 and reason is distinct from $2 and (reason is null or reason in ('model_queued','model_retry','background')) returning id",
+        [lease.id, reason],
+      );
+      if (changed.rowCount)
+        await canvasEvent(tx, lease.canvas_id, "run.changed", {
+          id: lease.id,
+          state: "running",
+          reason,
+          subjectId: lease.subject_id,
+          kind: lease.kind,
+        });
     });
   }
   async finish(

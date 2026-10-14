@@ -13,6 +13,7 @@ import { DEFAULT_LIMITS } from "../../apps/server/dist/modules/execution/limits.
 import { resourceResponse } from "../../apps/server/dist/modules/execution/schedules.js";
 import { tickSchedules } from "../../apps/server/dist/modules/work/agent-schedules.js";
 import { retryResourceResponse } from "../../apps/server/dist/modules/work/resource-response.js";
+import { executeConversation } from "./helpers/execute-conversation.js";
 
 const key = () => randomUUID();
 const name = `intrica_responses_${key().replaceAll("-", "")}`;
@@ -219,7 +220,8 @@ it.each([
   expect((await feed(a)).resourceResponse).toMatchObject({ state: "queued", canRetry: false });
   const lease = (await k.runs.claim("resource-test"))!;
   expect(lease.frozen_input.agentId).toBe(a.id);
-  await k.conversations.execute(
+  await executeConversation(
+    k,
     { run: lease, store: k.runs, signal: new AbortController().signal, progress() {} },
     (ctx, input) => k.tools.create(ctx, input),
   );
@@ -865,6 +867,9 @@ it("migrates ambiguous legacy blocks without reviving stopped work", async () =>
         ],
       );
     }
+    await db.pool.query(
+      "drop table context_summaries,read_cursors,model_requests,model_fairness,message_dispositions,mailbox_refs,mailbox_pages,progress_reviews; drop sequence mailbox_ref_seq; alter table conversations drop column context_version; alter table model_endpoints drop column quota_group_id; drop table model_quota_groups",
+    );
     // Reconstruct v12, including removal of fields introduced by later migrations.
     await db.pool.query(
       "alter table model_calls drop column last_response_at, drop column response_phase",

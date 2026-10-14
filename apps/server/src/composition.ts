@@ -70,9 +70,12 @@ export async function createKernel(config: ApiConfig) {
       withModelUsage(
         {
           db,
+          progress: ctx.progress,
+          suspend: ctx.suspend,
           purpose: ctx.run.kind,
           model: ctx.run.frozen_input.model,
           runId: ctx.run.id,
+          runEpoch: ctx.run.epoch,
           attemptId: ctx.run.attemptId,
           canvasId: ctx.run.canvas_id,
           conversationId: ctx.run.frozen_input.conversationId,

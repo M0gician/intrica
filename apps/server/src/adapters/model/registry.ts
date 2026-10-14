@@ -89,7 +89,7 @@ export class ModelRegistry {
     const { rows } = await this.rows(sql);
     const endpoints = (
       await sql.query(
-        "select id,name,base_url,revision,credential_ref<>'' as has_key from model_endpoints order by name,id",
+        "select e.id,e.name,e.base_url,e.revision,e.credential_ref<>'' as has_key,e.quota_group_id,g.capacity from model_endpoints e left join model_quota_groups g on g.id=coalesce(e.quota_group_id,e.id) order by e.name,e.id",
       )
     ).rows.map((e) => ({
       id: e.id,
@@ -97,6 +97,8 @@ export class ModelRegistry {
       baseUrl: e.base_url,
       revision: e.revision,
       hasKey: e.has_key,
+      quotaGroupId: e.quota_group_id ?? e.id,
+      concurrency: e.capacity ?? 4,
     }));
     const profiles = rows
       .filter((r) => r.public_config.kind !== "mock" && r.endpoint_id && r.base_url)
@@ -214,9 +216,14 @@ export class ModelRegistry {
             ? await this.secret(input.apiKey)
             : "";
       const endpointId = input.id ?? id("endpoint");
+      const groupId = input.quotaGroupId ?? old?.quota_group_id ?? endpointId;
       await tx.query(
-        "insert into model_endpoints(id,name,base_url,credential_ref) values($1,$2,$3,$4) on conflict(id) do update set name=excluded.name,base_url=excluded.base_url,credential_ref=excluded.credential_ref,revision=model_endpoints.revision+1",
-        [endpointId, input.name.trim(), baseUrl, ref],
+        "insert into model_quota_groups(id,capacity) values($1,$2) on conflict(id) do update set capacity=case when $3 then excluded.capacity else model_quota_groups.capacity end",
+        [groupId, input.concurrency ?? 4, input.concurrency !== undefined],
+      );
+      await tx.query(
+        "insert into model_endpoints(id,name,base_url,credential_ref,quota_group_id) values($1,$2,$3,$4,$5) on conflict(id) do update set name=excluded.name,base_url=excluded.base_url,credential_ref=excluded.credential_ref,quota_group_id=excluded.quota_group_id,revision=model_endpoints.revision+1",
+        [endpointId, input.name.trim(), baseUrl, ref, groupId],
       );
       return { ...(await this.view(tx)), savedId: endpointId };
     });

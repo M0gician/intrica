@@ -18,7 +18,7 @@ import { capabilityTools } from "./capabilities.js";
 export { hostCapabilities } from "./capabilities.js";
 
 import { fileParameters } from "./file-contracts.js";
-import { FILE_IO_SCRIPT } from "./file-io.js";
+import { FILE_IO_ENTRY } from "./file-io.js";
 import { readMedia } from "./media-read.js";
 import {
   canonicalPath,
@@ -271,7 +271,10 @@ export class HostExecutor {
         signal.throwIfAborted();
         await recheck(name, _call, args);
         const directory = name === "read" && (await stat(args.path)).isDirectory();
-        if (directory && [args.line, args.page, args.frame, args.mode].some((v) => v !== undefined))
+        if (
+          directory &&
+          ([args.line, args.page, args.frame].some((v) => v !== undefined) || args.mode === "image")
+        )
           throw new DomainError("VALIDATION", "目录不接受行、页、帧或图像显示选项");
         if (name === "read" && !directory && args.offset === 0)
           throw new DomainError("VALIDATION", "文本行从 1 开始");
@@ -289,10 +292,14 @@ export class HostExecutor {
           args,
           temporary,
         });
-        const processArgs = ["--input-type=module", "-e", FILE_IO_SCRIPT, input];
+        const processArgs = [FILE_IO_ENTRY, input];
         // The helper executes fixed file operations after path/role checks.
         // Use OS isolation when available, without asking twice for the same file.
-        const roots = [...scope.roots, { path: dirname(auth.path), directory: true, write }];
+        const roots = [
+          ...scope.roots,
+          { path: dirname(FILE_IO_ENTRY), directory: true, write: false },
+          { path: dirname(auth.path), directory: true, write },
+        ];
         let command = await sandboxCommand(
           process.execPath,
           processArgs,
@@ -307,7 +314,7 @@ export class HostExecutor {
           scope.scratch,
           cleanEnvironment(scope.scratch),
           signal,
-          120000,
+          name === "read" ? 10000 : 120000,
           true, // The fixed helper's JSON protocol is stdout-only; runtime diagnostics are stderr.
         );
         let decoded: { value?: unknown; error?: { code: string; message: string } };
@@ -317,8 +324,12 @@ export class HostExecutor {
           throw new Error("文件操作结果无法确认");
         }
         if (decoded.error) {
-          if (["VALIDATION", "ENOENT", "EACCES", "EPERM", "ELOOP"].includes(decoded.error.code))
-            throw new DomainError("VALIDATION", decoded.error.message);
+          if (
+            ["VALIDATION", "ENOENT", "EACCES", "EPERM", "ELOOP", "SOURCE_CHANGED"].includes(
+              decoded.error.code,
+            )
+          )
+            throw new DomainError(decoded.error.code, decoded.error.message, { effect: "none" });
           throw new Error(decoded.error.message);
         }
         if (response.exitCode !== 0) throw new Error("文件操作进程未正常结束，结果需要核实");

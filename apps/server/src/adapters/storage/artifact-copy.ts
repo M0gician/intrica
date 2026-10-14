@@ -46,11 +46,11 @@ export async function copySnapshot(
   )
     throw new DomainError("VALIDATION", "fileName 只能是普通文件名，不接受目录或控制字符", {
       path: "fileName",
-      executed: false,
+      effect: "none",
     });
   const asset = await assets.get(snapshot.assetId);
   if (asset.content_hash !== snapshot.hash || Number(asset.bytes) !== snapshot.bytes)
-    throw new DomainError("TARGET_CHANGED", "发布快照元数据不匹配", { executed: false });
+    throw new DomainError("TARGET_CHANGED", "发布快照元数据不匹配", { effect: "none" });
   const directory = await open(
     workspace,
     constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
@@ -81,7 +81,7 @@ export async function copySnapshot(
     const decoded = JSON.parse(response.output);
     if (decoded.error) {
       if (decoded.executed) throw new Error("复制中断；检查目标文件后重试");
-      throw new DomainError(decoded.error.code, decoded.error.message, { executed: false });
+      throw new DomainError(decoded.error.code, decoded.error.message, { effect: "none" });
     }
     if (response.exitCode !== 0) throw new Error("复制结果未确认；检查目标文件后重试");
     return {

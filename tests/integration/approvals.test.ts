@@ -135,7 +135,7 @@ describe("origin-bound approval lifecycle", () => {
       child = await start(a.id);
     const path = join(area, `${key()}.txt`);
     await writeFile(path, "authorized bytes");
-    const args = { target: { kind: "path", path } };
+    const args = { path };
     const pending = await child.call("read", args);
     expect(pending.waiting).toBe("approval");
     const directory = await resource(c, area);
@@ -170,7 +170,7 @@ describe("origin-bound approval lifecycle", () => {
       child = await start(b.id);
     const path = join((await k.host.scope(manager.actor)).scratch, `${key()}.txt`);
     await writeFile(path, "manager bytes");
-    const args = { target: { kind: "path", path } };
+    const args = { path };
     const once = await child.call("read", args);
     expect((await request(once.value.requestId)).action.workspaceOwnerId).toBe(m.id);
     await decide(once.value.requestId, manager.actor);
@@ -190,9 +190,9 @@ describe("origin-bound approval lifecycle", () => {
       child = await start(a.id);
     const paths = [join(area, `${key()}.txt`), join(area, `${key()}.txt`)];
     for (const path of paths) await writeFile(path, "private");
-    const denied = await child.call("read", { target: { kind: "path", path: paths[0] } });
+    const denied = await child.call("read", { path: paths[0] });
     await decide(denied.value.requestId, undefined, "deny");
-    const escalated = await child.call("read", { target: { kind: "path", path: paths[1] } });
+    const escalated = await child.call("read", { path: paths[1] });
     await decide(escalated.value.requestId, manager.actor, "escalate");
     await connect(a.id, (await resource(c, area)).id);
     expect((await request(denied.value.requestId)).status).toBe("denied");
@@ -213,14 +213,14 @@ describe("origin-bound approval lifecycle", () => {
         "base64",
       ),
     );
-    const pending = await child.call("read", { target: { kind: "path", path } });
+    const pending = await child.call("read", { path });
     expect(pending.waiting).toBe("approval");
     expect(pending.result.content.every((p) => p.type !== "image")).toBe(true);
     await decide(pending.value.requestId);
-    const resumed = await child.call("read", { target: { kind: "path", path } }, pending.logical);
+    const resumed = await child.call("read", { path }, pending.logical);
     expect(resumed.result.content.some((p) => p.type === "image")).toBe(true);
     // A single approved read cannot silently become a persistent directory grant.
-    expect((await child.call("read", { target: { kind: "path", path } })).waiting).toBe("approval");
+    expect((await child.call("read", { path })).waiting).toBe("approval");
     const scratch = (await k.host.scope(child.actor)).scratch;
     const local = join(scratch, "image-without-extension");
     await writeFile(local, await readFile(path));
@@ -235,7 +235,7 @@ describe("origin-bound approval lifecycle", () => {
       model: { config: { kind: "mock", streamDelayMs: 0, supportsVision: false } },
     });
     const noVision = await invokeTool(ctx, tools.find((t) => t.name === "read")!, key(), {
-      target: { kind: "path", path: local },
+      path: local,
     });
     expect(noVision.result.isError).not.toBe(true);
     expect(noVision.result.content.every((p) => p.type !== "image")).toBe(true);
@@ -245,13 +245,11 @@ describe("origin-bound approval lifecycle", () => {
     });
     const textPath = join(scratch, "actually-text.png");
     await writeFile(textPath, "first\nsecond\nthird");
-    expect(
-      (await child.call("read", { target: { kind: "path", path: textPath }, line: 2 })).value,
-    ).toMatchObject({ text: "second\nthird", nextCursor: null });
-    expect(
-      (await child.call("read", { target: { kind: "path", path: textPath }, frame: 0 })).result
-        .isError,
-    ).toBe(true);
+    expect((await child.call("read", { path: textPath, line: 2 })).value).toMatchObject({
+      text: "second\nthird",
+      nextCursor: null,
+    });
+    expect((await child.call("read", { path: textPath, frame: 0 })).result.isError).toBe(true);
   });
   it("T48 rg is a read capability with frozen approval, bounded results and no shell arguments", async () => {
     const c = await canvas(),
@@ -311,9 +309,7 @@ describe("origin-bound approval lifecycle", () => {
     expect((await stat(path)).mode & 0o777).toBe(0o750);
     const bytes = join((await k.host.scope(child.actor)).scratch, "binary");
     await writeFile(bytes, Buffer.from([0, 1, 2, 3]));
-    expect(
-      (await child.call("read", { target: { kind: "path", path: bytes } })).result.isError,
-    ).toBe(true);
+    expect((await child.call("read", { path: bytes })).result.isError).toBe(true);
   });
   it("T46 a member's approved path request does not grant a non-admin manager host execution", async () => {
     const c = await canvas(),
@@ -330,10 +326,9 @@ describe("origin-bound approval lifecycle", () => {
     expect((await k.access.list(c, { actor: manager.actor })).requests).toHaveLength(0);
     expect((await request(pending.value.requestId)).assigned_reviewer_id).toBeNull();
     await decide(pending.value.requestId);
-    expect(
-      (await child.call("read", { target: { kind: "path", path: join(path, "evidence.txt") } }))
-        .value.text,
-    ).toBe("authorized member read");
+    expect((await child.call("read", { path: join(path, "evidence.txt") })).value.text).toBe(
+      "authorized member read",
+    );
     expect(await grantsFor(k.db.pool, m.id)).toHaveLength(0);
     expect((await manager.call("bash", { command: "true", fullHost: true })).waiting).toBe(
       "approval",
@@ -389,10 +384,9 @@ describe("origin-bound approval lifecycle", () => {
     );
     expect(resumed.value.status).toBe("granted");
     expect((await k.graph.queries.node(resumed.value.nodeId)).title).toContain(m.title);
-    expect(
-      (await child.call("read", { target: { kind: "path", path: join(path, "evidence.txt") } }))
-        .value.text,
-    ).toBe("manager-owned evidence");
+    expect((await child.call("read", { path: join(path, "evidence.txt") })).value.text).toBe(
+      "manager-owned evidence",
+    );
     const report = await child.call("create_artifact", {
       kind: "text",
       title: "QA report",
@@ -400,10 +394,9 @@ describe("origin-bound approval lifecycle", () => {
       shareWithManagers: true,
     });
     expect(report.value.sharedWith).toEqual([m.id]);
-    expect(
-      (await manager.call("read", { target: { kind: "node", nodeId: report.value.id } })).value
-        .content,
-    ).toBe("verified");
+    expect((await manager.call("read", { nodeId: report.value.id })).value.content).toBe(
+      "verified",
+    );
     expect(
       (
         await child.call("send_message", {
@@ -493,7 +486,7 @@ describe("origin-bound approval lifecycle", () => {
       { scope: { kind: "role", role: "admin" }, reason: "needs owner" },
       pending.logical,
     );
-    expect(receipt.value).toMatchObject({ status: "expired", executed: false, reviewerId: null });
+    expect(receipt.value).toMatchObject({ status: "expired", effect: "none", reviewerId: null });
     expect(receipt.value.nextAction).toBeTruthy();
   });
   it("T43 a sibling's workspace and a redirected ancestor workspace do not confer ownership", async () => {
@@ -553,19 +546,17 @@ describe("origin-bound approval lifecycle", () => {
     );
     const path = join((await k.host.scope(child.actor)).scratch, "pixel.png");
     await writeFile(path, png);
-    const metadata = await child.call("read", { target: { kind: "path", path }, mode: "text" });
+    const metadata = await child.call("read", { path, mode: "text" });
     expect(metadata.result.isError).not.toBe(true);
     expect(metadata.result.content.every((p) => p.type !== "image")).toBe(true);
-    const automaticImage = await child.call("read", { target: { kind: "path", path } });
+    const automaticImage = await child.call("read", { path });
     expect(automaticImage.result.isError).not.toBe(true);
     expect(automaticImage.result.content.some((p) => p.type === "image")).toBe(true);
-    const image = await child.call("read", { target: { kind: "path", path } });
+    const image = await child.call("read", { path });
     expect(image.result.content.some((p) => p.type === "image" && p.mimeType === "image/png")).toBe(
       true,
     );
-    expect(
-      (await child.call("read", { target: { kind: "path", path }, frame: 1 })).result.isError,
-    ).toBe(true);
+    expect((await child.call("read", { path, frame: 1 })).result.isError).toBe(true);
     const gifPath = join((await k.host.scope(child.actor)).scratch, "two-frames.gif");
     await writeFile(
       gifPath,
@@ -574,23 +565,20 @@ describe("origin-bound approval lifecycle", () => {
         "base64",
       ),
     );
-    const frame0 = await child.call("read", { target: { kind: "path", path: gifPath }, frame: 0 });
-    const frame1 = await child.call("read", { target: { kind: "path", path: gifPath }, frame: 1 });
+    const frame0 = await child.call("read", { path: gifPath, frame: 0 });
+    const frame1 = await child.call("read", { path: gifPath, frame: 1 });
     expect(frame1.value.frames).toBe(2);
     expect(frame0.result.content[1]).not.toEqual(frame1.result.content[1]);
-    expect(
-      (await child.call("read", { target: { kind: "path", path: gifPath }, frame: 2 })).result
-        .isError,
-    ).toBe(true);
+    expect((await child.call("read", { path: gifPath, frame: 2 })).result.isError).toBe(true);
     const privatePath = join(area, `${key()}.png`);
     await writeFile(privatePath, png);
-    const pending = await child.call("read", { target: { kind: "path", path: privatePath } });
+    const pending = await child.call("read", { path: privatePath });
     expect(pending.waiting).toBe("approval");
     await decide(pending.value.requestId);
     expect(
-      (
-        await child.call("read", { target: { kind: "path", path: privatePath } }, pending.logical)
-      ).result.content.some((p) => p.type === "image"),
+      (await child.call("read", { path: privatePath }, pending.logical)).result.content.some(
+        (p) => p.type === "image",
+      ),
     ).toBe(true);
     const textOnlyTools = await k.tools.create(
       { run: child.run, store: k.runs, signal: new AbortController().signal, progress() {} },
@@ -618,9 +606,7 @@ describe("origin-bound approval lifecycle", () => {
       path,
     });
     expect(report.result.isError).not.toBe(true);
-    expect(
-      (await manager.call("read", { target: { kind: "node", nodeId: report.value.id } })).waiting,
-    ).toBeUndefined();
+    expect((await manager.call("read", { nodeId: report.value.id })).waiting).toBeUndefined();
     expect(
       (await grantsFor(k.db.pool, m.id)).find((g) => g.resource_id === report.value.id)?.mode,
     ).toBe("read");
@@ -689,7 +675,7 @@ describe("origin-bound approval lifecycle", () => {
       privateNode = await resource(c);
     const manager = await start(m.id),
       child = await start(a.id);
-    const pending = await child.call("read", { target: { kind: "node", nodeId: privateNode.id } });
+    const pending = await child.call("read", { nodeId: privateNode.id });
     const page = await k.access.list(c, { actor: manager.actor });
     expect(page.requests[0]?.summary.resourceIds).toEqual([privateNode.id]);
     expect(page.requests[0]?.names?.[privateNode.id]).toBeUndefined();
@@ -707,11 +693,7 @@ describe("origin-bound approval lifecycle", () => {
       reason: "PRIVATE-AUDIT-NOTE",
       messageToRequester: "Wait for a revised assignment",
     });
-    const denied = await child.call(
-      "read",
-      { target: { kind: "node", nodeId: privateNode.id } },
-      pending.logical,
-    );
+    const denied = await child.call("read", { nodeId: privateNode.id }, pending.logical);
     expect(denied.value.message).toBe("Wait for a revised assignment");
     expect(JSON.stringify(denied)).not.toContain("PRIVATE-AUDIT-NOTE");
   });
@@ -745,8 +727,7 @@ describe("origin-bound approval lifecycle", () => {
       pages = 0;
     do {
       const read = await child.call("read", {
-        target: { kind: "path", path },
-        ...(cursor ? { cursor } : {}),
+        ...(cursor ? { cursor } : { path }),
       });
       expect(read.result.isError).not.toBe(true);
       reconstructed += read.value.text;
@@ -832,7 +813,7 @@ describe("origin-bound approval lifecycle", () => {
       text: "verified evidence",
     });
     for (const a of [director, manager]) {
-      const read = await a.call("read", { target: { kind: "node", nodeId: artifact.value.id } });
+      const read = await a.call("read", { nodeId: artifact.value.id });
       expect(read.waiting).toBeUndefined();
       expect(read.value.content).toBe("verified evidence");
     }
@@ -854,10 +835,9 @@ describe("origin-bound approval lifecycle", () => {
     const dismissed = await manager.call("dismiss_agent", { agentId: b.id });
     expect(dismissed.waiting).toBeUndefined();
     expect(dismissed.result.isError).not.toBe(true);
-    expect(
-      (await manager.call("read", { target: { kind: "node", nodeId: artifact.value.id } })).value
-        .content,
-    ).toBe("verified evidence");
+    expect((await manager.call("read", { nodeId: artifact.value.id })).value.content).toBe(
+      "verified evidence",
+    );
   });
   it("T25 private member resources remain private while team messages are permitted", async () => {
     const c = await canvas(),
@@ -1091,9 +1071,7 @@ describe("origin-bound approval lifecycle", () => {
       (await grantsFor(k.db.pool, m.id)).find((g) => g.resource_id === attachment.value.id)?.mode,
     ).toBe("read");
     const manager = await start(m.id);
-    expect(
-      (await manager.call("read", { target: { kind: "path", path } })).waiting,
-    ).toBeUndefined();
+    expect((await manager.call("read", { path })).waiting).toBeUndefined();
     expect((await manager.call("write", { path, content: "must not overwrite" })).waiting).toBe(
       "approval",
     );
@@ -1109,9 +1087,7 @@ describe("origin-bound approval lifecycle", () => {
       privateNode = await resource(boundary.id);
     await connect(a.id, root.id);
     const caller = await start(a.id);
-    expect(
-      (await caller.call("read", { target: { kind: "node", nodeId: leaf.id } })).waiting,
-    ).toBeUndefined();
+    expect((await caller.call("read", { nodeId: leaf.id })).waiting).toBeUndefined();
     expect(
       (
         await caller.call("update_node", {
@@ -1180,9 +1156,7 @@ describe("origin-bound approval lifecycle", () => {
     await decide(pending.value.requestId, manager.actor, "escalate");
     expect((await request(pending.value.requestId)).assigned_reviewer_id).toBe(top.id);
     await decide(pending.value.requestId, director.actor);
-    expect(
-      (await child.call("read", { target: { kind: "path", path: area } })).waiting,
-    ).toBeUndefined();
+    expect((await child.call("read", { path: area })).waiting).toBeUndefined();
   });
   it("T04 moving resources out of a connected container revokes access and undo restores it", async () => {
     const c = await canvas(),
@@ -1248,9 +1222,7 @@ describe("origin-bound approval lifecycle", () => {
     );
     const child = await start(b),
       path = join(area, key());
-    expect(
-      (await child.call("read", { target: { kind: "path", path: area } })).waiting,
-    ).toBeUndefined();
+    expect((await child.call("read", { path: area })).waiting).toBeUndefined();
     const pending = await child.call("write", { path, content: "after approval" });
     expect(pending.waiting).toBe("approval");
     await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" });
@@ -1427,7 +1399,7 @@ describe("origin-bound approval lifecycle", () => {
     const child = await start(b.id),
       manager = await start(m.id);
     const pending = await child.call("read", {
-      target: { kind: "path", path: join(folder, "escape") },
+      path: join(folder, "escape"),
     });
     expect(pending.waiting).toBe("approval");
     await expect(decide(pending.value.requestId, manager.actor)).rejects.toMatchObject({
@@ -1565,7 +1537,7 @@ describe("origin-bound approval lifecycle", () => {
     const resumed = await child.call("write", args, pending.logical);
     expect(resumed.waiting).toBeUndefined();
     expect(resumed.value).toMatchObject({
-      executed: false,
+      call: { effect: "none" },
       error: { code: "AUTHORIZATION_CHANGED", requestId: pending.value.requestId },
     });
     await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" });
@@ -1607,9 +1579,7 @@ describe("origin-bound approval lifecycle", () => {
     expect(described.resources.map((r: any) => r.nodeId)).toContain(target.id);
     expect(described.resources.map((r: any) => r.nodeId)).not.toContain(privateNode.id);
     expect(described.resources.every((r: any) => r.sourceLinkId && r.rootId)).toBe(true);
-    expect(
-      (await child.call("read", { target: { kind: "node", nodeId: privateNode.id } })).waiting,
-    ).toBe("approval");
+    expect((await child.call("read", { nodeId: privateNode.id })).waiting).toBe("approval");
     const explicit = await connect(m.id, target.id);
     expect((await grantsFor(k.db.pool, b.id)).map((g) => g.resource_id)).toContain(privateNode.id);
     await k.graph.deleteLink(explicit.edge.id, { idempotencyKey: key() });
@@ -1745,17 +1715,16 @@ describe("origin-bound approval lifecycle", () => {
     expect((await child.call("write", args, pending.logical)).result.isError).not.toBe(true);
     expect(await readFile(file, "utf8")).toBe("one write");
     expect((await child.call("write", args)).waiting).toBe("approval");
-    const reading = await child.call("read", { target: { kind: "path", path: file } });
+    const reading = await child.call("read", { path: file });
     await decide(reading.value.requestId);
-    await child.call("read", { target: { kind: "path", path: file } }, reading.logical);
+    await child.call("read", { path: file }, reading.logical);
     await k.db.pool.query(
       "update tool_calls set state='dispatching',result=null where run_id=$1 and logical_call_id=$2",
       [child.run.id, reading.logical],
     );
-    expect(
-      (await child.call("read", { target: { kind: "path", path: file } }, reading.logical)).value
-        .text,
-    ).toContain("one write");
+    expect((await child.call("read", { path: file }, reading.logical)).value.text).toContain(
+      "one write",
+    );
     await expect(
       child.call("write", { ...args, content: "changed" }, pending.logical),
     ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });

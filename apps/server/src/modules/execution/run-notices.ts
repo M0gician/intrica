@@ -5,6 +5,12 @@ import type { Run, RunStore } from "./store.js";
 export function failureReason(error: unknown) {
   if (error instanceof DomainError) return error.message;
   const message = error instanceof Error ? error.message : "";
+  if (
+    /^MODEL_(AUTH|BALANCE|CAPACITY|OVERLOADED|RATE_LIMIT|COOLDOWN|TIMEOUT|NETWORK|CONFIGURATION|ROLE_UNSUPPORTED):/.test(
+      message,
+    )
+  )
+    return message.slice(0, 1200);
   if (/timeout|timed out|etimedout|\b408\b|\b504\b/i.test(message))
     return "模型请求超时，请检查模型服务后重试";
   if (/\b401\b|\b403\b|authentication|unauthorized|invalid.api.key/i.test(message))

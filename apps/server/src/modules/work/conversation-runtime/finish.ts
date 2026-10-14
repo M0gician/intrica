@@ -1,7 +1,8 @@
 import type { Sql, Tx } from "../../../adapters/postgres/database.js";
 import type { ExecutionContext } from "../../execution/worker.js";
 import type { ConversationInput } from "../conversations.js";
-import { completionState, requestCompletionReview } from "../messaging/completion.js";
+import { completionState, requestCompletionReview } from "../progress/completion.js";
+import { linkProgressDeliveries } from "../progress/deliveries.js";
 export async function finishConversation(
   ctx: ExecutionContext,
   input: ConversationInput,
@@ -21,8 +22,10 @@ export async function finishConversation(
     (completion?.kind === "waiting"
       ? "message"
       : completion?.kind === "blocked"
-        ? "inbox_review"
-        : null);
+        ? "progress_blocked"
+        : completion?.kind === "stalled"
+          ? "progress_review"
+          : null);
   return ctx.store.finish(
     ctx.run,
     reason ? "waiting" : "succeeded",
@@ -34,6 +37,7 @@ export async function finishConversation(
       )
         return false;
       await persist(tx);
+      await linkProgressDeliveries(tx, input.conversationId, ctx.run.id);
       if (!human) {
         const current = await completionState(tx, input.conversationId, ctx.run.id);
         if (current.fingerprint !== completion?.fingerprint || current.kind !== completion?.kind)

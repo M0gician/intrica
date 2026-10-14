@@ -166,11 +166,14 @@ for (const mode of ["agent", "workspace"] as const) {
       const currentCalls = (
         await db.query(
           `select t.name,t.state from tool_calls t join runs r on r.id=t.run_id
-        where r.subject_id=$1 and r.id<>all($2::text[])`,
+        where r.subject_id=$1 and r.id<>all($2::text[]) order by t.name`,
           [conversationId, [oldRun, pauseRun]],
         )
       ).rows;
-      expect(currentCalls).toEqual([{ name: "read_canvas", state: "succeeded" }]);
+      expect(currentCalls).toEqual([
+        { name: "read_canvas", state: "succeeded" },
+        { name: "review_progress", state: "succeeded" },
+      ]);
       expect(await readFile(path, "utf8")).toBe("already committed");
       await page.reload();
       await expect(page.getByText("此会话因升级暂停。", { exact: false })).toHaveCount(0);

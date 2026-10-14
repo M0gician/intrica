@@ -24,43 +24,57 @@ export function taskReplyAddress(messages) {
   throw new Error("Delegated task must carry a tracked reply address");
 }
 
-/** New input or a stale review always triggers a fresh inspection. */
-export function reviewedReply(messages, { waiting = false, text } = {}) {
+/** Flat progress review uses server mailbox state and real wake dependencies. */
+export function reviewedReply(
+  messages,
+  { waiting = false, text = "Controlled work delivered" } = {},
+) {
   const last = messages.at(-1);
-  const review =
-    last?.role === "tool"
-      ? toolResults(messages.slice(-3), "review_inbox").at(-1)?.value
-      : undefined;
-  if (review?.reviewToken)
-    return waiting
-      ? {
-          tool: "wait_for_message",
-          args: {
-            confirmed: true,
-            reviewToken: review.reviewToken,
-            reason: "Wait for the recruited members to deliver their evidence reports.",
-          },
-        }
-      : { text };
-  if (review?.reviewId)
-    return {
-      tool: "review_inbox",
-      args: {
-        action: "confirm",
-        reviewId: review.reviewId,
-        decisions: review.items.map((item) => ({
-          itemId: item.id,
-          action:
-            item.kind === "message"
-              ? "handled"
-              : waiting || item.kind === "incoming"
-                ? "wait"
-                : "background",
-          reason: waiting
-            ? "The final delivery depends on the recruited members' reports."
-            : "The requested result is delivered; its receipt can be followed in the background.",
-        })),
-      },
-    };
-  return { tool: "review_inbox", args: { action: "inspect" } };
+  let value;
+  try {
+    if (last?.role === "tool") value = JSON.parse(last.content);
+  } catch {}
+  if (value?.reviewed) return { text };
+  if (value?.error?.code === "PROGRESS_PENDING_TOOLS") return { text };
+  if (value?.error?.code === "PROGRESS_OBLIGATIONS" || value?.item_id)
+    return { tool: "read_inbox", args: {} };
+  if (value?.items) {
+    const item = value.items.find(
+      (i) => i.kind === "removal" || !waiting || (i.kind === "outgoing" && !i.dependency),
+    );
+    if (item) {
+      if (item.kind === "incoming")
+        return {
+          tool: "send_message",
+          args: { ...item.replyTo, kind: "result", message: text.slice(0, 2000) },
+        };
+      return {
+        tool: "update_message",
+        args: {
+          [item.kind === "removal" ? "message_id" : "delivery_id"]: item.ref,
+          action: item.kind === "removal" ? "handled" : "background",
+          reason: "The information does not block the current controlled delivery.",
+        },
+      };
+    }
+    const dependencies = value.items.filter((i) => i.dependency).map((i) => i.id);
+    if (waiting && dependencies.length)
+      return {
+        tool: "review_progress",
+        args: {
+          outcome: "waiting",
+          reason: "Await delegated evidence",
+          remaining_work: "Verify and deliver results",
+          dependency_ids: dependencies,
+        },
+      };
+  }
+  if (waiting && !value?.items) return { tool: "read_inbox", args: {} };
+  return {
+    tool: "review_progress",
+    args: {
+      outcome: "completed",
+      reason: "The requested controlled result and verification have been delivered.",
+    },
+  };
 }

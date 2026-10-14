@@ -8,6 +8,7 @@ import pg from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
 import { grantsFor, managementChain } from "../../apps/server/dist/modules/access/policy.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
+import { executeConversation } from "./helpers/execute-conversation.js";
 
 // The model is not the oracle: every assertion inspects production authorization,
 // durable calls/messages, actual host reads or graph state across a four-level team.
@@ -245,10 +246,9 @@ it("M03 three review hops retain one frozen call and user steering, then execute
   expect((await child.call("request_permission", args, pending.logical)).value.status).toBe(
     "granted",
   );
-  expect(
-    (await child.call("read", { target: { kind: "path", path: join(area, "four-level.txt") } }))
-      .value.text,
-  ).toBe("approved through three managers");
+  expect((await child.call("read", { path: join(area, "four-level.txt") })).value.text).toBe(
+    "approved through three managers",
+  );
   expect(
     (await history(worker)).filter(
       (m) =>
@@ -267,7 +267,7 @@ it("M03 three review hops retain one frozen call and user steering, then execute
   expect(await scope(division)).toEqual([]);
   expect(await scope(lead)).toEqual([]);
   expect((await k.graph.queries.node(worker.id)).agent!.role).toBe("write");
-  await k.conversations.execute(child.ctx, (ctx, input) => k.tools.create(ctx, input));
+  await executeConversation(k, child.ctx, (ctx, input) => k.tools.create(ctx, input));
   expect((await k.runs.get(child.run.id)).state).toBe("succeeded");
   const conversation = (
     await k.db.pool.query(
@@ -340,9 +340,9 @@ it.each(["move-middle", "revoke-root", "downgrade-root"] as const)(
     expect((await k.runs.get(divisionManager.run.id)).cancel_requested_at).not.toBeNull();
     expect((await k.runs.get(manager.run.id)).cancel_requested_at).not.toBeNull();
     expect((await k.runs.get(child.run.id)).cancel_requested_at).toBeNull();
-    expect(
-      (await child.call("read", { target: { kind: "node", nodeId: evidence.id } })).value.content,
-    ).toBe("source evidence");
+    expect((await child.call("read", { nodeId: evidence.id })).value.content).toBe(
+      "source evidence",
+    );
     await expect(
       manager.call("send_message", {
         to: "agent",
@@ -417,15 +417,14 @@ it("M06 a deep artifact is shared only with readable ancestors and explicitly re
   // from a complete block: callers must not retry the successful portion.
   expect(artifact.value.sharing.status).toBe("partial");
   expect(artifact.value.sharing.skippedManagers).toEqual([division.id, top.id]);
-  expect(
-    (await manager.call("read", { target: { kind: "node", nodeId: artifact.value.id } })).value
-      .content,
-  ).toBe("private branch evidence");
+  expect((await manager.call("read", { nodeId: artifact.value.id })).value.content).toBe(
+    "private branch evidence",
+  );
   for (const a of [top, division, sibling])
     expect(await scope(a)).not.toContain(`${artifact.value.id}:write`);
   for (const session of [director, divisionManager]) {
     const blocked = await session.call("read", {
-      target: { kind: "node", nodeId: artifact.value.id },
+      nodeId: artifact.value.id,
     });
     expect(blocked.waiting).toBe("approval");
     expect(JSON.stringify(blocked.result)).not.toContain("private branch evidence");
@@ -488,7 +487,7 @@ it("M07 an expired branch request cannot cancel or authorize its cousin's concur
     left.logical,
   );
   expect(expired.result.isError).toBe(true);
-  expect(expired.value.executed).toBe(false);
+  expect(expired.value.call.effect).toBe("none");
 });
 
 it("M08 concurrent deep-team broadcasts use resource intersection, deduplicate replays and activate each inbox once", async () => {
@@ -557,7 +556,7 @@ it("M08 concurrent deep-team broadcasts use resource intersection, deduplicate r
     const run = (await k.runs.claim("multi-level-recipient"))!;
     expect(remaining.has(run?.frozen_input.agentId)).toBe(true);
     const ctx = { run, store: k.runs, signal: new AbortController().signal, progress() {} };
-    await k.conversations.execute(ctx, (ctx, input) => k.tools.create(ctx, input));
+    await executeConversation(k, ctx, (ctx, input) => k.tools.create(ctx, input));
     expect((await k.runs.get(run.id)).state).toBe("succeeded");
     const consumed = (
       await k.db.pool.query(

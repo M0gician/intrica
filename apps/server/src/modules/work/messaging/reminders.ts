@@ -11,11 +11,16 @@ const due = `q.state='open' and not q.tracking_stopped
      where m.conversation_id=q.recipient_conversation_id and m.client_message_id=q.inbox_message_id
      and m.consumed_run_id is null and m.seq>c.consumed_message_seq)))`;
 
-export async function tickReminders(context: MessagingContext) {
+export async function tickReminders(context: MessagingContext, cooldownMs = 60000) {
   const candidates = (
-    await context.db.pool.query(`select q.id,q.canvas_id,q.sender_conversation_id,q.cause_id
+    await context.db.pool.query(
+      `select q.id,q.canvas_id,q.sender_conversation_id,q.cause_id
     from message_deliveries q join canvases c on c.id=q.canvas_id where c.deleted_at is null and ${due}
-    order by least(q.deadline_at,q.unread_deadline_at),q.id limit 64`)
+    and not exists(select 1 from messages notice where notice.conversation_id=q.sender_conversation_id and notice.role='message_notice'
+      and notice.content->>'event'='message_deadlines' and notice.created_at>clock_timestamp()-$1*interval '1 millisecond')
+    order by least(q.deadline_at,q.unread_deadline_at),q.id limit 64`,
+      [cooldownMs],
+    )
   ).rows;
   const groups = new Map<string, typeof candidates>();
   for (const q of candidates) {
@@ -93,15 +98,9 @@ export async function tickReminders(context: MessagingContext) {
               : `${entries.length} collaboration messages need follow-up. ${entries.filter((e) => e.event === "unread").length} unread deadlines and ${entries.filter((e) => e.event === "reply_overdue").length} reply deadlines. Wait, expedite or stop tracking.`,
           language,
           causeId: first.cause_id,
-          ...(active?.state === "running" ? { priority: "expedited" } : {}),
         },
         active?.id,
       );
-      if (active?.state === "running")
-        await tx.query(
-          "update messages set expedite_requested_at=now(),expedite_run_id=$3 where conversation_id=$1 and client_message_id=$2",
-          [sender, key, active.id],
-        );
       await wakeInbox(context, tx, sender, first.cause_id);
       await canvasEvent(tx, first.canvas_id, "conversation.changed", { conversationId: sender });
     });

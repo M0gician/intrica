@@ -1,6 +1,7 @@
 import { canvasEvent, digest, type Tx } from "../../adapters/postgres/database.js";
 import { appendMessage, projectToolOutcome } from "../execution/messages.js";
 import { result } from "../execution/tool-calls.js";
+import { withOutcome } from "../execution/tool-outcome.js";
 import { intentBasis, intentCovered, reviewerFor } from "./intents.js";
 import { agentIdentity, managementChain } from "./policy.js";
 
@@ -12,7 +13,7 @@ export async function finishApproval(
     ...result({
       status,
       requestId: request.id,
-      executed: false,
+      effect: "none",
       reviewerId: request.assigned_reviewer_id ?? null,
       routeReason: request.route_reason,
       nextAction:
@@ -21,6 +22,13 @@ export async function finishApproval(
     isError: true,
   },
 ) {
+  if (request.origin_call_id)
+    output = withOutcome(output, {
+      callId: request.origin_call_id,
+      state: "rejected",
+      phase: "authorize",
+      effect: "none",
+    }) as typeof output;
   await tx.query(
     "update approvals set status=$2,version=version+1,decided_at=now(),result=$3 where id=$1",
     [request.id, status, JSON.stringify(output)],
@@ -165,7 +173,12 @@ export async function reconcileApprovals(tx: Tx, canvasId: string) {
       // A communication request is the send itself; resume its original call.
       // Completing only the approval receipt would silently discard the message.
       const complete = r.complete_tool && r.action.kind !== "collaboration";
-      const output = result({ status: "satisfied", requestId: r.id, executed: false, authority });
+      const output = withOutcome(result({ status: "satisfied", requestId: r.id, authority }), {
+        callId: r.origin_call_id,
+        state: complete ? "succeeded" : "queued",
+        phase: "authorize",
+        effect: "none",
+      });
       await tx.query(
         "update approvals set status='satisfied',version=version+1,decided_by=null,decided_at=now(),execution_basis=$2,result=$3 where id=$1",
         [r.id, JSON.stringify(basis), JSON.stringify(output)],

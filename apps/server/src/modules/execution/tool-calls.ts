@@ -2,11 +2,12 @@ import { ProcessOutcomeError } from "../../adapters/host/process-outcome.js";
 import { assertFence, DomainError, digest, id, type Tx } from "../../adapters/postgres/database.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
 import { actionableMessage } from "./messages.js";
+import { withOutcome } from "./tool-outcome.js";
 import { toolFailure, validationFailure } from "./tool-validation.js";
 import type { ExecutionContext } from "./worker.js";
 
-// Version 5 separates handoff resources and requires a reason for prospective waits.
-export const TOOL_SCHEMA_VERSION = 5;
+// Version 6 uses progress review, flat reads and explicit effect receipts.
+export const TOOL_SCHEMA_VERSION = 6;
 
 export type ToolResult = {
   content: Array<
@@ -48,8 +49,6 @@ export type ExecutionTool = {
   /** Opt in only for independent reads; permission/message/control tools remain sequential. */
   parallel?: boolean;
   normalize?: (args: any) => Promise<any>;
-  /** Adapt only persisted calls from an earlier schema; their input hash stays unchanged. */
-  restore?: (args: any, version?: number) => any;
   prepare?: (
     tx: Tx,
     callId: string,
@@ -205,9 +204,7 @@ export async function invokeTool(
       );
     }
     const sourceVersion = Number(row?.schema_version ?? inputVersion);
-    const restoring = sourceVersion < TOOL_SCHEMA_VERSION;
-    const validationArgs =
-      restoring && definition?.restore ? definition.restore(args, sourceVersion) : args;
+    const validationArgs = args;
     const parameters =
       definition?.parameters.type === "object"
         ? {
@@ -215,10 +212,19 @@ export async function invokeTool(
             additionalProperties: definition.parameters.additionalProperties ?? false,
           }
         : definition?.parameters;
-    const invalid = validationFailure(name, parameters, validationArgs);
+    const invalid =
+      sourceVersion < TOOL_SCHEMA_VERSION
+        ? {
+            code: "TOOL_CONTRACT_REPLACED",
+            message:
+              "Unstarted call sealed. Replan using the current tools / 旧调用尚未执行，已封存；请按当前工具重新规划",
+          }
+        : validationFailure(name, parameters, validationArgs);
     if (invalid) {
-      const { executed, ...error } = invalid;
-      const output = { ...result({ error, executed }), isError: true };
+      const output = withOutcome(
+        { ...result({ error: invalid }), isError: true },
+        { callId, state: "rejected", phase: "validate", effect: "none" },
+      );
       await tx.query(
         "update tool_calls set state='failed',result=$2,completed_at=now(),updated_at=now() where id=$1",
         [callId, JSON.stringify(output)],
@@ -228,6 +234,7 @@ export async function invokeTool(
     }
     if (!definition) throw new Error("Validated tool definition is missing");
     await tx.query("savepoint tool_preflight");
+    let preflightPhase: "validate" | "authorize" = "validate";
     try {
       const expedited = (
         await tx.query(
@@ -239,7 +246,7 @@ export async function invokeTool(
         if (row?.is_async) return { state: "prepared", result: null };
         const output = {
           ...result({
-            executed: false,
+            effect: "none",
             reason: "expedited_input",
             nextAction: "Read the new input before choosing the next operation.",
           }),
@@ -255,14 +262,27 @@ export async function invokeTool(
       executionArgs =
         row?.execution_input ??
         (definition.normalize ? await definition.normalize(validationArgs) : validationArgs);
-      if (restoring && row?.execution_input && definition.restore)
-        executionArgs = definition.restore(executionArgs, sourceVersion);
       await tx.query("update tool_calls set execution_input=$2 where id=$1", [
         callId,
         JSON.stringify(executionArgs),
       ]);
-      const output = await definition.prepare?.(tx, callId, logicalId, executionArgs);
+      preflightPhase = "authorize";
+      let output = await definition.prepare?.(tx, callId, logicalId, executionArgs);
       if (output) {
+        output = withOutcome(output, {
+          callId,
+          state:
+            output.control?.waiting === "approval"
+              ? "queued"
+              : output.isError
+                ? "rejected"
+                : "succeeded",
+          phase: output.control?.waiting === "approval" ? "authorize" : "commit",
+          effect:
+            output.control?.waiting === "approval" || output.isError || definition.effect === "read"
+              ? "none"
+              : "committed",
+        });
         const state =
           output.control?.waiting === "approval"
             ? "waiting"
@@ -285,7 +305,10 @@ export async function invokeTool(
       }
     } catch (error) {
       await tx.query("rollback to savepoint tool_preflight");
-      const output = { ...result(toolFailure(error, false)), isError: true };
+      const output = withOutcome(
+        { ...result(toolFailure(error)), isError: true },
+        { callId, state: "rejected", phase: preflightPhase, effect: "none" },
+      );
       await tx.query("update tool_calls set state='failed',result=$2 where id=$1", [
         callId,
         JSON.stringify(output),
@@ -375,6 +398,8 @@ export async function invokeTool(
     let output: ToolResult;
     let failed = false;
     let ambiguous = false;
+    let rejected = false;
+    let failurePhase: "validate" | "authorize" | "execute" = "execute";
     try {
       ctx.signal.throwIfAborted();
       output = await executeWithDeadline(ctx, definition!, logicalId, executionArgs);
@@ -397,6 +422,7 @@ export async function invokeTool(
         }
       }
       failed = Boolean(output.isError);
+      ambiguous = failed && definition!.effect === "external";
       ctx.progress();
     } catch (error) {
       if (ctx.signal.aborted) {
@@ -413,15 +439,37 @@ export async function invokeTool(
         throw error;
       }
       failed = true;
+      rejected =
+        error instanceof DomainError &&
+        ["VALIDATION", "SOURCE_CHANGED", "FORBIDDEN", "AUTHORIZATION_CHANGED"].includes(error.code);
+      if (rejected)
+        failurePhase =
+          (error as DomainError).code === "FORBIDDEN" ||
+          (error as DomainError).code === "AUTHORIZATION_CHANGED"
+            ? "authorize"
+            : "validate";
       ambiguous =
         definition!.effect !== "read" &&
         !(error instanceof DomainError) &&
         !(error instanceof ProcessOutcomeError && error.outcome.termination === "start_failed");
       output = {
-        ...result(error instanceof ProcessOutcomeError ? error.outcome : toolFailure(error, true)),
+        ...result(error instanceof ProcessOutcomeError ? error.outcome : toolFailure(error)),
         isError: true,
       };
     }
+    output = withOutcome(output, {
+      callId,
+      state: ambiguous ? "unknown" : rejected ? "rejected" : failed ? "failed" : "succeeded",
+      phase: ambiguous || failed ? failurePhase : "commit",
+      effect:
+        definition!.effect === "read"
+          ? "none"
+          : ambiguous
+            ? "unknown"
+            : failed
+              ? "none"
+              : "committed",
+    });
     let waiting: "approval" | "message" | "unknown" | undefined = ambiguous
       ? "unknown"
       : output.control?.waiting;

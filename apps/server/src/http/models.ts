@@ -59,6 +59,10 @@ export function registerModelSettingsRoutes(app: AppInstance, store: ModelRegist
               name: Type.String({ minLength: 1, maxLength: 200 }),
               baseUrl: Type.String({ minLength: 1, maxLength: 2000 }),
               apiKey: Type.Optional(Type.String({ maxLength: 8192 })),
+              quotaGroupId: Type.Optional(
+                Type.String({ minLength: 1, maxLength: 100, pattern: "^[a-zA-Z0-9_-]+$" }),
+              ),
+              concurrency: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
             },
             { additionalProperties: false },
           ),

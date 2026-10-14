@@ -12,9 +12,8 @@ import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { endpointIdentity } from "@intrica/contracts";
 import { modelErrorMessage, modelThinkingLevel } from "./model-catalog.js";
 import { buildSystemPrompt, parseModelOutput, serializeContext } from "./prompt.js";
-import { retryTimedOutRequests } from "./request-retry.js";
 import type { FrozenOperation, ModelConfig, ModelEvent, ModelRunner } from "./types.js";
-import { meteredStream } from "./usage.js";
+import { modelStream } from "./usage.js";
 
 type PiOptions = Omit<Extract<ModelConfig, { kind: "pi" }>, "kind">;
 
@@ -93,10 +92,8 @@ export class PiRunner implements ModelRunner {
     if (level !== "off") requestOptions.reasoning = level;
     if (this.options.apiKey !== undefined) requestOptions.apiKey = this.options.apiKey;
     const context = { systemPrompt: buildSystemPrompt(op.type, op.language), messages: [message] };
-    const stream = await retryTimedOutRequests(
-      meteredStream(
-        useCompat ? compatStreamSimple : builtinModels().streamSimple.bind(builtinModels()),
-      ),
+    const stream = await modelStream(
+      useCompat ? compatStreamSimple : builtinModels().streamSimple.bind(builtinModels()),
     )(model, context, requestOptions);
     let text = "";
     let failed: { code: string; message: string } | null = null;

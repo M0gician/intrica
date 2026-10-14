@@ -1,5 +1,10 @@
 import { newId } from "@intrica/client";
-import type { AgentContextUsage, ModelSelection, Node } from "@intrica/contracts";
+import type {
+  AgentContextUsage,
+  ModelRequestStatus,
+  ModelSelection,
+  Node,
+} from "@intrica/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import { useConnection } from "../../app/connection-context";
@@ -106,6 +111,7 @@ export function useWorkspaceConversation(
   }, [sessionKey, storage.setItem, storage.getItem]);
   const [sessionId, setSessionId] = useState<string>(readSession);
   const [runId, setRunId] = useState<string>();
+  const [modelRequest, setModelRequest] = useState<ModelRequestStatus | null>(null);
   const [waitingReason, setWaitingReason] = useState<string | undefined>();
   const runCursor = useRef("0");
   useEffect(() => {
@@ -115,6 +121,7 @@ export function useWorkspaceConversation(
     setRunId(undefined);
     setUnknown([]);
     setWaitingReason(undefined);
+    setModelRequest(null);
     abort.current?.abort("session");
     abort.current = null;
     pendingStop.current = null;
@@ -158,7 +165,8 @@ export function useWorkspaceConversation(
       setSending(false);
     }
     setBusy(running && !paused);
-    setWaitingReason(paused ? value.run?.reason : undefined);
+    setWaitingReason(running || paused ? value.run?.reason : undefined);
+    setModelRequest(value.run?.modelRequest ?? null);
     setRunId(running || paused ? value.run!.id : undefined);
     runCursor.current = String(value.run?.last_event_seq ?? "0");
     if (value.context) setUsage(value.context);
@@ -423,6 +431,7 @@ export function useWorkspaceConversation(
     sessionId,
     setSessionId,
     waitingReason,
+    modelRequest,
     stop,
     ask,
     storage,

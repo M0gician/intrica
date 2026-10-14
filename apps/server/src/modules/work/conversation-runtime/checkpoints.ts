@@ -1,5 +1,5 @@
 import { contextUsage } from "../../../adapters/model/context.js";
-import { canvasEvent, type Tx } from "../../../adapters/postgres/database.js";
+import { canvasEvent, DomainError, type Tx } from "../../../adapters/postgres/database.js";
 import type { ExecutionContext } from "../../execution/worker.js";
 import type { ConversationInput } from "../conversations.js";
 import { publishDeliveryReads } from "../messaging/receipts.js";
@@ -17,7 +17,9 @@ export function createCheckpointWriter(
     budget: number;
     exhausted: boolean;
   },
+  initialVersion: number,
 ) {
+  let version = initialVersion;
   return async (tx: Tx) => {
     const { consumed, compactions, pendingTurnId, toolSchemaVersion, budget, exhausted } =
       snapshot();
@@ -53,8 +55,8 @@ export function createCheckpointWriter(
       turnsSinceInput: budget,
       turnLimitReached: exhausted,
     };
-    await tx.query(
-      "update conversations set checkpoint=$2,consumed_message_seq=$3,context=$4 where id=$1",
+    const saved = await tx.query(
+      "update conversations set checkpoint=$2,consumed_message_seq=$3,context=$4,context_version=context_version+1 where id=$1 and context_version=$5 returning context_version",
       [
         input.conversationId,
         JSON.stringify(
@@ -64,7 +66,14 @@ export function createCheckpointWriter(
         ),
         consumed,
         JSON.stringify(info),
+        version,
       ],
     );
+    if (!saved.rowCount)
+      throw new DomainError(
+        "STALE_CONTEXT",
+        "Context changed; restore the current checkpoint / 上下文已变化，请恢复当前 checkpoint",
+      );
+    version = Number(saved.rows[0].context_version);
   };
 }

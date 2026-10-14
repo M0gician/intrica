@@ -108,7 +108,7 @@ export function AgentNodePanel({
   if (!active) return null;
   return (
     <div className="agent-node-panel" ref={panel}>
-      <ConversationPause reason={data.runReason} />
+      <ConversationPause reason={data.runReason} modelRequest={data.modelRequest} />
       <CollaborationState
         identity={
           profileVisible

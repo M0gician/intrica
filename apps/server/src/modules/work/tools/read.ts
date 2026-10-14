@@ -1,159 +1,162 @@
 import { Type } from "typebox";
-import { Value } from "typebox/value";
 import { readSkill } from "../../../adapters/host/capabilities.js";
-import { DomainError, digest } from "../../../adapters/postgres/database.js";
+import { DomainError, digest, id } from "../../../adapters/postgres/database.js";
 import type { ExecutionTool, ToolResult } from "../../execution/tool-calls.js";
 import { idParameter, object, type ToolContext, tool } from "./context.js";
 import { nodeReader } from "./node-read.js";
 
-const position = object({
-  offset: Type.Optional(Type.Integer({ minimum: 0 })),
-  column: Type.Optional(Type.Integer({ minimum: 0 })),
-  page: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000 })),
-  mode: Type.Optional(
-    Type.Union([Type.Literal("auto"), Type.Literal("text"), Type.Literal("image")]),
-  ),
-});
-const cursorSchema = object({ target: Type.String(), position });
 type Kind = "path" | "node" | "skill";
-
-/** Continuation identifies a position, never an authorization grant. */
+/** Cursors freeze source and position; every page still uses the original authorization path. */
 export function readTool(context: ToolContext, pathReader: ExecutionTool) {
-  const { text } = context;
+  const { text, registry, ctx, input } = context;
   const sources: Record<Kind, Pick<ExecutionTool, "execute" | "normalize" | "prepare">> = {
     path: pathReader,
     node: nodeReader(context),
     skill: { execute: readSkill },
   };
-  const source = (kind: Kind) => sources[kind];
   const definition = tool(
     "read",
     text(
-      "Read a path (file or directory), canvas node, or indexed skillId (its catalog path). Permissions are separate for each target. Follow nextCursor to finish. line is one-based for file text; page is one-based for PDFs; frame is zero-based for path or node images; node reads use immutable published bytes. mode=text returns image metadata, GIF frame durations and loop count. Use node targets for version-specific review. Omit positions with cursor. mode=text omits images; image requires vision. Results preserve images and node revisions. No OCR.",
-      "读取路径（文件或目录）、画布节点或已索引 skillId（目录索引中的路径）。各目标分别检查权限。沿 nextCursor 续读。文件 line 和 PDF page 从 1 开始，frame 从 0 开始，可用于 path 或 node 图片；节点读取不可变发布快照。mode=text 返回图片元数据、GIF 帧时长与循环次数。按版本质检使用 node 目标；cursor 不能与定位字段混用。text 不渲染图片；image 需要视觉能力。保留图片及节点版本，不执行 OCR。",
+      "Read exactly one path, nodeId or indexed skillId using flat fields. For continuation, send only cursor. line is one-based for text, page one-based for PDF, frame zero-based for images. mode defaults to auto; text omits images. Directory accepts auto/text without positions. Follow nextCursor, including positioning responses for distant lines. Cursors expire and do not grant access. Source changes require reopening.",
+      "用扁平字段读取恰好一个 path、nodeId 或已索引 skillId。续读只传 cursor。文本 line、PDF page 从 1 开始，图片 frame 从 0 开始。mode 默认 auto；text 不渲染图片。目录接受 auto/text，不接受定位字段。沿 nextCursor 续读；定位远处行时 positioning 表示仍在扫描。游标有期限、不授予权限；来源变化后重新打开。",
     ),
     object({
-      target: Type.Union([
-        object({
-          kind: Type.Literal("path"),
-          path: Type.String({ minLength: 1, maxLength: 4096 }),
-        }),
-        object({ kind: Type.Literal("node"), nodeId: idParameter }),
-        object({
-          kind: Type.Literal("skill"),
-          skillId: Type.String({ minLength: 1, maxLength: 4096 }),
-        }),
-      ]),
-      cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 2048 })),
+      path: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
+      nodeId: Type.Optional(idParameter),
+      skillId: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
+      cursor: Type.Optional(idParameter),
       line: Type.Optional(Type.Integer({ minimum: 1 })),
       page: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000 })),
-      frame: Type.Optional(
-        Type.Integer({
-          minimum: 0,
-          maximum: 10000,
-          description: "Zero-based image frame for path or node targets.",
-        }),
-      ),
-      mode: Type.Optional(
-        Type.Union([Type.Literal("auto"), Type.Literal("text"), Type.Literal("image")]),
-      ),
+      frame: Type.Optional(Type.Integer({ minimum: 0, maximum: 10000 })),
+      mode: Type.Optional(Type.Union(["auto", "text", "image"].map((v) => Type.Literal(v)))),
     }),
     "read",
     async (call, args, signal) => {
-      const output = await source(args.target.kind).execute(call, args.input, signal);
-      return continuation(output, args.target, args.input);
+      const output = await sources[args.target.kind as Kind].execute(call, args.input, signal);
+      return continuation(output, args);
     },
   );
   definition.normalize = async (args) => {
-    const kind: Kind = args.target.kind;
-    if (args.cursor && [args.line, args.page, args.frame].some((v) => v !== undefined))
-      throw new DomainError("VALIDATION", "cursor 不能与定位字段同时使用");
-    if (kind === "skill" && args.frame !== undefined)
-      throw new DomainError("VALIDATION", "skill 不接受 frame", { path: "frame" });
-    if (kind !== "path" && args.line !== undefined)
-      throw new DomainError(
-        "VALIDATION",
-        "line 仅适用于 path 文本；节点使用 read 返回的 nextCursor",
-        { path: "line" },
-      );
-    if (kind === "skill" && (args.page !== undefined || args.mode !== undefined))
-      throw new DomainError("VALIDATION", "skill 目标仅使用 skillId 和 cursor", {
-        path: args.page !== undefined ? "page" : "mode",
-      });
-    let input: Record<string, any> = {
-      ...(kind === "node"
-        ? { nodeId: args.target.nodeId }
-        : { path: kind === "path" ? args.target.path : args.target.skillId }),
-      ...(args.line !== undefined ? { line: args.line } : {}),
-      ...(args.page !== undefined ? { page: args.page } : {}),
-      ...(args.frame !== undefined ? { frame: args.frame } : {}),
-      ...(args.mode !== undefined ? { mode: args.mode } : {}),
-    };
-    const origin = source(kind);
-    if (origin.normalize) input = await origin.normalize(input);
-    const target = kind === "path" ? { kind, path: input.path } : args.target;
     if (args.cursor) {
-      let decoded: unknown;
-      try {
-        decoded = JSON.parse(Buffer.from(args.cursor, "base64url").toString("utf8"));
-      } catch {
-        throw new DomainError("VALIDATION", "读取游标无效");
-      }
-      if (!Value.Check(cursorSchema, decoded) || decoded.target !== digest(target))
-        throw new DomainError("VALIDATION", "读取游标与目标不匹配");
-      if (args.mode !== undefined && args.mode !== (decoded.position.mode ?? "auto"))
+      if (Object.keys(args).length !== 1)
         throw new DomainError(
-          "VALIDATION",
-          "mode 与游标模式冲突；续读时省略 mode 或使用游标原模式",
+          "READ_CURSOR_INPUT",
+          "Continue with only {cursor} / 续读只传 {cursor}",
+          { path: "/cursor" },
         );
-      if (
-        (kind === "skill" && Object.keys(decoded.position).some((key) => key !== "offset")) ||
-        (kind === "node" && decoded.position.column !== undefined)
-      )
-        throw new DomainError("VALIDATION", "读取游标位置不适用于此目标");
-      input = { ...input, ...decoded.position };
-      if (decoded.position.mode === undefined) delete input.mode;
+      const cursor = (
+        await registry.graph.db.pool.query(
+          "select target,input,source_version from read_cursors where id=$1 and canvas_id=$2 and conversation_id=$3 and expires_at>now()",
+          [args.cursor, ctx.run.canvas_id, input.conversationId],
+        )
+      ).rows[0];
+      if (!cursor)
+        throw new DomainError(
+          "READ_CURSOR_EXPIRED",
+          "Cursor unavailable; reopen the source / 游标不可用，请重新打开来源",
+        );
+      const origin = sources[cursor.target.kind as Kind];
+      const normalized = origin.normalize ? await origin.normalize(cursor.input) : cursor.input;
+      if (cursor.target.kind === "path" && normalized.path !== cursor.target.path)
+        throw new DomainError("SOURCE_CHANGED", "Path changed; reopen / 路径已变化，请重新打开");
+      return { target: cursor.target, input: normalized, sourceVersion: cursor.source_version };
     }
-    return { target, input };
-  };
-  definition.prepare = (tx, id, logical, args) =>
-    source(args.target.kind).prepare?.(tx, id, logical, args.input) ?? Promise.resolve(undefined);
-  return definition;
-}
-
-function continuation(
-  output: ToolResult,
-  target: Record<string, unknown>,
-  input: Record<string, any>,
-): ToolResult {
-  const first = output.content[0];
-  if (first?.type !== "text" || output.isError) return output;
-  const data = JSON.parse(first.text);
-  let next: Record<string, number | string> | null = null;
-  if (data.nextOffset != null)
-    next = {
-      offset: data.nextOffset,
-      ...(data.nextColumn !== undefined ? { column: data.nextColumn } : {}),
-      ...(data.page !== undefined ? { page: data.page } : {}),
+    const fields = ["path", "nodeId", "skillId"].filter((key) => args[key] !== undefined);
+    if (fields.length !== 1)
+      throw new DomainError(
+        "READ_TARGET",
+        "Choose exactly one path, nodeId or skillId / 恰选一个 path、nodeId 或 skillId",
+        { path: "/path" },
+      );
+    const key = fields[0]!,
+      kind: Kind = key === "path" ? "path" : key === "nodeId" ? "node" : "skill";
+    if (
+      (kind !== "path" && args.line !== undefined) ||
+      (kind === "skill" && [args.page, args.frame, args.mode].some((v) => v !== undefined))
+    )
+      throw new DomainError(
+        "READ_POSITION",
+        "Use positions only for the corresponding file/media type / 仅为对应文件或媒体类型提供定位字段",
+      );
+    let value: Record<string, any> = {
+      ...(kind === "node" ? { nodeId: args.nodeId } : { path: args[key] }),
+      ...Object.fromEntries(
+        ["line", "page", "frame", "mode"]
+          .filter((k) => args[k] !== undefined)
+          .map((k) => [k, args[k]]),
+      ),
     };
-  else if (data.nextPage != null) next = { page: data.nextPage };
-  if (next && input.mode !== undefined) next.mode = input.mode;
-  const { nextOffset: _offset, nextColumn: _column, nextPage: _page, ...body } = data;
-  return {
-    ...output,
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify({
-          ...body,
-          nextCursor: next
-            ? Buffer.from(JSON.stringify({ target: digest(target), position: next })).toString(
-                "base64url",
-              )
-            : null,
-        }),
-      },
-      ...output.content.slice(1),
-    ],
+    if (sources[kind].normalize) value = await sources[kind].normalize!(value);
+    return { target: { kind, [key]: kind === "path" ? value.path : args[key] }, input: value };
   };
+  definition.prepare = (tx, call, logical, args) =>
+    sources[args.target.kind as Kind].prepare?.(tx, call, logical, args.input) ??
+    Promise.resolve(undefined);
+  async function continuation(output: ToolResult, args: any): Promise<ToolResult> {
+    const first = output.content[0];
+    if (first?.type !== "text" || output.isError) return output;
+    const data = JSON.parse(first.text);
+    const version =
+      data.sourceVersion ??
+      digest([
+        data.id,
+        data.revision?.content ?? data.revision,
+        data.attachment,
+        data.resource?.snapshot,
+      ]);
+    if (args.sourceVersion && version !== args.sourceVersion)
+      throw new DomainError(
+        "SOURCE_CHANGED",
+        "Source changed; reopen without cursor / 来源已变化，请移除游标重新打开",
+      );
+    let next: Record<string, unknown> | null = null;
+    if (data.nextPosition) next = { position: data.nextPosition };
+    else if (data.nextOffset != null)
+      next = {
+        offset: data.nextOffset,
+        ...(data.nextColumn !== undefined ? { column: data.nextColumn } : {}),
+        ...(data.page !== undefined ? { page: data.page } : {}),
+      };
+    else if (data.nextPage != null) next = { page: data.nextPage };
+    let cursor: string | null = null;
+    if (next) {
+      cursor = id("read");
+      // Positions belong to one returned segment. A new PDF page starts at its
+      // beginning instead of inheriting the last line/character offset.
+      const {
+        line: _line,
+        offset: _offset,
+        column: _column,
+        position: _position,
+        ...original
+      } = args.input;
+      const continuationInput = { ...original, ...next, sourceVersion: version };
+      await registry.graph.db.canvas(ctx.run.canvas_id, async (tx) => {
+        await tx.query(
+          "delete from read_cursors where conversation_id=$1 and (expires_at<=now() or id in (select id from read_cursors where conversation_id=$1 order by created_at desc offset 127))",
+          [input.conversationId],
+        );
+        await tx.query(
+          "insert into read_cursors(id,canvas_id,conversation_id,target,input,source_version) values($1,$2,$3,$4,$5,$6)",
+          [
+            cursor,
+            ctx.run.canvas_id,
+            input.conversationId,
+            JSON.stringify(args.target),
+            JSON.stringify(continuationInput),
+            version,
+          ],
+        );
+      });
+    }
+    const { nextOffset: _o, nextColumn: _c, nextPage: _p, nextPosition: _n, ...body } = data;
+    return {
+      ...output,
+      content: [
+        { type: "text", text: JSON.stringify({ ...body, nextCursor: cursor }) },
+        ...output.content.slice(1),
+      ],
+    };
+  }
+  return definition;
 }

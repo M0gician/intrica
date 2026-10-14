@@ -66,7 +66,9 @@ export async function controlTeams(
       if (
         active &&
         (active.state !== "waiting" ||
-          !["message", "turn_limit", "inbox_review"].includes(active.reason) ||
+          !["message", "turn_limit", "progress_review", "progress_blocked"].includes(
+            active.reason,
+          ) ||
           active.cancel_requested_at)
       )
         continue;

@@ -1,6 +1,7 @@
 import { canvasEvent, type Tx } from "../../adapters/postgres/database.js";
 import { cancelResourceSchedules } from "./schedules.js";
 import { result } from "./tool-calls.js";
+import { withOutcome } from "./tool-outcome.js";
 
 // The upgrade reason is an execution barrier and survives a stop.
 export const cancellationReason =
@@ -20,7 +21,12 @@ export async function cancelApprovals(tx: Tx, runIds: string[]) {
       "update tool_calls set state='failed',result=$2,delivered_at=null where id=$1 and state in('prepared','waiting')",
       [
         r.origin_call_id,
-        JSON.stringify({ ...result({ status: "cancelled", requestId: r.id }), isError: true }),
+        JSON.stringify(
+          withOutcome(
+            { ...result({ status: "cancelled", requestId: r.id }), isError: true },
+            { callId: r.origin_call_id, state: "rejected", phase: "authorize", effect: "none" },
+          ),
+        ),
       ],
     );
     await canvasEvent(tx, r.canvas_id, "approval.changed", {

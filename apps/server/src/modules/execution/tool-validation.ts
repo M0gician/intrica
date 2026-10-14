@@ -11,8 +11,7 @@ export function validationFailure(name: string, schema: any, args: unknown) {
       message:
         name === "report_result"
           ? "report_result 已停用；请使用 send_message，并设置 kind=result"
-          : "未知工具；请使用当前工具列表中的名称",
-      executed: false,
+          : "Unknown tool; use the current tool list / 未知工具，请使用当前工具列表",
       nextAction:
         name === "report_result"
           ? 'send_message({to:"manager",kind:"result",message:"…"})；根 Agent 使用 to=user。'
@@ -32,7 +31,7 @@ export function validationFailure(name: string, schema: any, args: unknown) {
       for (const key of e.params.requiredProperties as string[])
         issues.push({
           path: `${e.instancePath}/${key}`,
-          expected: "必填字段",
+          expected: "required / 必填字段",
           actual: "undefined",
         });
     } else
@@ -46,7 +45,7 @@ export function validationFailure(name: string, schema: any, args: unknown) {
     for (const key of e.params.additionalProperties as string[])
       issues.push({
         path: `${e.instancePath}/${key}`,
-        expected: "移除未知字段",
+        expected: "remove unknown field / 移除未知字段",
         actual: typeName(at(`${e.instancePath}/${key}`)),
       });
   const unique = issues.filter(
@@ -55,24 +54,21 @@ export function validationFailure(name: string, schema: any, args: unknown) {
   );
   return {
     code: "TOOL_ARGUMENTS",
-    message: "工具参数无效，请修正列出的字段",
-    executed: false,
+    message: "Invalid arguments; correct the listed fields / 参数无效，请修正列出的字段",
     issues: unique.slice(0, 8),
     nextAction:
       name === "send_message"
         ? '使用扁平字段，例如 {to:"agent",id:"当前成员ID",message:"正文",expectReply:true,replyWithinSeconds:120}。to 是字符串；不要使用 target 对象或 JSON 字符串。'
-        : name === "read" && typeof (args as any)?.target === "string"
-          ? 'target 必须直接传对象，无需 JSON 编码。例如 {target:{kind:"node",nodeId:"节点ID"},mode:"text"} 或 {target:{kind:"path",path:"文件路径"},mode:"text"}。'
-          : name === "read" && (args as any)?.target?.frame !== undefined
-            ? '将 frame 移到顶层，例如 {target:{kind:"path",path:"file.gif"},frame:0,mode:"image"}。'
-            : name === "request_permission" && (args as any)?.scope?.access === "file"
-              ? "单文件只接受 execution=none；在自己的工作目录运行隔离命令即可读取已授权文件。"
-              : "保持正确字段，只修正 issues 指出的字段；工具尚未执行。",
+        : name === "read"
+          ? 'Use one flat target: {path:"/workspace/file",line:1}, {nodeId:"id"} or {skillId:"id"}. Continue with {cursor:"token"} only. / 恰选一个顶层目标，续读只传 cursor。'
+          : name === "request_permission" && (args as any)?.scope?.access === "file"
+            ? "单文件只接受 execution=none；在自己的工作目录运行隔离命令即可读取已授权文件。"
+            : "保持正确字段，只修正 issues 指出的字段；工具尚未执行。",
   };
 }
-export function toolFailure(error: unknown, executed: boolean) {
+export function toolFailure(error: unknown) {
   if (error instanceof DomainError) {
-    const { executed: knownExecution, ...details } =
+    const { effect: _effect, ...details } =
       error.details && typeof error.details === "object"
         ? (error.details as Record<string, unknown>)
         : {};
@@ -82,7 +78,6 @@ export function toolFailure(error: unknown, executed: boolean) {
         message: error.message,
         ...details,
       },
-      executed: typeof knownExecution === "boolean" ? knownExecution : executed,
     };
   }
   const code = (error as any)?.code;
@@ -91,7 +86,6 @@ export function toolFailure(error: unknown, executed: boolean) {
       code: typeof code === "string" ? code : "TOOL_FAILED",
       message: error instanceof Error ? error.message.slice(0, 1200) : "工具执行失败",
     },
-    executed,
     nextAction:
       code === "ENOENT"
         ? "核对路径或解释器是否存在；可使用 list_capabilities 查找可用程序。"

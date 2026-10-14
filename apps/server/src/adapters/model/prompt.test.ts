@@ -60,7 +60,8 @@ describe("buildSystemPrompt", () => {
       expect(conversation).toContain("n-1");
       expect(conversation).toContain("send_message");
       expect(conversation).not.toContain("report_result");
-      expect(conversation).toContain("reviewToken");
+      expect(conversation).toContain("review_progress");
+      expect(conversation).not.toContain("reviewToken");
       expect(conversation).toContain("30");
       expect(conversation).toContain(
         language === "en" ? "write has a verified result" : "写入确认成功后",
@@ -169,7 +170,7 @@ describe("capability-specific conversation guidance", () => {
     expect(prompt).toContain(persona);
     expect(prompt).toContain("selected-node");
     expect(prompt).toContain("nextCursor");
-    for (const name of ["send_message", "wait_for_message", "rg", "get_tool_result", "hire_agent"])
+    for (const name of ["send_message", "review_progress", "rg", "get_tool_result", "hire_agent"])
       expect(prompt).not.toMatch(new RegExp(`\\b${name}\\b`));
   });
 

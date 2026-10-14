@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { until } from "./agent-journey.mjs";
+import { reviewedReply } from "./journey-protocol.mjs";
 import { PDF_FIXTURE } from "./pdf.mjs";
 
 /** Actual PDF bytes, page results and model-facing tool receipts, not a scripted summary. */
@@ -139,9 +140,12 @@ export async function verifyMatrixPdf(page, call, board, expect, evidenceName) {
         observedPages = 2;
       }
       const done = results.length >= 2;
-      const delta = done
-        ? { role: "assistant", content: "MATRIX_PDF_READ_COMPLETE" }
-        : {
+      const reply = done
+        ? reviewedReply(messages, { text: "MATRIX_PDF_READ_COMPLETE" })
+        : { tool: "read", args: { nodeId: node.id, page: results.length + 1, mode: "auto" } };
+      const isTool = "tool" in reply;
+      const delta = isTool
+        ? {
             role: "assistant",
             tool_calls: [
               {
@@ -149,21 +153,18 @@ export async function verifyMatrixPdf(page, call, board, expect, evidenceName) {
                 id: randomUUID(),
                 type: "function",
                 function: {
-                  name: "read",
-                  arguments: JSON.stringify({
-                    target: { kind: "node", nodeId: node.id },
-                    page: results.length + 1,
-                    mode: "auto",
-                  }),
+                  name: reply.tool,
+                  arguments: JSON.stringify(reply.args),
                 },
               },
             ],
-          };
+          }
+        : { role: "assistant", content: reply.text };
       response.writeHead(200, { "content-type": "text/event-stream" });
       const chunk = (delta, finish_reason) =>
         `data: ${JSON.stringify({ id: randomUUID(), model: "matrix-pdf", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
       response.end(
-        `${chunk(delta, null)}${chunk({}, done ? "stop" : "tool_calls")}data: [DONE]\n\n`,
+        `${chunk(delta, null)}${chunk({}, isTool ? "tool_calls" : "stop")}data: [DONE]\n\n`,
       );
     } catch (error) {
       modelErrors.push(String(error));

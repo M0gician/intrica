@@ -1163,5 +1163,11 @@
   "工具": "Tool",
   "当前": "Current",
   "正在读取协作状态…": "Loading collaboration status…",
-  "说明职责、交付要求和表达偏好。": "Describe responsibilities, expected results and communication style."
+  "说明职责、交付要求和表达偏好。": "Describe responsibilities, expected results and communication style.",
+  "读取待办信箱": "Read pending inbox",
+  "复核任务进展": "Review progress",
+  "模型请求排队中，任务将自动继续。": "Model request queued. Work will resume automatically.",
+  "模型服务繁忙，正在等待重试。": "Model service is busy. Waiting to retry.",
+  "任务仍有未完成工作，等待阻碍解除。": "Work remains unfinished until the blocker is resolved.",
+  "模型服务繁忙，将在 {{v0}} 秒后重试。": "Model service is busy. Retrying in {{v0}} seconds."
 }

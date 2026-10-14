@@ -173,7 +173,10 @@ test("流式会话先显示用户问题，输出期间可停止，真实工具�
   await expect(page.getByRole("button", { name: "运行", exact: true })).toBeVisible({
     timeout: 20000,
   });
-  const summary = page.locator(".tool-call-details > summary").last();
+  const summary = page
+    .locator(".tool-call-details > summary")
+    .filter({ hasText: "读取画布" })
+    .last();
   await expect(summary.locator(".tool-call-name")).toHaveText("读取画布");
   await expect(summary.locator(".tool-call-state")).toHaveText("完成");
   const axe = await new AxeBuilder({ page }).analyze();
