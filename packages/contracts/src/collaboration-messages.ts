@@ -19,12 +19,11 @@ export type CollaborationReceipt = {
   version: number;
 };
 
-export type InboxDecision = {
-  itemId: string;
-  action: "handled" | "wait" | "background";
-  reason?: string;
+export type ProgressOutcome = "completed" | "continue" | "waiting" | "blocked";
+export type ProgressReviewArgs = {
+  outcome: ProgressOutcome;
+  reason: string;
+  remaining_work?: string;
+  dependency_ids?: string[];
+  evidence_refs?: string[];
 };
-
-export type InboxReviewArgs =
-  | { action: "inspect"; after?: number }
-  | { action: "confirm"; reviewId: string; decisions: InboxDecision[] };

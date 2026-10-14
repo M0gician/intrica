@@ -39,18 +39,16 @@ describe("PI workspace tools", () => {
     expect(page).toMatchObject({
       offset: 1,
       column: 0,
-      nextOffset: 1,
-      nextColumn: 48000,
+      nextPosition: { line: 1, column: 32768, byteOffset: 32768, targetLine: 1 },
       truncated: true,
     });
-    expect(page.text).toHaveLength(48000);
+    expect(page.text).toHaveLength(32768);
     const next = await read.execute("next", {
       path: "long.txt",
-      offset: page.nextOffset,
-      column: page.nextColumn,
+      position: page.nextPosition,
     });
     const continued = JSON.parse(next.content.find((part) => part.type === "text")!.text);
-    expect(continued.text).toBe(`${"a".repeat(2000)}\nsecond line\n`);
+    expect(continued.text).toBe(`${"a".repeat(17232)}\nsecond line\n`);
     expect(continued.truncated).toBe(false);
     await writeFile(join(cwd, "binary.bin"), Buffer.from([0xff, 0, 1, 2]));
     await expect(

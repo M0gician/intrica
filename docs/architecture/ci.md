@@ -11,11 +11,17 @@ Pull requests use read-only permissions and no release secrets. Secret scanning
 also runs on hosted Linux. Maintainers must review any selected source ref
 before dispatching it to a persistent runner. Actions are pinned to commit
 hashes; checkout does not persist credentials.
+Ordinary CI checks out the event's exact commit (the merge commit for a pull
+request), so queued jobs and retries cannot silently pick up a later branch
+revision. Explicit verification refs remain available to release callers.
 
 ## Verification
 
 Jobs build before running type checks, lint, functional/database tests,
 public-release HTTP/file tests, browser workflows and Electron checks.
+Pinned Playwright Chromium and its system dependencies are installed before
+functional tests, which also verify headless browsing inside OS isolation.
+Those tests do not depend on the runner image's interactive Chrome version.
 Each database test wrapper owns its ports and temporary PostgreSQL cluster.
 Generated-code ablations run sequentially with other tests that use dist.
 Secret scanning covers fetched history.

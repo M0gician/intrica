@@ -35,7 +35,7 @@ export async function recoverCheckpointTools(ctx: ExecutionContext) {
         call.state = "failed";
         call.result = {
           ...result({
-            executed: false,
+            effect: "none",
             error: {
               code: "CALL_CANCELLED",
               message: "原运行已结束，此调用尚未执行；根据当前任务决定是否提交新调用。",
@@ -64,10 +64,11 @@ export async function recoverCheckpointTools(ctx: ExecutionContext) {
       changed = true;
     }
     if (changed)
-      await tx.query("update conversations set checkpoint=$2 where id=$1", [
-        conversation.id,
-        JSON.stringify(checkpoint),
-      ]);
+      await tx.query(
+        "update conversations set checkpoint=$2,context_version=context_version+1 where id=$1",
+        [conversation.id, JSON.stringify(checkpoint)],
+      );
+    if (changed) conversation.context_version = Number(conversation.context_version) + 1;
     return { conversation, blocked };
   });
 }

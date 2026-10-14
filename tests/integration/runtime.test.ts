@@ -24,6 +24,7 @@ import { authorize, grantsFor } from "../../apps/server/dist/modules/access/poli
 import { RunStore } from "../../apps/server/dist/modules/execution/store.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { Worker } from "../../apps/server/dist/modules/execution/worker.js";
+import { executeConversation } from "./helpers/execute-conversation.js";
 
 const key = () => randomUUID();
 it("fixed file helper separates stdout from runtime diagnostics without masking its exit code", async () => {
@@ -590,9 +591,7 @@ describe("production graph and execution", () => {
       expect((await k.host.scope(current.actor)).cwd).toBe(project);
       await current.invoke("write", { path: "result.txt", content: "connected" });
       expect(await readFile(join(project, "result.txt"), "utf8")).toBe("connected");
-      expect(
-        await current.invoke("read", { target: { kind: "path", path: "result.txt" } }),
-      ).toMatchObject({
+      expect(await current.invoke("read", { path: "result.txt" })).toMatchObject({
         text: expect.stringContaining("connected"),
       });
       expect((await current.invoke("bash", { command: "pwd" })).status).toBe("pending");
@@ -650,17 +649,13 @@ describe("production graph and execution", () => {
       const readCall = key();
       const readRequest = await current.invoke(
         "read",
-        { target: { kind: "path", path: join(outside, "other.txt") } },
+        { path: join(outside, "other.txt") },
         readCall,
       );
       expect(readRequest.status).toBe("pending");
       await k.access.decide(readRequest.requestId, 1, "approve", "one file read");
       expect(
-        await current.invoke(
-          "read",
-          { target: { kind: "path", path: join(outside, "other.txt") } },
-          readCall,
-        ),
+        await current.invoke("read", { path: join(outside, "other.txt") }, readCall),
       ).toMatchObject({
         text: expect.stringContaining("outside"),
       });
@@ -913,7 +908,8 @@ describe("production graph and execution", () => {
       key: key(),
     });
     const lease = (await k.runs.claim("chat"))!;
-    await k.conversations.execute(
+    await executeConversation(
+      k,
       { run: lease, signal: new AbortController().signal, store: k.runs, progress() {} },
       (ctx, input) => k.tools.create(ctx, input),
     );
@@ -1092,7 +1088,7 @@ describe("production graph and execution", () => {
       [
         submitted.conversationId,
         JSON.stringify(checkpoint),
-        JSON.stringify({ pendingTurnId: "second-turn" }),
+        JSON.stringify({ pendingTurnId: "second-turn", toolSchemaVersion: 6 }),
       ],
     );
     let effects = 0;
@@ -1113,7 +1109,7 @@ describe("production graph and execution", () => {
     const interrupted = vi
       .spyOn(k.runs, "finish")
       .mockRejectedValueOnce(new Error("crash after reply"));
-    await expect(k.conversations.execute(ctx, factory)).rejects.toThrow("crash after reply");
+    await expect(executeConversation(k, ctx, factory)).rejects.toThrow("crash after reply");
     interrupted.mockRestore();
     expect(effects).toBe(1);
     expect(
@@ -1123,7 +1119,7 @@ describe("production graph and execution", () => {
     const before = await k.conversations.read.history(submitted.conversationId);
     await k.runs.fail(lease, new Error("shutdown"), true);
     const resumed = (await k.runs.claim("resumed"))!;
-    await k.conversations.execute({ ...ctx, run: resumed }, factory);
+    await executeConversation(k, { ...ctx, run: resumed }, factory);
     expect((await k.runs.get(lease.id)).state).toBe("succeeded");
     expect(
       (await k.conversations.read.history(submitted.conversationId)).filter(
@@ -1160,7 +1156,8 @@ describe("production graph and execution", () => {
       return original(...args);
     });
     try {
-      await k.conversations.execute(
+      await executeConversation(
+        k,
         { run: lease, signal: new AbortController().signal, store: k.runs, progress() {} },
         async () => [],
       );
@@ -1168,9 +1165,9 @@ describe("production graph and execution", () => {
       spy.mockRestore();
     }
     const view = await k.conversations.read.view(submitted.conversationId);
-    expect(view.messages.filter((m) => m.role === "assistant")).toHaveLength(2);
+    expect(view.messages.filter((m) => m.role === "assistant" && m.content.text)).toHaveLength(2);
     expect(view.run).toMatchObject({ state: "succeeded" });
-    const replies = view.messages.filter((m) => m.role === "assistant");
+    const replies = view.messages.filter((m) => m.role === "assistant" && m.content.text);
     expect(replies[0]!.content.text).toContain("你是 Intrica 工作区助手");
     expect(replies[1]!.content.text).toContain("You are the Intrica workspace assistant");
     expect(await k.conversations.language(submitted.conversationId)).toBe("en");
@@ -1188,6 +1185,7 @@ describe("production graph and execution", () => {
     ).rows[0];
     const assistant = {
       ...current.checkpoint.at(-1),
+      role: "assistant",
       content: [{ type: "toolCall", id: "call_1", name: "external", arguments: {} }],
       stopReason: "toolUse",
     };
@@ -1196,7 +1194,7 @@ describe("production graph and execution", () => {
       [
         submitted.conversationId,
         JSON.stringify([...current.checkpoint, assistant]),
-        JSON.stringify({ pendingTurnId: "unknown-turn" }),
+        JSON.stringify({ pendingTurnId: "unknown-turn", toolSchemaVersion: 6 }),
       ],
     );
     let effects = 0;
@@ -1224,7 +1222,7 @@ describe("production graph and execution", () => {
       store: k.runs,
       progress() {},
     };
-    await k.conversations.execute(ctx, factory);
+    await executeConversation(k, ctx, factory);
     const unknown = (await k.conversations.read.view(submitted.conversationId)).unknownTools![0];
     expect(unknown).toMatchObject({
       runId: next.run.id,
@@ -1241,7 +1239,8 @@ describe("production graph and execution", () => {
       message: "continue",
       key: key(),
     });
-    await k.conversations.execute(
+    await executeConversation(
+      k,
       { ...ctx, run: (await k.runs.claim("after-resolution"))! },
       factory,
     );

@@ -18,7 +18,7 @@ export async function conversationTrace(db: Database, conversationId: string) {
     )
   ).rows;
   const ids = runs.map((r) => r.id);
-  const [inputs, attempts, models, tools, approvals] = await Promise.all([
+  const [inputs, attempts, models, tools, approvals, modelRequests] = await Promise.all([
     db.pool.query(
       "select client_message_id as id,content->>'traceId' as request_id,seq,run_id,consumed_run_id,created_at,consumed_at,extract(epoch from(consumed_at-created_at))*1000 as queue_ms from messages where conversation_id=$1 and role='user' order by seq desc limit 1000",
       [conversationId],
@@ -39,6 +39,10 @@ export async function conversationTrace(db: Database, conversationId: string) {
       "select a.id,a.origin_call_id,a.status,a.created_at,a.decided_at,a.route_reason,extract(epoch from(a.decided_at-a.created_at))*1000 as wait_ms from approvals a join tool_calls t on t.id=a.origin_call_id where t.run_id=any($1) order by a.created_at limit 2000",
       [ids],
     ),
+    db.pool.query(
+      "select id,run_id,conversation_id,purpose,group_id,source_hash,state,attempts,reason,next_attempt_at,created_at,finished_at from model_requests where run_id=any($1) order by created_at limit 2000",
+      [ids],
+    ),
   ]);
   return {
     conversationId,
@@ -46,6 +50,7 @@ export async function conversationTrace(db: Database, conversationId: string) {
     inputs: inputs.rows,
     attempts: attempts.rows,
     models: models.rows,
+    modelRequests: modelRequests.rows,
     tools: tools.rows,
     approvals: approvals.rows,
     inputTokenMeaning:
@@ -53,6 +58,6 @@ export async function conversationTrace(db: Database, conversationId: string) {
     bounded:
       runs.length === 100 ||
       inputs.rows.length === 1000 ||
-      [attempts, models, tools, approvals].some((r) => r.rows.length === 2000),
+      [attempts, models, tools, approvals, modelRequests].some((r) => r.rows.length === 2000),
   };
 }

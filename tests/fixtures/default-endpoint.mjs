@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
+import { reviewedReply } from "./journey-protocol.mjs";
 
 /** A test-owned compatible endpoint. The product uses its normal configuration and HTTP path. */
 export async function createDefaultEndpoint() {
@@ -37,7 +38,8 @@ export async function createDefaultEndpoint() {
       if (
         input.tools?.some((t) => t.function?.name === "read_canvas") &&
         latest?.role === "user" &&
-        !/^(?:后台工具 |Background tool )/.test(text(latest))
+        !/^(?:后台工具 |Background tool )/.test(text(latest)) &&
+        !text(latest).includes('"hook":"review_progress"')
       ) {
         event(
           {
@@ -66,6 +68,35 @@ export async function createDefaultEndpoint() {
               text: `Controlled result ${i + 1} for ${name}.`,
             })),
           });
+        }
+        if (!input.tools?.length && system.includes('"source_refs"'))
+          output = JSON.stringify({
+            facts: ["The supplied historical sources were summarized."],
+            decisions: [],
+            completed_work: [],
+            remaining_work: ["Continue the original instructions."],
+            source_refs: ["s1"],
+          });
+        if (input.tools?.some((t) => t.function?.name === "review_progress")) {
+          const reply = reviewedReply(input.messages, { text: output });
+          if ("tool" in reply) {
+            event(
+              {
+                role: "assistant",
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: `call-${id}`,
+                    type: "function",
+                    function: { name: reply.tool, arguments: JSON.stringify(reply.args) },
+                  },
+                ],
+              },
+              "tool_calls",
+            );
+            res.end("data: [DONE]\n\n");
+            return;
+          }
         }
         event({ role: "assistant" });
         for (let offset = 0; offset < output.length && !res.destroyed; offset += 80) {

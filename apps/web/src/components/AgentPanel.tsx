@@ -45,6 +45,7 @@ export function AgentPanel({
     sessionId,
     setSessionId,
     waitingReason,
+    modelRequest,
     stop,
     ask,
     storage,
@@ -56,7 +57,7 @@ export function AgentPanel({
   if (!active) return null;
   return (
     <div className="workspace-agent">
-      <ConversationPause reason={waitingReason} />
+      <ConversationPause reason={waitingReason} modelRequest={modelRequest} />
       <UnknownTools
         calls={unknown}
         busy={sending}

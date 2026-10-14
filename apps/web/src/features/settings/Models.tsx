@@ -191,6 +191,7 @@ export function Models({ register, navigate }: Props) {
           <EndpointEditor
             key={editing.value?.id ?? "new"}
             endpoint={editing.value}
+            endpoints={models.data?.endpoints ?? []}
             register={register}
             onSaved={(data) => {
               models.update(data);

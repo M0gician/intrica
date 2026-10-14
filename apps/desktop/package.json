@@ -130,7 +130,9 @@
       "**/node_modules/async-exit-hook/**/*",
       "**/node_modules/node-pty/**/*",
       "**/node_modules/@img/**/*",
-      "**/node_modules/sharp/**/*"
+      "**/node_modules/sharp/**/*",
+      "**/node_modules/@intrica/server/dist/adapters/host/files/**/*",
+      "**/node_modules/@intrica/server/package.json"
     ],
     "artifactName": "Intrica-${version}-${os}-${arch}.${ext}",
     "deb": {

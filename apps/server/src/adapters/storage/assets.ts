@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
-import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { MAX_IMAGE_PIXELS } from "@intrica/contracts";
 import sharp from "sharp";
 import { readFilePreview, sniffMime } from "../host/file-preview.js";
+import { readText, type TextPosition } from "../host/files/text.js";
 import { readPdf } from "../host/pdf-reader.js";
 import { type Database, DomainError, id } from "../postgres/database.js";
 
@@ -90,6 +91,17 @@ export class AssetStore {
       ...(await readFilePreview(join(this.directory, "assets", row.storage_key, "original"), name)),
       path: "",
     };
+  }
+  async readText(assetId: string, args: { position?: TextPosition; sourceVersion?: string }) {
+    const row = await this.get(assetId);
+    if (args.sourceVersion && args.sourceVersion !== row.content_hash)
+      throw new DomainError("SOURCE_CHANGED", "Snapshot changed / 文件快照已变化");
+    // Resolve only the trusted store directory. The blob itself still uses no-follow opening.
+    const directory = await realpath(join(this.directory, "assets", row.storage_key));
+    const page = await readText(join(directory, "original"), {
+      ...(args.position ? { position: args.position } : {}),
+    });
+    return { ...page, path: "", sourceVersion: row.content_hash };
   }
   async assertAvailable(assetId: string) {
     const row = await this.get(assetId);

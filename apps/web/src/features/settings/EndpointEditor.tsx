@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { useSessionConnection } from "../../api/connection";
 import { useTranslation } from "../../i18n";
 import { Button } from "../../ui/button";
-import { Field, Input } from "../../ui/field";
+import { Field, Input, Select } from "../../ui/field";
 import {
   type DraftRegistration,
   Notice,
@@ -17,18 +17,29 @@ import {
 
 export function EndpointEditor({
   endpoint,
+  endpoints = [],
   register,
   onSaved,
   onCancel,
 }: {
   endpoint?: ModelEndpointView | undefined;
+  endpoints?: ModelEndpointView[];
   register: DraftRegistration;
   onSaved: (data: ModelDirectory) => void;
   onCancel: () => void;
 }) {
   const { t } = useTranslation(),
     { transport } = useSessionConnection();
+  const initialGroup =
+    endpoint?.quotaGroupId && endpoint.quotaGroupId !== endpoint.id ? endpoint.quotaGroupId : "";
+  const groups = [
+    ...new Map(
+      endpoints.filter((e) => e.id !== endpoint?.id).map((e) => [e.quotaGroupId ?? e.id, e]),
+    ).entries(),
+  ];
   const [name, setName] = useState(endpoint?.name ?? ""),
+    [quotaGroupId, setQuotaGroup] = useState(initialGroup),
+    [concurrency, setConcurrency] = useState(endpoint?.concurrency ?? 4),
     [baseUrl, setUrl] = useState(endpoint?.baseUrl ?? ""),
     [noKey, setNoKey] = useState(endpoint ? !endpoint.hasKey : false),
     [apiKey, setKey] = useState(""),
@@ -41,6 +52,8 @@ export function EndpointEditor({
     name !== (endpoint?.name ?? "") ||
     baseUrl !== (endpoint?.baseUrl ?? "") ||
     noKey !== (endpoint ? !endpoint.hasKey : false) ||
+    quotaGroupId !== initialGroup ||
+    concurrency !== (endpoint?.concurrency ?? 4) ||
     Boolean(apiKey);
   const save = async () => {
     if (busy) return false;
@@ -58,6 +71,8 @@ export function EndpointEditor({
         ...(endpoint ? { id: endpoint.id, expectedRevision: endpoint.revision } : {}),
         name: name.trim(),
         baseUrl: baseUrl.trim(),
+        concurrency,
+        ...(quotaGroupId || endpoint ? { quotaGroupId: quotaGroupId || endpoint!.id } : {}),
         ...(noKey ? { apiKey: "" } : apiKey ? { apiKey } : {}),
       });
       setKey("");
@@ -151,6 +166,39 @@ export function EndpointEditor({
               {t("noApiKey")}
             </Field>
           </div>
+          <Field>
+            {t("modelConcurrency")}
+            <Input
+              type="number"
+              min={1}
+              max={1000}
+              required
+              value={concurrency}
+              onChange={(e) => setConcurrency(Number(e.target.value))}
+            />
+          </Field>
+          <Field>
+            {t("modelQuotaGroup")}
+            <Select
+              value={quotaGroupId}
+              onChange={(event) => {
+                setQuotaGroup(event.target.value);
+                const shared = groups.find(([id]) => id === event.target.value)?.[1];
+                if (shared) setConcurrency(shared.concurrency ?? 4);
+              }}
+            >
+              <option value="">{t("modelQuotaIndependent")}</option>
+              {groups.map(([id, member]) => (
+                <option key={id} value={id}>
+                  {t("modelQuotaWithEndpoint", { name: member.name })}
+                </option>
+              ))}
+              {quotaGroupId && !groups.some(([id]) => id === quotaGroupId) && (
+                <option value={quotaGroupId}>{t("modelQuotaGroup")}</option>
+              )}
+            </Select>
+            <small>{t("modelQuotaGroupHint")}</small>
+          </Field>
           <SaveActions busy={busy} onCancel={onCancel} />
         </fieldset>
       </form>

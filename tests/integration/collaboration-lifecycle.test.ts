@@ -7,7 +7,8 @@ import { buildServer, type Kernel } from "@intrica/server";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
-import { completionState } from "../../apps/server/dist/modules/work/messaging/completion.js";
+import { completionState } from "../../apps/server/dist/modules/work/progress/completion.js";
+import { executeConversation } from "./helpers/execute-conversation.js";
 
 const key = (): string => randomUUID();
 const database = `intrica_lifecycle_${key().replaceAll("-", "")}`;
@@ -95,15 +96,20 @@ async function start(agentId?: string) {
 }
 
 async function review(s: Awaited<ReturnType<typeof start>>) {
-  const inbox = (await s.call("review_inbox", { action: "inspect" })).value;
-  return s.call("review_inbox", {
-    action: "confirm",
-    reviewId: inbox.reviewId,
-    decisions: inbox.items.map((item: any) => ({
-      itemId: item.id,
-      action: item.kind === "message" ? "handled" : "wait",
-    })),
-  });
+  await consume(s);
+  const inbox = (await s.call("read_inbox", {})).value;
+  const dependencies = inbox.items.filter((i: any) => i.dependency).map((i: any) => i.id);
+  return s.call(
+    "review_progress",
+    dependencies.length
+      ? {
+          outcome: "waiting",
+          reason: "Await verification",
+          remaining_work: "Deliver result",
+          dependency_ids: dependencies,
+        }
+      : { outcome: "completed", reason: "The assigned results are verified and delivered" },
+  );
 }
 async function consume(s: Awaited<ReturnType<typeof start>>) {
   await k.db.pool.query("update conversations set consumed_message_seq=message_seq where id=$1", [
@@ -181,7 +187,11 @@ it("projects individual read and expedite receipts consistently in both inboxes 
     )!;
   const before = await readSent();
   expect(before.data.deliveryReceipts.map((r: any) => r.state)).toEqual(["unread", "unread"]);
-  await sender.call("update_message", { deliveryId: d, action: "expedite" });
+  await sender.call("update_message", {
+    delivery_id: d,
+    action: "expedite",
+    reason: "Follow up the assigned request",
+  });
   await consume(recipient);
   const after = await readSent();
   expect(after.recordVersion).not.toBe(before.recordVersion);
@@ -226,13 +236,18 @@ it("coalesces coincident unread and reply deadlines and preserves the original d
   expect(notice).toHaveLength(1);
   expect(notice[0].content.deliveries[0].event).toBe("reply_overdue");
   const original = (await k.tools.messages.status(d))!.deadlineAt;
-  await s.call("update_message", { deliveryId: d, action: "wait", waitSeconds: 600 });
+  await s.call("update_message", {
+    delivery_id: d,
+    action: "wait",
+    wait_seconds: 600,
+    reason: "Follow up the assigned request",
+  });
   expect((await k.tools.messages.status(d))!.deadlineAt).toEqual(original);
   await k.tools.messages.tick();
   expect(await notices(s.run.subject_id)).toHaveLength(1);
 });
 
-it("keeps HTTP tracing IDs out of review decisions and rejects incomplete confirmations explicitly", async () => {
+it("keeps tracing IDs out of progress reviews and validates required fields", async () => {
   const s = await start();
   await k.db.canvas(board, (tx) =>
     k.conversations.append(
@@ -244,17 +259,13 @@ it("keeps HTTP tracing IDs out of review decisions and rejects incomplete confir
       s.run.id,
     ),
   );
-  const inbox = (await s.call("review_inbox", { action: "inspect" })).value;
-  expect(JSON.stringify(inbox)).not.toContain("http-trace-only");
-  expect(inbox.incoming).toEqual([]);
-  expect(inbox.outgoing).toEqual([]);
-  const incomplete = await s.call("review_inbox", { action: "confirm", reviewId: inbox.reviewId });
+  expect(JSON.stringify((await s.call("read_inbox", {})).value)).not.toContain("http-trace-only");
+  const incomplete = await s.call("review_progress", { outcome: "completed" });
   expect(incomplete.value.error).toMatchObject({
     code: "TOOL_ARGUMENTS",
-    issues: expect.arrayContaining([expect.objectContaining({ path: "/decisions" })]),
+    issues: expect.arrayContaining([expect.objectContaining({ path: "/reason" })]),
   });
-  expect(incomplete.value.reviewToken).toBeUndefined();
-  expect((await review(s)).value.reviewToken).toBeTruthy();
+  expect((await review(s)).value.reviewed).toBe(true);
 });
 
 it("requires explicit review before natural completion and bounds ignored completion hooks", async () => {
@@ -266,8 +277,8 @@ it("requires explicit review before natural completion and bounds ignored comple
     message: "pending-before-finish",
     expectReply: true,
   });
-  await k.conversations.execute(s.ctx, (ctx, input) => k.tools.create(ctx, input));
-  expect(await k.runs.get(s.run.id)).toMatchObject({ state: "waiting", reason: "inbox_review" });
+  await executeConversation(k, s.ctx, (ctx, input) => k.tools.create(ctx, input));
+  expect(await k.runs.get(s.run.id)).toMatchObject({ state: "waiting", reason: "progress_review" });
   expect(
     (
       await k.db.pool.query(
@@ -290,20 +301,23 @@ it("lets reviewed informational messages remain monitored after completion but k
     s = await start();
   await s.call("send_message", { to: "agent", id: a.id, message: "information" });
   await consume(s);
-  const inbox = (await s.call("review_inbox", { action: "inspect" })).value;
-  const decisions = inbox.items.map((item: any) => ({
-    itemId: item.id,
-    action: item.kind === "message" ? "handled" : "background",
-    reason: "The deliverable is complete; this is optional information.",
-  }));
-  const confirmed = await s.call("review_inbox", {
-    action: "confirm",
-    reviewId: inbox.reviewId,
-    decisions,
-  });
-  expect(confirmed.value.completion).toBe("ready");
+  const inbox = (await s.call("read_inbox", {})).value;
+  for (const item of inbox.items)
+    await s.call("update_message", {
+      delivery_id: item.ref,
+      action: "background",
+      reason: "The deliverable is complete; information can be followed later",
+    });
+  expect(
+    (
+      await s.call("review_progress", {
+        outcome: "completed",
+        reason: "The assigned deliverable is verified",
+      })
+    ).value.outcome,
+  ).toBe("completed");
   expect((await completionState(k.db.pool, s.run.subject_id, s.run.id)).kind).toBe("ready");
-  await k.conversations.execute(s.ctx, (ctx, input) => k.tools.create(ctx, input));
+  await executeConversation(k, s.ctx, (ctx, input) => k.tools.create(ctx, input));
   expect((await k.runs.get(s.run.id)).state).toBe("succeeded");
   const other = await start();
   await other.call("send_message", {
@@ -314,7 +328,7 @@ it("lets reviewed informational messages remain monitored after completion but k
   });
   await consume(other);
   await review(other);
-  await k.conversations.execute(other.ctx, (ctx, input) => k.tools.create(ctx, input));
+  await executeConversation(k, other.ctx, (ctx, input) => k.tools.create(ctx, input));
   expect(await k.runs.get(other.run.id)).toMatchObject({ state: "waiting", reason: "message" });
 });
 
@@ -410,7 +424,7 @@ it("reads a published GIF frame and metadata from its immutable bytes after its 
   await writeFile(path, "changed source");
   const reader = await start(auditor.id);
   const metadata = await reader.call("read", {
-    target: { kind: "node", nodeId: created.value.id },
+    nodeId: created.value.id,
     mode: "text",
   });
   expect(metadata.value).toMatchObject({
@@ -422,7 +436,7 @@ it("reads a published GIF frame and metadata from its immutable bytes after its 
   expect(metadata.value.resource.path).toBeUndefined();
   expect(metadata.value.resource.sourcePath).toBe(path);
   const image = await reader.call("read", {
-    target: { kind: "node", nodeId: created.value.id },
+    nodeId: created.value.id,
     frame: 0,
     mode: "image",
   });
@@ -438,12 +452,12 @@ it("reports only the selected read branch and gives a valid repair for file perm
     target: { kind: "path", path: "x.gif", frame: 0 },
     mode: "image",
   });
-  expect(bad.value.error.issues.map((e: any) => e.path)).toEqual(["/target/frame"]);
+  expect(bad.value.error.issues.map((e: any) => e.path)).toEqual(["/target"]);
   const permission = await s.call("request_permission", {
     scope: { kind: "path", path: "/tmp/a.gif", access: "file", execution: "isolated" },
     reason: "decode",
   });
-  expect(permission.value.executed).toBe(false);
+  expect(permission.value.call.effect).toBe("none");
   expect(permission.value.error.nextAction).toContain("execution=none");
   expect(permission.value.error.issues.every((e: any) => e.path === "/scope/execution")).toBe(true);
 });

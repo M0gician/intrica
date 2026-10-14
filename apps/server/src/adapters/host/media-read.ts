@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import type { ToolResult } from "../../modules/execution/tool-calls.js";
 import { DomainError } from "../postgres/database.js";
+import { fileVersion } from "./files/identity.js";
 import { readImageBytes } from "./image-read.js";
 import { pdfToolResult, readPdf } from "./pdf-reader.js";
 
@@ -15,6 +16,7 @@ export type ReadOptions = {
   offset?: number;
   column?: number;
   limit?: number;
+  sourceVersion?: string;
 };
 
 function imageSignature(bytes: Buffer) {
@@ -40,8 +42,12 @@ export async function readMedia(
   );
   let bytes: Buffer;
   let pdf = false;
+  let sourceVersion = "";
   try {
     const info = await handle.stat();
+    sourceVersion = fileVersion(info);
+    if (args.sourceVersion && args.sourceVersion !== sourceVersion)
+      throw new DomainError("SOURCE_CHANGED", "Source changed; reopen / 来源已变化，请重新打开");
     if (!info.isFile()) throw new DomainError("VALIDATION", "read 只支持普通文件");
     const header = Buffer.alloc(16);
     await handle.read(header, 0, header.length, 0);
@@ -106,7 +112,7 @@ export async function readMedia(
         },
         signal,
       ),
-      { path: args.path },
+      { path: args.path, sourceVersion },
     );
-  return readImageBytes(bytes, args, signal, supportsVision, { path: args.path });
+  return readImageBytes(bytes, args, signal, supportsVision, { path: args.path, sourceVersion });
 }

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 export type Tx = pg.PoolClient;
 export type Sql = Pick<pg.Pool, "query">;
@@ -203,6 +203,12 @@ export class Database {
             await readFile(join(dirname(path), "migrations/0016-runtime-reliability.sql"), "utf8"),
           );
           version = 16;
+        }
+        if (version === 16) {
+          await tx.query(
+            await readFile(join(dirname(path), "migrations/0017-runtime-redesign.sql"), "utf8"),
+          );
+          version = 17;
         }
         if (version !== SCHEMA_VERSION) throw new Error("不支持此数据库版本，请使用独立数据库");
         return;

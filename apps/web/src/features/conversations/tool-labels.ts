@@ -18,6 +18,8 @@ export const toolLabelKeys = {
   write: "写入文件",
   report_result: "提交报告",
   send_message: "发送协作消息",
+  read_inbox: "读取待办信箱",
+  review_progress: "复核任务进展",
   review_inbox: "复核信箱",
   update_message: "跟踪消息",
   list_agents: "查看团队成员",

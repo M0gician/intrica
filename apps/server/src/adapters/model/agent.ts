@@ -5,9 +5,8 @@ import { streamSimple as compatStreamSimple } from "@earendil-works/pi-ai/compat
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { modelThinkingLevel } from "./model-catalog.js";
 import { resolveModel } from "./pi.js";
-import { retryTimedOutRequests } from "./request-retry.js";
 import type { ModelConfig } from "./types.js";
-import { meteredStream } from "./usage.js";
+import { modelStream } from "./usage.js";
 
 /** One provider turn only. Durable orchestration and tool execution belong to execution. */
 export class Agent {
@@ -136,7 +135,8 @@ export function createCanvasAgent(
     if (
       context.tools?.some((tool) => tool.name === "read_canvas") &&
       context.messages.at(-1)?.role === "user" &&
-      !/^(?:后台工具 |Background tool )/.test(latestText)
+      !/^(?:后台工具 |Background tool )/.test(latestText) &&
+      !latestText.includes('"hook":"review_progress"')
     ) {
       stream.push({
         type: "done",
@@ -145,6 +145,33 @@ export function createCanvasAgent(
           ...response,
           stopReason: "toolUse",
           content: [{ type: "toolCall", id: `read-${turns}`, name: "read_canvas", arguments: {} }],
+        },
+      });
+      return stream;
+    }
+    if (
+      context.tools?.some((tool) => tool.name === "review_progress") &&
+      context.messages
+        .map((m) => m.role === "toolResult" && m.toolName === "review_progress")
+        .lastIndexOf(true) < context.messages.map((m) => m.role === "user").lastIndexOf(true)
+    ) {
+      stream.push({
+        type: "done",
+        reason: "toolUse",
+        message: {
+          ...response,
+          stopReason: "toolUse",
+          content: [
+            {
+              type: "toolCall",
+              id: `review-${turns}`,
+              name: "review_progress",
+              arguments: {
+                outcome: "completed",
+                reason: "Mock response completed for the test request.",
+              },
+            },
+          ],
         },
       });
       return stream;
@@ -176,15 +203,13 @@ export function createCanvasAgent(
   return new Agent(
     resolved.model,
     modelThinkingLevel(config.kind === "pi" ? config : {}, resolved.model),
-    retryTimedOutRequests(
-      meteredStream(
-        streamOverride ??
-          (config.kind === "mock"
-            ? mockStream
-            : resolved.useCompat
-              ? compatStreamSimple
-              : models.streamSimple.bind(models)),
-      ),
+    modelStream(
+      streamOverride ??
+        (config.kind === "mock"
+          ? mockStream
+          : resolved.useCompat
+            ? compatStreamSimple
+            : models.streamSimple.bind(models)),
     ),
     config.kind === "pi" ? config.apiKey : undefined,
   );

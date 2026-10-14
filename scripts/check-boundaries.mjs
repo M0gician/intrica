@@ -54,6 +54,11 @@ for (const file of globSync(["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.ts
       /^apps\/web\/src\/(components|features)\//.test(target)
     )
       failures.push(`${file}: data layer imports a feature ${spec}`);
+    if (
+      /\/modules\/(context|model-runtime)\//.test(file) &&
+      /\/modules\/(work|graph|access)\//.test(target)
+    )
+      failures.push(`${file}: runtime capability imports canvas business logic ${spec}`);
     if (file.includes("/modules/execution/") && /\/modules\/(work|graph)\//.test(target))
       failures.push(`${file}: execution imports handler ${spec}`);
   }

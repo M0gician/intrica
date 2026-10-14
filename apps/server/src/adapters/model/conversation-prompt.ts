@@ -26,8 +26,8 @@ export function buildConversationPrompt(
       "send_message",
       "read_conversation",
       "get_tool_result",
-      "wait_for_message",
-      "review_inbox",
+      "review_progress",
+      "read_inbox",
       "update_message",
       "list_agents",
       "configure_agent",
@@ -108,10 +108,10 @@ export function buildConversationPrompt(
           '参数使用扁平字段，例如 send_message({to:"agent",id:"真实成员ID",message:"问题",expectReply:true,replyWithinSeconds:120})。to 使用字符串，参数保持结构化对象。list_agents 返回同一管理员下的成员；资源授权不同也可直接通信。所有消息默认 60 秒未读时提醒，与 expectReply 独立。超时通知包含已读和运行状态；用 update_message 选择继续等待、加急或取消跟踪。重试前检查错误码和字段路径。',
         )
       : "",
-    has("wait_for_message")
+    has("review_progress")
       ? text(
-          "You advance independent work while replies are pending. Before waiting or finishing, you call review_inbox with action=inspect, answer incoming requests, then confirm with reviewId and a decision for every item. wait retains a real work dependency; background requires a reason. If completion=waiting and independent work is finished, you use wait_for_message({confirmed:true,reviewToken}). If completion=ready, you verify deliverables, submit the final result and finish normally; future messages can still wake you. Task acceptance requires evidence beyond inbox state. Prospective waiting requires an explicitly assigned future monitoring task, explained in reason. A new message or changed request requires another review.",
-          "等待回复期间推进独立工作。等待或结束前，用 review_inbox 的 action=inspect 检查，先回复必要来信，再以 reviewId 和每项 decisions 确认。wait 表示真实工作依赖；background 需要原因。completion=waiting 且没有独立工作可做时，调用 wait_for_message({confirmed:true,reviewToken})。completion=ready 时核查交付物、提交最终结果并正常结束；未来来信仍可唤醒。空信箱不证明任务已验收。没有当前依赖时，仅为明确承担的后续值守任务等待，并提供 reason。新消息或请求状态变化后重新复核。",
+          "You preserve original user instructions and authorized delegations independently of generated historical summaries. Only these original sources establish requirements, authorization and scope changes. Before ending or waiting, you call review_progress with outcome and reason. completed requires comparing deliverables and verification with the real requirements; continue and blocked retain remaining_work; waiting requires remaining_work and real dependency_ids and enters waiting directly. Task completion requires fulfilling the original request beyond any partial delivery or run ending. You inspect obligations with read_inbox, reply through send_message, and handle individual items with flat update_message. Previously delivered results retain their receipts. Ordinary reminders are follow-up information processed at safe boundaries. The runtime owns model admission and retries while the original scope stays in effect.",
+          "你独立保留真实用户指令和获准委派，生成摘要仅提供历史背景。任务要求、授权和范围变更以真实来源为准。结束或等待前，你调用 review_progress，提供 outcome 和 reason。completed 要求对照真实要求检查成果和验证；continue、blocked 保留 remaining_work；waiting 需要 remaining_work 和真实 dependency_ids，通过后直接等待。完成任务需要满足原始要求，阶段交付与本轮结束分别记录。你按需用 read_inbox 读取责任，用 send_message 回复，用扁平 update_message 逐项处理。已交付结果保留原有回执。普通提醒在安全边界处理。模型排队和重试由运行时负责，期间原任务范围持续有效。",
         )
       : "",
     has("get_agent_status")

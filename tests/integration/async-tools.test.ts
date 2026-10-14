@@ -16,6 +16,7 @@ import {
   invokeTool,
   result,
 } from "../../apps/server/dist/modules/execution/tool-calls.js";
+import { executeConversation } from "./helpers/execute-conversation.js";
 
 const key = () => randomUUID();
 const adminUrl = process.env.INTRICA_TEST_ADMIN_URL ?? "postgres://127.0.0.1:5432/postgres";
@@ -83,7 +84,7 @@ async function prepared(count = 1) {
     [
       submitted.conversationId,
       JSON.stringify([template]),
-      JSON.stringify({ pendingTurnId: "turn" }),
+      JSON.stringify({ pendingTurnId: "turn", toolSchemaVersion: 6 }),
     ],
   );
   const abort = new AbortController();
@@ -171,7 +172,7 @@ it("atomically publishes an image result before inference fails, then consumes i
     );
     throw new Error("inference failed after tool commit");
   });
-  await expect(k.conversations.execute(ctx, async () => [tool])).rejects.toThrow(
+  await expect(executeConversation(k, ctx, async () => [tool])).rejects.toThrow(
     "inference failed after tool commit",
   );
   spy.mockRestore();
@@ -195,7 +196,7 @@ it("atomically publishes an image result before inference fails, then consumes i
   const run = (await k.runs.claim("continue"))!;
   expect(run.id).toBe(next.run.id);
   expect(run.id).not.toBe(ctx.run.id);
-  await k.conversations.execute({ ...ctx, run }, async () => []);
+  await executeConversation(k, { ...ctx, run }, async () => []);
   const checkpoint = (
     await k.db.pool.query("select checkpoint from conversations where id=$1", [
       submitted.conversationId,
@@ -276,8 +277,9 @@ it("rolls back both outcome and notification if publication fails", async () => 
     await bg.close();
   }
   await k.runs.fail(ctx.run, new Error("storage failure"));
-  const row = (await k.db.pool.query("select id from tool_calls where run_id=$1", [ctx.run.id]))
-    .rows[0];
+  const row = (
+    await k.db.pool.query("select id from tool_calls where run_id=$1 and name='slow'", [ctx.run.id])
+  ).rows[0];
   await k.conversations.resolveUnknown(row.id, "abandon", "test cleanup");
   await k.runs.cancel(ctx.run.id);
 });
@@ -386,9 +388,10 @@ it("bounds an uncooperative effect, fences its late result, and does not treat r
   );
   expect(data.waiting).toBeUndefined();
   expect(data.result.isError).not.toBe(true);
-  expect(data.result.content[0]).toEqual({
-    type: "text",
-    text: '{"status":"pending","requestId":"not-an-approval","waitingForMessage":true}',
+  expect(JSON.parse((data.result.content[0] as { text: string }).text)).toMatchObject({
+    status: "pending",
+    requestId: "not-an-approval",
+    waitingForMessage: true,
   });
   let waits = 0;
   const waiter = slow(async () => {
@@ -419,7 +422,7 @@ it("keeps ordinary progress visible without waking inference and waits without c
   const { ctx, submitted } = await prepared();
   k.runs.limits.toolNoticeMs = 60000;
   const gate = deferred();
-  const execution = k.conversations.execute(ctx, async () => [
+  const execution = executeConversation(k, ctx, async () => [
     slow(async () => {
       await gate.promise;
       return result("FINAL-PROGRESS");
@@ -428,11 +431,14 @@ it("keeps ordinary progress visible without waking inference and waits without c
   try {
     await until(async () =>
       (await k.conversations.read.history(submitted.conversationId)).some(
-        (m) => m.role === "assistant",
+        (m) => m.role === "assistant" && m.content.text,
       ),
     );
-    const call = (await k.db.pool.query("select id from tool_calls where run_id=$1", [ctx.run.id]))
-      .rows[0];
+    const call = (
+      await k.db.pool.query("select id from tool_calls where run_id=$1 and name='slow'", [
+        ctx.run.id,
+      ])
+    ).rows[0];
     await k.db.canvas(ctx.run.canvas_id, async (tx) => {
       for (let i = 0; i < 32; i++)
         await k.conversations.append(
@@ -447,24 +453,26 @@ it("keeps ordinary progress visible without waking inference and waits without c
     // Enter the stable idle state before measuring locks; the transition itself
     // intentionally publishes the background wait reason once.
     await until(async () => (await k.runs.get(ctx.run.id)).reason === "background");
-    const writes = vi.spyOn(k.db, "canvas");
+    await delay(100);
     // Notice is not due, so the waiting loop should remain read-only.
     await k.db.pool.query(
       "update tool_calls set next_notice_at=now()+interval '1 minute' where run_id=$1",
       [ctx.run.id],
     );
+    await delay(600);
+    const writes = vi.spyOn(k.db, "canvas");
     await delay(1200);
     const writeTransactions = writes.mock.calls.length;
     writes.mockRestore();
     expect(writeTransactions).toBe(0);
     const before = (await k.conversations.read.history(submitted.conversationId)).filter(
-      (m) => m.role === "assistant",
+      (m) => m.role === "assistant" && m.content.text,
     ).length;
     expect(before).toBe(1);
     gate.resolve();
     await execution;
     const after = (await k.conversations.read.history(submitted.conversationId)).filter(
-      (m) => m.role === "assistant",
+      (m) => m.role === "assistant" && m.content.text,
     ).length;
     expect(after).toBe(2);
     measurements.progress = {
@@ -498,7 +506,7 @@ it("ablation: batches opted-in reads but preserves the order of effects", async 
       return original.apply(this, args);
     });
     try {
-      await k.conversations.execute(ctx, async () => [
+      await executeConversation(k, ctx, async () => [
         slow(
           async () => {
             calls++;
@@ -519,7 +527,7 @@ it("ablation: batches opted-in reads but preserves the order of effects", async 
   expect(samples[1]!.receiptMs).toBeLessThan(samples[0]!.receiptMs);
   const { ctx } = await prepared(2);
   let counter = 0;
-  await k.conversations.execute(ctx, async () => [
+  await executeConversation(k, ctx, async () => [
     slow(
       async () => {
         const before = counter;
@@ -568,7 +576,7 @@ it("summarizes before background work ends and reports the late result without n
     this.state.messages.push(message);
     return message;
   });
-  const execution = k.conversations.execute(ctx, async () => [
+  const execution = executeConversation(k, ctx, async () => [
     slow(async (_id, args) => {
       executions++;
       if (args.value === "0") {

@@ -186,8 +186,8 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     ).node;
     const edge = await connect(reader.id, image.id),
       child = await session(reader.id);
-    const first = await child.call("read", { target: { kind: "node", nodeId: image.id } });
-    const second = await child.call("read", { target: { kind: "node", nodeId: image.id } });
+    const first = await child.call("read", { nodeId: image.id });
+    const second = await child.call("read", { nodeId: image.id });
     expect(JSON.stringify(first.result)).not.toContain(PNG.toString("base64"));
     const reference = (first.result.content.find((p) => p.type === "image") as any).intricaMedia.id;
     const good = await k.runs.media!.hydrate(first.result, child.run.subject_id);
@@ -291,7 +291,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
   });
   it("PDF01 upgrades schema 7 to 8 through buildServer while preserving existing nodes", async () => {
     expect(priorVersion).toBe(7);
-    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(16);
+    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(17);
     expect(await k.graph.queries.node("pdf-upgrade-text")).toMatchObject({
       kind: "text",
       title: "old text",
@@ -421,7 +421,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     await connect(reader.id, document.id);
     const child = await session(reader.id);
     const first = await child.call("read", {
-      target: { kind: "node", nodeId: document.id },
+      nodeId: document.id,
       page: 1,
     });
     expect(first.result.isError).not.toBe(true);
@@ -440,14 +440,13 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     expect(first.value.content).toContain("INTRICA-PDF-042");
     expect(hasImage(first.result)).toBe(true);
     const text = await child.call("read", {
-      target: { kind: "node", nodeId: document.id },
+      nodeId: document.id,
       page: 1,
       mode: "text",
     });
     expect(text.value.content).toBe(first.value.content);
     expect(hasImage(text.result)).toBe(false);
     const last = await child.call("read", {
-      target: { kind: "node", nodeId: document.id },
       cursor: first.value.nextCursor,
     });
     expect(last.value).toMatchObject({ page: 2, nextCursor: null, hasText: false, content: "" });
@@ -535,7 +534,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     ]);
     await connect(reader.id, legacy.id);
     const child = await session(reader.id);
-    const read = await child.call("read", { target: { kind: "node", nodeId: legacy.id } });
+    const read = await child.call("read", { nodeId: legacy.id });
     expect(read.result.isError).toBe(true);
     expect(hasImage(read.result)).toBe(false);
     expect(JSON.stringify(read.result)).not.toContain(PDF_FIXTURE.toString("base64"));
@@ -547,7 +546,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
       document = await pdfNode(c);
     const child = await session(reader.id);
     const denied = await child.call("read", {
-      target: { kind: "node", nodeId: document.id },
+      nodeId: document.id,
       page: 1,
     });
     expect(denied.waiting).toBe("approval");
@@ -557,7 +556,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     expect(
       (
         await child.call("read", {
-          target: { kind: "node", nodeId: document.id },
+          nodeId: document.id,
           page: 1,
           mode: "text",
         })
@@ -565,15 +564,13 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     ).toContain("INTRICA-PDF-042");
     await k.graph.deleteLink(edge.edge.id, { idempotencyKey: key() });
     expect(await grantsFor(k.db.pool, reader.id)).toHaveLength(0);
-    await expect(
-      child.call("read", { target: { kind: "node", nodeId: document.id }, page: 2 }),
-    ).rejects.toMatchObject({
+    await expect(child.call("read", { nodeId: document.id, page: 2 })).rejects.toMatchObject({
       code: "STALE_EXECUTION",
     });
     await k.runs.fail(child.run, new Error("fixture acknowledges revocation cancellation"));
     const fresh = await session(reader.id);
     const revoked = await fresh.call("read", {
-      target: { kind: "node", nodeId: document.id },
+      nodeId: document.id,
       page: 2,
     });
     expect(revoked.waiting).toBe("approval");
@@ -586,7 +583,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
       child = await session(reader.id);
     const path = join(files, `${key()}.bin`);
     await writeFile(path, PDF_FIXTURE);
-    const args = { target: { kind: "path", path }, page: 2, mode: "auto" };
+    const args = { path, page: 2, mode: "auto" };
     const pending = await child.call("read", args);
     expect(pending.waiting).toBe("approval");
     expect(hasImage(pending.result)).toBe(false);
@@ -610,9 +607,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     expect(hasImage(resumed.result)).toBe(true);
     expect(await grantsFor(k.db.pool, reader.id)).toHaveLength(0);
     expect((await child.call("read", args)).waiting).toBe("approval");
-    expect(
-      (await child.call("read", { target: { kind: "path", path }, page: 1, mode: "text" })).waiting,
-    ).toBe("approval");
+    expect((await child.call("read", { path, page: 1, mode: "text" })).waiting).toBe("approval");
   });
 
   it("PDF08 non-vision models retain PDF text in host and node reads but reject image requests", async () => {
@@ -625,8 +620,8 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     const path = join(scratch, "evidence.pdf");
     await writeFile(path, PDF_FIXTURE);
     for (const [name, args] of [
-      ["read", { target: { kind: "path", path }, page: 1 }],
-      ["read", { target: { kind: "node", nodeId: document.id }, page: 1 }],
+      ["read", { path, page: 1 }],
+      ["read", { nodeId: document.id, page: 1 }],
     ] as const) {
       const automatic = await child.call(name, args);
       expect(automatic.result.isError).not.toBe(true);
@@ -638,7 +633,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
       expect(JSON.stringify(image.result)).toContain("不支持图像");
     }
     const graphics = await child.call("read", {
-      target: { kind: "path", path },
+      path,
       page: 2,
       mode: "text",
     });
@@ -680,26 +675,22 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
       expect(segment.json().nextCharOffset).toBe(16);
     }
     const content = await child.call("read", {
-      target: { kind: "node", nodeId: document.id },
+      nodeId: document.id,
       page: 1,
       mode: "text",
     });
     expect(content.result.isError).not.toBe(true);
     expect(content.value.content).toContain("INTRICA-PDF-042");
-    const file = await child.call("read", { target: { kind: "path", path }, page: 2 });
+    const file = await child.call("read", { path, page: 2 });
     expect(file.waiting).toBeUndefined();
     expect(file.value.page).toBe(2);
     await k.graph.deleteLink(edge.edge.id, { idempotencyKey: key() });
-    await expect(
-      child.call("read", { target: { kind: "path", path }, page: 1 }),
-    ).rejects.toMatchObject({
+    await expect(child.call("read", { path, page: 1 })).rejects.toMatchObject({
       code: "STALE_EXECUTION",
     });
     await k.runs.fail(child.run, new Error("fixture acknowledges revocation cancellation"));
     const fresh = await session(reader.id);
-    expect((await fresh.call("read", { target: { kind: "path", path }, page: 1 })).waiting).toBe(
-      "approval",
-    );
+    expect((await fresh.call("read", { path, page: 1 })).waiting).toBe("approval");
   });
 
   it("PDF10 image approvals resume through reconstructed definitions without repeating effects", async () => {
@@ -710,7 +701,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     ).toContain("read");
     const path = join(files, `${key()}.png`);
     await writeFile(path, PNG);
-    const args = { target: { kind: "path", path }, frame: 0 };
+    const args = { path, frame: 0 };
     const pending = await child.call("read", args);
     expect(pending.waiting).toBe("approval");
     await approve(pending.value.requestId);
@@ -734,16 +725,16 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     const path = join((await k.host.scope(child.actor)).scratch, "document-without-extension");
     await writeFile(path, PDF_FIXTURE);
     for (const args of [
-      { target: { kind: "path", path }, page: 0 },
-      { target: { kind: "path", path }, page: 3 },
-      { target: { kind: "path", path }, frame: 0 },
+      { path, page: 0 },
+      { path, page: 3 },
+      { path, frame: 0 },
     ]) {
       const rejected = await child.call("read", args);
       expect(rejected.result.isError).toBe(true);
       expect(hasImage(rejected.result)).toBe(false);
     }
     const text = await child.call("read", {
-      target: { kind: "path", path },
+      path,
       page: 1,
       mode: "text",
     });

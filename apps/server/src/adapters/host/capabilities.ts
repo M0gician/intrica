@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Type } from "typebox";
 import { type ExecutionTool, result } from "../../modules/execution/tool-calls.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
-import { DomainError } from "../postgres/database.js";
+import { DomainError, digest } from "../postgres/database.js";
 import { browserExecutable, pythonRuntime } from "./runtime-programs.js";
 import { browserRuntimes, cleanEnvironment, isolationAvailable } from "./sandbox.js";
 
@@ -122,6 +122,7 @@ export const readSkill: ExecutionTool["execute"] = async (_call, args) => {
   return result({
     path: args.path,
     text,
+    sourceVersion: digest(full),
     nextOffset: offset + text.length < full.length ? offset + text.length : null,
   });
 };

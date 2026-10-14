@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vite
 import { Agent } from "../../apps/server/dist/adapters/model/agent.js";
 import { digest } from "../../apps/server/dist/adapters/postgres/database.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
+import { executeConversation } from "./helpers/execute-conversation.js";
 
 const key = () => randomUUID();
 const database = `intrica_contracts_${key().replaceAll("-", "")}`;
@@ -279,52 +280,30 @@ it("read cursors bind targets, preserve complete content and cannot grant indexe
   const full = "line\n".repeat(601);
   await writeFile(path, full);
   await writeFile(`${path}.other`, "Different authorized content");
-  const first = await s.call("read", { target: { kind: "path", path } });
+  const first = await s.call("read", { path });
   expect(first.value.nextCursor).toEqual(expect.any(String));
-  const resumed = await s.call("read", {
-    target: { kind: "path", path },
-    cursor: first.value.nextCursor,
-  });
+  const otherConversation = await start();
   expect(
-    (
-      await s.call("read", {
-        target: { kind: "path", path },
-        cursor: first.value.nextCursor,
-        mode: "auto",
-      })
-    ).value,
-  ).toEqual(resumed.value);
+    (await otherConversation.call("read", { cursor: first.value.nextCursor })).value.error.code,
+  ).toBe("READ_CURSOR_EXPIRED");
+  const resumed = await s.call("read", { cursor: first.value.nextCursor });
+  expect(resumed.result.isError).not.toBe(true);
   expect(
-    (
-      await s.call("read", {
-        target: { kind: "path", path },
-        cursor: first.value.nextCursor,
-        mode: "text",
-      })
-    ).result.isError,
-  ).toBe(true);
-  const textFirst = await s.call("read", { target: { kind: "path", path }, mode: "text" });
-  expect(
-    (
-      await s.call("read", {
-        target: { kind: "path", path },
-        cursor: textFirst.value.nextCursor,
-        mode: "text",
-      })
-    ).value,
-  ).toEqual(
-    (await s.call("read", { target: { kind: "path", path }, cursor: textFirst.value.nextCursor }))
-      .value,
+    (await s.call("read", { cursor: first.value.nextCursor, mode: "auto" })).value.error.code,
+  ).toBe("READ_CURSOR_INPUT");
+  const textFirst = await s.call("read", { path, mode: "text" });
+  expect((await s.call("read", { cursor: textFirst.value.nextCursor })).result.isError).not.toBe(
+    true,
   );
   const forged = await s.call("read", {
-    target: { kind: "path", path: `${path}.other` },
+    path: `${path}.other`,
     cursor: first.value.nextCursor,
   });
   expect(forged.result.isError).toBe(true);
   expect(
     (
       await s.call("read", {
-        target: { kind: "path", path },
+        path,
         cursor: first.value.nextCursor,
         line: 1,
       })
@@ -333,27 +312,24 @@ it("read cursors bind targets, preserve complete content and cannot grant indexe
   let output = first.value.text,
     cursor = first.value.nextCursor;
   while (cursor) {
-    const page = await s.call("read", { target: { kind: "path", path }, cursor });
+    const page = await s.call("read", { cursor });
     expect(page.result.isError).not.toBe(true);
     output += page.value.text;
     cursor = page.value.nextCursor;
   }
   expect(output).toBe(full);
-  expect((await s.call("read", { target: { kind: "skill", skillId: path } })).result.isError).toBe(
-    true,
-  );
+  expect((await s.call("read", { skillId: path })).result.isError).toBe(true);
   const saved = await s.call("create_artifact", {
     kind: "text",
     title: "Long note",
     text: "abc".repeat(5000),
     shareWithManagers: false,
   });
-  const page = await s.call("read", { target: { kind: "node", nodeId: saved.value.id } });
+  const page = await s.call("read", { nodeId: saved.value.id });
   let text = page.value.content,
     more = page.value.nextCursor;
   while (more) {
     const next = await s.call("read", {
-      target: { kind: "node", nodeId: saved.value.id },
       cursor: more,
     });
     text += next.value.content;
@@ -542,9 +518,8 @@ it.each(["en", "zh-CN"] as const)(
     );
     const out = await invokeTool(s.ctx, hire, logical, args);
     const value = JSON.parse((out.result.content[0] as { text: string }).text);
-    expect(out.result.isError).not.toBe(true);
-    expect(agentNamePool(language)).toContain(value.title);
-    expect(value.title).not.toBe(args.title);
+    expect(out.result.isError).toBe(true);
+    expect(value.error.code).toBe("TOOL_CONTRACT_REPLACED");
     expect(await invokeTool(s.ctx, hire, logical, args)).toEqual(out);
     expect((await invokeTool(s.ctx, hire, key(), args)).result.isError).toBe(true);
     expect(
@@ -586,9 +561,9 @@ it("failed hiring rolls back the generated name, member and task before retry", 
 });
 
 it.each([
-  { version: undefined, role: "admin", expected: "succeeded" },
+  { version: undefined, role: "admin", expected: "invalid" },
   { version: 2, role: "admin", expected: "invalid" },
-  { version: undefined, role: "read", expected: "waiting" },
+  { version: undefined, role: "read", expected: "invalid" },
 ] as const)(
   "checkpoint-only hire recovery preserves version $version and current role $role",
   async ({ version, role, expected }) => {
@@ -638,7 +613,7 @@ it.each([
       this.state.messages.push(message);
       return message;
     });
-    await k.conversations.execute(s.ctx, (ctx, input) => k.tools.create(ctx, input));
+    await executeConversation(k, s.ctx, (ctx, input) => k.tools.create(ctx, input));
     const calls = (await k.db.pool.query("select * from tool_calls where run_id=$1", [s.run.id]))
       .rows;
     const children = (
@@ -664,7 +639,7 @@ it.each([
       });
       expect(calls[0].execution_input.title).toBeUndefined();
     }
-    expect(children).toHaveLength(expected === "succeeded" ? 1 : 0);
+    expect(children).toHaveLength(0);
     if (children.length) expect(agentNamePool("en")).toContain(children[0].body.title);
   },
 );
@@ -686,8 +661,8 @@ it("each model request refreshes role, resource context and visible schemas from
   const roles: string[] = [];
   vi.spyOn(Agent.prototype, "turn").mockImplementation(async function (this: Agent) {
     turn++;
-    const expected = ["read", "admin", "write"][turn - 1]!;
-    roles.push(expected);
+    const expected = ["read", "admin", "write"][Math.min(2, turn - 1)]!;
+    if (turn <= 3) roles.push(expected);
     expect(this.state.systemPrompt).toContain(`Current role: ${expected}.`);
     const names = this.state.tools.map((tool) => tool.name);
     expect(names.includes("hire_agent")).toBe(expected === "admin");
@@ -721,7 +696,16 @@ it("each model request refreshes role, resource context and visible schemas from
       content:
         turn < 3
           ? [{ type: "toolCall", id: `round-${turn}`, name: "read_canvas", arguments: {} }]
-          : [{ type: "text", text: "verified" }],
+          : turn === 3
+            ? [
+                {
+                  type: "toolCall",
+                  id: "progress-check",
+                  name: "review_progress",
+                  arguments: { outcome: "completed", reason: "Capabilities verified" },
+                },
+              ]
+            : [{ type: "text", text: "verified" }],
       stopReason: turn < 3 ? "toolUse" : "stop",
       timestamp: Date.now(),
       usage: {
@@ -736,7 +720,7 @@ it("each model request refreshes role, resource context and visible schemas from
     this.state.messages.push(message);
     return message;
   });
-  await k.conversations.execute(s.ctx, (ctx, input) => k.tools.create(ctx, input));
+  await executeConversation(k, s.ctx, (ctx, input) => k.tools.create(ctx, input));
   expect(roles).toEqual(["read", "admin", "write"]);
   const history = await k.conversations.read.forAgent(member.id);
   const checkpoint = (

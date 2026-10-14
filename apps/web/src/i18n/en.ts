@@ -1,4 +1,11 @@
 export const en = {
+  modelQuotaIndependent: "Independent quota",
+  modelQuotaWithEndpoint: "Share with {{name}}",
+  modelConcurrency: "Concurrent model requests",
+  modelQuotaGroup: "Shared quota group (optional)",
+  modelQuotaGroupHint:
+    "Endpoints sharing an upstream account should use the same group. Its concurrency limit applies to every endpoint in the group.",
+
   noApiKey: "No API key",
   storedKey: "Saved; leave blank to keep",
   storedToken: "Leave blank to keep the saved token",

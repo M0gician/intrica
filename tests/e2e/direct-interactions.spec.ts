@@ -110,7 +110,7 @@ test("新画布菜单统一样式，右键创建；协作消息只显示真实�
   await page.getByLabel("Agent 任务").fill("说明任务范围");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.locator(".agent-event-user")).toContainText("说明任务范围");
-  await expect(page.locator(".agent-event-tool")).toBeVisible();
+  await expect(page.locator(".agent-event-tool").filter({ hasText: "读取画布" })).toBeVisible();
   await expect(page.getByRole("button", { name: "返回最新会话", exact: true })).toHaveCount(0);
   await expect(page.locator(".agent-event-run_status")).toContainText("本次运行已结束。");
   const serverId = (await (await request.get(`${api}/api/v2/server`)).json()).id;

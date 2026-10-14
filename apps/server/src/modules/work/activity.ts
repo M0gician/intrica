@@ -1,5 +1,6 @@
 import { type Database, DomainError } from "../../adapters/postgres/database.js";
 import { actionableMessage, currentTeamNotice } from "../execution/messages.js";
+import { modelRequestProjection } from "../model-runtime/status.js";
 import { type CanvasMessagePage, CanvasMessages } from "./canvas-messages.js";
 
 type ActivityFilter = { selection?: string[] | undefined; groupId?: string | undefined };
@@ -27,6 +28,7 @@ export class Activity {
           from model_calls mc where mc.run_id=r.id
             and mc.attempt_id=(select id from attempts where run_id=r.id order by epoch desc limit 1)
           order by mc.started_at desc,mc.id desc limit 1) as model,
+        ${modelRequestProjection("r.id")} as model_request,
         (select coalesce(jsonb_agg(jsonb_build_object('id',p.id,'reviewerId',p.assigned_reviewer_id,'kind',p.action->>'kind','expiresAt',p.expires_at)), '[]'::jsonb) from approvals p where p.subject_id=n.id and p.status='pending') as pending_requests,
         (select coalesce(jsonb_agg(jsonb_build_object('id',t.id,'name',t.name,'elapsedSeconds',greatest(0,extract(epoch from now()-t.updated_at)::int))), '[]'::jsonb) from tool_calls t where t.run_id=r.id and t.state='dispatching') as active_tools,
         (select count(*)::int from messages m where m.conversation_id=c.id and m.seq>c.consumed_message_seq
@@ -59,10 +61,10 @@ export class Activity {
       supersededByRunId: r.superseded_by_run_id ?? null,
       runState: r.state ?? "idle",
       waitReason:
-        r.state === "running" && r.reason === "background"
-          ? "background"
+        r.state === "running" && ["background", "model_queued", "model_retry"].includes(r.reason)
+          ? r.reason
           : r.state === "waiting" &&
-              ["message", "approval", "unknown", "turn_limit"].includes(r.reason)
+              ["message", "approval", "unknown", "turn_limit", "progress_review"].includes(r.reason)
             ? r.reason
             : null,
       cancelRequested: Boolean(r.cancel_requested_at),
@@ -72,6 +74,7 @@ export class Activity {
       pendingRequests: r.pending_requests,
       activeTools: r.active_tools,
       model: r.model ?? null,
+      modelRequest: r.model_request ?? null,
     }));
   }
 
@@ -128,7 +131,7 @@ export class Activity {
       agents: agents.map((a) => ({
         id: a.id,
         status:
-          a.state === "running" && a.reason === "background"
+          a.state === "running" && ["background", "model_queued", "model_retry"].includes(a.reason)
             ? "waiting"
             : a.state === "running" || a.state === "queued"
               ? "working"
@@ -140,7 +143,10 @@ export class Activity {
         seq: Number(a.message_seq ?? 0),
         messageSeq: Number(a.message_seq ?? 0),
         managerId: a.manager_id,
-        waitReason: a.state === "waiting" || a.reason === "background" ? a.reason : null,
+        waitReason:
+          a.state === "waiting" || ["background", "model_queued", "model_retry"].includes(a.reason)
+            ? a.reason
+            : null,
       })),
       ...messages,
       groups: agents

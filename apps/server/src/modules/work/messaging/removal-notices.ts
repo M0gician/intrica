@@ -13,7 +13,7 @@ export async function wakeRemovalNotices(context: MessagingContext) {
     join canvases board on board.id=c.canvas_id and board.deleted_at is null
     left join runs r on r.id=m.run_id
     where ${pendingRemoval}
-    and (m.run_id is null or r.state='waiting' and r.reason in('message','approval','inbox_review')) limit 64`,
+    and (m.run_id is null or r.state='waiting' and r.reason in('message','approval','progress_review','progress_blocked')) limit 64`,
     )
   ).rows;
   for (const inbox of pending)

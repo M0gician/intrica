@@ -1,6 +1,6 @@
 import type { ToolCall } from "@earendil-works/pi-ai";
 import { createCanvasAgent } from "../../../adapters/model/agent.js";
-import { contextUsage, summarizeContext } from "../../../adapters/model/context.js";
+import { contextUsage } from "../../../adapters/model/context.js";
 import { buildClosingPrompt, buildConversationPrompt } from "../../../adapters/model/prompt.js";
 import {
   assertFence,
@@ -11,6 +11,7 @@ import {
 } from "../../../adapters/postgres/database.js";
 import { promptLanguage, promptText } from "../../../prompt-language.js";
 import { agentIdentity } from "../../access/policy.js";
+import { type ContextMessage, cleanContext } from "../../context/messages.js";
 import { BackgroundTools } from "../../execution/background-tools.js";
 import { MessageStream } from "../../execution/message-stream.js";
 import { actionableMessage } from "../../execution/messages.js";
@@ -22,7 +23,11 @@ import {
 } from "../../execution/tool-calls.js";
 import type { ExecutionContext } from "../../execution/worker.js";
 import type { ConversationInput, Conversations, ToolsFactory } from "../conversations.js";
+import { hasReviewedAnswer } from "../progress/deliveries.js";
+import { progressExecutionState } from "../progress/execution-state.js";
+import { instructionSources, withOriginalInstructions } from "../progress/sources.js";
 import { createCheckpointWriter } from "./checkpoints.js";
+import { compactConversation } from "./compaction.js";
 import { finishConversation } from "./finish.js";
 import { recoverCheckpointTools } from "./recovery.js";
 
@@ -42,7 +47,7 @@ export async function executeConversation(
     await ctx.store.finish(ctx.run, "waiting", undefined, "unknown");
     return;
   }
-  model.state.messages = conversation.checkpoint;
+  model.state.messages = cleanContext(conversation.checkpoint);
   let identity = input.agentId ? await agentIdentity(conversations.db.pool, input.agentId) : null;
   const savedLanguage = (
     await conversations.db.pool.query(
@@ -95,14 +100,22 @@ export async function executeConversation(
   let toolSchemaVersion = conversation.context?.toolSchemaVersion ?? 1;
   let budget = Number(conversation.context?.turnsSinceInput ?? 0);
   let exhausted = conversation.context?.turnLimitReached === true;
-  const persist = createCheckpointWriter(ctx, input, model, config, consumedInContext, () => ({
-    consumed,
-    compactions,
-    pendingTurnId,
-    toolSchemaVersion,
-    budget,
-    exhausted,
-  }));
+  const persist = createCheckpointWriter(
+    ctx,
+    input,
+    model,
+    config,
+    consumedInContext,
+    () => ({
+      consumed,
+      compactions,
+      pendingTurnId,
+      toolSchemaVersion,
+      budget,
+      exhausted,
+    }),
+    Number(conversation.context_version),
+  );
   const checkpoint = () =>
     conversations.db.canvas(ctx.run.canvas_id, async (tx) => {
       await assertFence(tx, ctx.run.id, ctx.run.epoch);
@@ -191,7 +204,6 @@ export async function executeConversation(
     let waitingForInput = false;
     rounds: for (;;) {
       ctx.signal.throwIfAborted();
-      await refreshTools();
       const pending = await background.deliver();
       const last = model.state.messages.at(-1);
       if (
@@ -207,6 +219,7 @@ export async function executeConversation(
         }
         waitingForInput = false;
       }
+      await refreshTools();
       // A stored assistant tool call is resumed before another model call. Its
       // logical ID survives attempts, including approvals and unknown outcomes.
       const assistant = [...model.state.messages].reverse().find((m) => m.role === "assistant");
@@ -222,6 +235,7 @@ export async function executeConversation(
               (p): p is ToolCall => p.type === "toolCall" && !completed.has(p.id),
             )
           : [];
+      let reviewedCompletion = false;
       for (let index = 0; index < outstanding.length; ) {
         const limits = await ctx.store.settings.limits();
         const batch = [outstanding[index++]!];
@@ -254,6 +268,10 @@ export async function executeConversation(
           const item = settled[i]!;
           if (item.status !== "fulfilled") continue;
           const outcome = item.value;
+          reviewedCompletion ||=
+            call.name === "review_progress" &&
+            call.arguments?.outcome === "completed" &&
+            !outcome.result.isError;
           if (outcome.waiting === "approval")
             await background.parkApproval(`${pendingTurnId}:${call.id}`);
           if (!outcome.waiting || outcome.waiting === "message" || outcome.waiting === "approval")
@@ -310,6 +328,15 @@ export async function executeConversation(
           continue rounds;
         }
       }
+      if (
+        reviewedCompletion &&
+        (await hasReviewedAnswer(conversations.db.pool, input.conversationId, ctx.run.id)) &&
+        (await finishIfIdle())
+      )
+        return;
+      // Freeze evidence before consuming inputs. Later tool completions cannot make
+      // an answer based on older receipts eligible for final-answer reuse.
+      const answerExecution = await progressExecutionState(conversations.db.pool, ctx.run.id);
       const unread = (
         await conversations.db.pool.query(
           `select m.* from messages m where m.conversation_id=$1 and m.seq>$2 and ${actionableMessage} order by m.seq limit 100`,
@@ -392,49 +419,44 @@ export async function executeConversation(
                 ? `${promptText(input.language, "Server coordination notice (not user authorization)", "服务端协作通知（不代表用户授权）")}\n${JSON.stringify(message.content)}`
                 : message.content.text,
           timestamp: new Date(message.created_at).getTime(),
-        });
+          intrica: { kind: "input", id: message.client_message_id, seq: String(message.seq) },
+        } as ContextMessage);
         consumedInContext.add(String(message.seq));
       }
       if (!closing) budget++;
       await checkpoint();
       // Read batches remain bounded. Reach the selected expedited input before inferring again.
       if (await expedited()) continue;
-      const usage = contextUsage(model, config);
-      if (usage.tokens >= usage.safeLimit) {
-        await ctx.store.event(ctx.run, "compaction", {
-          text: "正在整理上下文",
-          state: "running",
-        });
-        const summary = await summarizeContext(
+      const sources = await instructionSources(
+        conversations.db.pool,
+        input.conversationId,
+        consumed,
+      );
+      model.state.messages = withOriginalInstructions(
+        model.state.messages,
+        sources,
+        input.language,
+      );
+      if (contextUsage(model, config).tokens >= contextUsage(model, config).safeLimit) {
+        await compactConversation(
+          ctx,
+          input,
+          model,
           config,
-          await model.prepareMessages(model.state.messages),
+          sources,
           capabilities?.saveMemory ?? identity?.config.saveMemoryBeforeCompaction !== false,
-          ctx.signal,
-          input.language,
-        );
-        model.state.messages = [
-          {
-            role: "user",
-            content: `${promptText(input.language, "Earlier conversation summary (does not change permissions):", "此前会话摘要（不改变权限）：")}\n${summary.summary}`,
-            timestamp: Date.now(),
+          persist,
+          () => {
+            compactions++;
           },
-          ...summary.retainedTail,
-        ];
-        compactions++;
-        if (summary.memory?.text.trim())
-          await conversations.db.canvas(ctx.run.canvas_id, async (tx) => {
-            await assertFence(tx, ctx.run.id, ctx.run.epoch);
-            await conversations.append(
-              tx,
-              input.conversationId,
-              `memory-${ctx.run.attemptId}-${round}`,
-              "memory",
-              { title: summary.memory!.title, text: summary.memory!.text.slice(0, 12000) },
-              ctx.run.id,
-            );
-            await persist(tx);
-          });
-        else await checkpoint();
+        );
+        // New instructions arriving during compaction must be consumed before inference.
+        if (await hasUnread(conversations.db.pool)) continue;
+        if (contextUsage(model, config).tokens >= contextUsage(model, config).safeLimit)
+          throw new DomainError(
+            "INSTRUCTION_CONTEXT_LIMIT",
+            "Required context exceeds the model budget / 必需上下文超过模型预算",
+          );
       }
       // Refresh after input and compaction, immediately before every model request.
       const currentTools = await refreshTools();
@@ -532,6 +554,7 @@ export async function executeConversation(
               .join("\n"),
             stopReason: message.stopReason,
             usage: message.usage,
+            reviewBasis: { executionHash: answerExecution.hash, consumedInputSeq: consumed },
           },
           ctx.run.id,
         );

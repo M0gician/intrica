@@ -37,7 +37,6 @@ export {
   type AgentMessage,
   checkpointMessages,
   contextUsage,
-  summarizeContext,
 } from "./context.js";
 export { MockRunner } from "./mock.js";
 export {

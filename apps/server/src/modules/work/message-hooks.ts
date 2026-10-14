@@ -1,11 +1,11 @@
-import type { InboxReviewArgs } from "@intrica/contracts";
+import type { ProgressReviewArgs } from "@intrica/contracts";
 import { type Database, DomainError, type Sql, type Tx } from "../../adapters/postgres/database.js";
 import { updateDelivery } from "./messaging/actions.js";
 import type { MessagingContext } from "./messaging/context.js";
 import { deliveries, deliveryStatuses } from "./messaging/deliveries.js";
 import { tickReminders } from "./messaging/reminders.js";
 import { wakeRemovalNotices } from "./messaging/removal-notices.js";
-import { confirmWait, reviewInbox } from "./messaging/review.js";
+import { reviewProgress } from "./progress/review.js";
 
 /** Composition only; delivery, review, reminders and actions have separate modules. */
 export class MessageHooks implements MessagingContext {
@@ -16,17 +16,8 @@ export class MessageHooks implements MessagingContext {
   requests(sql: Sql, conversationId: string) {
     return deliveries(sql, conversationId);
   }
-  review(tx: Tx, conversationId: string, args: InboxReviewArgs) {
-    return reviewInbox(tx, conversationId, args);
-  }
-  confirmWait(
-    tx: Tx,
-    conversationId: string,
-    confirmed?: boolean,
-    token?: string,
-    reason?: string,
-  ) {
-    return confirmWait(tx, conversationId, confirmed, token, reason);
+  review(tx: Tx, conversationId: string, runId: string, args: ProgressReviewArgs) {
+    return reviewProgress(tx, conversationId, runId, args);
   }
   update(
     tx: Tx,

@@ -1,5 +1,10 @@
 import type { en } from "./en";
 export const zh: Record<keyof typeof en, string> = {
+  modelQuotaIndependent: "独立额度",
+  modelQuotaWithEndpoint: "与 {{name}} 共用额度",
+  modelConcurrency: "模型请求并发上限",
+  modelQuotaGroup: "共享额度组（可选）",
+  modelQuotaGroupHint: "使用同一上游账户的端点应填写同一组。并发上限对整组端点生效。",
   noApiKey: "无需 API 密钥",
   storedKey: "已保存，留空保留",
   storedToken: "留空保留已保存的令牌",

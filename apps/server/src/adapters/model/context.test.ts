@@ -1,12 +1,9 @@
 import { createServer } from "node:http";
 import { describe, expect, it } from "vitest";
+import { summarizeContext } from "../../modules/context/summary.js";
+import { parseContextSummary } from "../../modules/context/summary-contract.js";
 import { createCanvasAgent } from "./agent.js";
-import {
-  checkpointMessages,
-  contextUsage,
-  parseContextSummary,
-  summarizeContext,
-} from "./context.js";
+import { checkpointMessages, contextUsage } from "./context.js";
 import { resolveModel } from "./pi.js";
 
 const config = { kind: "mock", streamDelayMs: 0, supportsVision: false } as const;
@@ -80,8 +77,8 @@ describe("Agent context", () => {
         ]),
       ),
     ).not.toContain("PRIVATE_IMAGE_BYTES");
-    expect((await summarizeContext(config, [], false)).memory).toBeUndefined();
-    expect((await summarizeContext(config, [], true)).memory?.text).toBeTruthy();
+    expect((await summarizeContext(config, [], false)).content.memory_text).toBeUndefined();
+    expect((await summarizeContext(config, [], true)).content.memory_text).toBeTruthy();
     const abort = new AbortController();
     abort.abort();
     await expect(summarizeContext(config, [], true, abort.signal)).rejects.toThrow();
@@ -100,7 +97,7 @@ it("summarizes through the configured transport, keeps the recent task, and reje
     seen++;
     res.writeHead(200, { "content-type": "text/event-stream" });
     res.end(
-      `data: ${JSON.stringify({ id: "summary", object: "chat.completion.chunk", model: "summary-test", choices: [{ index: 0, delta: { role: "assistant", content: valid ? JSON.stringify({ summary: "保留关键决策，继续最后任务。", memory: { title: "关键决策", text: "已经确认的结论。" } }) : '{"summary":' }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify({ id: "summary", object: "chat.completion.chunk", model: "summary-test", choices: [{ index: 0, delta: { role: "assistant", content: valid ? JSON.stringify({ facts: ["保留关键决策"], decisions: [], completed_work: [], remaining_work: ["继续最后任务"], source_refs: ["s1"], memory_title: "关键决策", memory_text: "已经确认的结论。" }) : '{"summary":' }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -120,13 +117,13 @@ it("summarizes through the configured transport, keeps the recent task, and reje
   ];
   try {
     const result = await summarizeContext(model, messages, true);
-    expect(result.memory?.title).toBe("关键决策");
+    expect(result.content.memory_title).toBe("关键决策");
     expect(result.retainedTail.at(-1)?.role).toBe("user");
     expect(JSON.stringify(result.retainedTail)).toContain("最后任务");
     expect(JSON.stringify(result.retainedTail)).not.toContain("OLD_DECISION");
     valid = false;
-    await expect(summarizeContext(model, messages, true)).rejects.toThrow("原会话已保留");
-    expect(seen).toBe(3);
+    await expect(summarizeContext(model, messages, true)).rejects.toThrow("checkpoint");
+    expect(seen).toBe(2);
     expect(messages[0]!.content).toContain("OLD_DECISION");
   } finally {
     server.closeAllConnections();
@@ -169,52 +166,19 @@ it("drops incomplete tool pairs when saving a stopped conversation", () => {
   expect(saved).not.toContain("orphan");
 });
 
-it("accepts Markdown and wrapped JSON without making an optional malformed note block compaction", () => {
-  expect(parseContextSummary("## 当前任务\n已核对接口和依赖；下一步检查部署文档。")).toMatchObject({
-    summary: expect.stringContaining("当前任务"),
-  });
+it("rejects promises, arbitrary prose, stale source refs and truncated structured summaries", () => {
+  const refs = new Set(["s1"]);
+  const valid = {
+    facts: ["Observed behavior"],
+    decisions: [],
+    completed_work: [],
+    remaining_work: ["Continue"],
+    source_refs: ["s1"],
+  };
+  expect(parseContextSummary(JSON.stringify(valid), refs)).toEqual(valid);
+  expect(parseContextSummary("我会整理摘要，不继续执行原任务", refs)).toBeNull();
   expect(
-    parseContextSummary('整理如下：\n```json\n{"summary":"继续核查","memory":{"text":123}}\n```'),
-  ).toEqual({ summary: "继续核查" });
-  expect(parseContextSummary('{"summary":')).toBeNull();
-  expect(parseContextSummary("这一段被供应商截断", true)).toBeNull();
-});
-
-it("repairs an incomplete JSON response once with Markdown and preserves the original task", async () => {
-  let calls = 0;
-  const server = createServer(async (req, res) => {
-    for await (const _chunk of req) {
-    }
-    const content =
-      ++calls === 1 ? '{"summary":' : "## 当前任务\n保留原先决策，接下来完成最后的检查。";
-    res.writeHead(200, { "content-type": "text/event-stream" });
-    res.end(
-      `data: ${JSON.stringify({ id: "repair", object: "chat.completion.chunk", model: "repair", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
-    );
-  });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-  try {
-    const summary = await summarizeContext(
-      {
-        kind: "pi",
-        provider: "custom",
-        modelId: "repair",
-        api: "openai-completions",
-        apiKey: "test",
-        baseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`,
-        thinkingLevel: "off",
-      },
-      [
-        { role: "user", content: "此前的任务", timestamp: 0 },
-        { role: "user", content: "继续检查", timestamp: 1 },
-      ],
-      true,
-    );
-    expect(calls).toBe(2);
-    expect(summary.summary).toContain("完成最后");
-    expect(summary.memory).toBeUndefined();
-  } finally {
-    server.closeAllConnections();
-    await new Promise<void>((r) => server.close(() => r()));
-  }
+    parseContextSummary(JSON.stringify({ ...valid, source_refs: ["other-conversation"] }), refs),
+  ).toBeNull();
+  expect(parseContextSummary(JSON.stringify(valid), refs, true)).toBeNull();
 });

@@ -8,7 +8,7 @@ import pg from "pg";
 import { Type } from "typebox";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { Agent } from "../../apps/server/dist/adapters/model/agent.js";
-import * as contextModule from "../../apps/server/dist/adapters/model/context.js";
+import * as contextModule from "../../apps/server/dist/modules/context/summary.js";
 import { DEFAULT_LIMITS } from "../../apps/server/dist/modules/execution/limits.js";
 import type { Lease } from "../../apps/server/dist/modules/execution/store.js";
 import {
@@ -18,6 +18,7 @@ import {
 } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { type ExecutionContext, Worker } from "../../apps/server/dist/modules/execution/worker.js";
 import { finishReview, replyAddresses } from "./helpers/collaboration-model.js";
+import { executeConversation } from "./helpers/execute-conversation.js";
 
 // Only model decisions and the duration of the controlled read are simulated.
 // Inbox, approval, tool persistence, checkpoints and Worker lifecycle use production code.
@@ -60,30 +61,19 @@ function gate() {
 }
 const toolReply = (name: string, args: object = {}): Reply => ({ calls: [{ name, args }] });
 function reviewedWait(model: Agent): Reply {
-  const messages = model.state.messages;
-  const last = messages.at(-1);
-  const reviews = messages.filter((m) => m.role === "toolResult" && m.toolName === "review_inbox");
-  const latest = reviews.at(-1);
-  const value =
-    latest?.role === "toolResult"
-      ? JSON.parse((latest.content[0] as { text: string }).text)
-      : undefined;
-  if (value?.reviewToken && !(last?.role === "toolResult" && last.isError))
-    return toolReply("wait_for_message", {
-      confirmed: true,
-      reviewToken: value.reviewToken,
-      reason: "Remain available for the next interaction in this test scenario",
-    });
-  if (value?.reviewId)
-    return toolReply("review_inbox", {
-      action: "confirm",
-      reviewId: value.reviewId,
-      decisions: value.items.map((item: any) => ({
-        itemId: item.id,
-        action: item.kind === "message" ? "handled" : "wait",
-      })),
-    });
-  return toolReply("review_inbox", { action: "inspect" });
+  const last = model.state.messages.at(-1);
+  if (last?.role === "toolResult" && last.toolName === "read_inbox") {
+    const value = JSON.parse((last.content[0] as { text: string }).text);
+    const dependencies = value.items.filter((i: any) => i.dependency).map((i: any) => i.id);
+    if (dependencies.length)
+      return toolReply("review_progress", {
+        outcome: "waiting",
+        reason: "Await assigned results",
+        remaining_work: "Check and deliver results",
+        dependency_ids: dependencies,
+      });
+  }
+  return toolReply("read_inbox", {});
 }
 const seen = (a: Node) => inputs.get(a.agent!.persona) ?? [];
 const received = (a: Node, text: string) =>
@@ -134,18 +124,34 @@ beforeEach(async () => {
   board = (
     await k.graph.createCanvas({ title: "long-running interactions", idempotencyKey: key() })
   ).node.id;
+  const reviewing = new WeakSet<Agent>();
+  const finalText = new Map<string, string>();
   vi.spyOn(Agent.prototype, "turn").mockImplementation(async function (this: Agent, signal) {
     signal?.throwIfAborted();
     const persona = [...programs.keys()].find((p) => this.state.systemPrompt.includes(p));
     if (!persona) throw new Error("No model fixture registered for this Agent");
     const history = inputs.get(persona) ?? [];
-    history.push({
-      prompt: this.state.systemPrompt,
-      messages: structuredClone(this.state.messages),
-      tools: this.state.tools.map((t) => ({ name: t.name, description: t.description })),
-    });
-    inputs.set(persona, history);
-    const reply = await programs.get(persona)!(this, history.length, signal);
+    const latest = this.state.messages.at(-1);
+    if (latest?.role === "user" && String(latest.content).includes('"hook":"review_progress"'))
+      reviewing.add(this);
+    let reply: Reply;
+    if (reviewing.has(this)) {
+      const decision = finishReview(
+        this.state.messages,
+        finalText.get(persona) ?? "Verified interaction",
+      );
+      reply = "text" in decision ? decision : toolReply(decision.tool, decision.args);
+      if ("text" in reply) reviewing.delete(this);
+    } else {
+      history.push({
+        prompt: this.state.systemPrompt,
+        messages: structuredClone(this.state.messages),
+        tools: this.state.tools.map((t) => ({ name: t.name, description: t.description })),
+      });
+      inputs.set(persona, history);
+      reply = await programs.get(persona)!(this, history.length, signal);
+      if ("text" in reply) finalText.set(persona, reply.text);
+    }
     signal?.throwIfAborted();
     const message: Awaited<ReturnType<Agent["turn"]>> = {
       role: "assistant",
@@ -157,7 +163,7 @@ beforeEach(async () => {
           ? [{ type: "text", text: reply.text }]
           : reply.calls.map((call, i) => ({
               type: "toolCall",
-              id: `call-${history.length}-${i}`,
+              id: reviewing.has(this) ? `review-${key()}` : `call-${history.length}-${i}`,
               name: call.name,
               arguments: call.args,
             })),
@@ -272,7 +278,7 @@ async function start(a: Node) {
 }
 type Session = Awaited<ReturnType<typeof start>>;
 function execute(s: Session, extra: ExecutionTool[] = []) {
-  const execution = k.conversations.execute(s.ctx, async (ctx, input) => {
+  const execution = executeConversation(k, s.ctx, async (ctx, input) => {
     const tools = await k.tools.create(ctx, input);
     tools.push(...extra);
     return tools;
@@ -282,8 +288,12 @@ function execute(s: Session, extra: ExecutionTool[] = []) {
   return execution;
 }
 const calls = async (run: Lease) =>
-  (await k.db.pool.query("select * from tool_calls where run_id=$1 order by created_at", [run.id]))
-    .rows;
+  (
+    await k.db.pool.query(
+      "select * from tool_calls where run_id=$1 and name not in ('review_progress','read_inbox','update_message') order by created_at",
+      [run.id],
+    )
+  ).rows;
 
 it("related work keeps its original context while a new member works in parallel and asks its peer for evidence", async () => {
   const manager = await agent(board, "admin"),
@@ -331,6 +341,7 @@ it("related work keeps its original context while a new member works in parallel
         to: "agent",
         id: experienced.id,
         message: `Continue the previous investigation in this conversation. Share its evidence with ${id}; save and report your related result.`,
+        expectReply: true,
       });
     }
     return contains(model, existingReport) && contains(model, newReport)
@@ -347,12 +358,16 @@ it("related work keeps its original context while a new member works in parallel
     }
     if (existingPhase++ === 1)
       return toolReply("send_message", {
-        to: "agent",
-        id: hired!.id,
+        ...replyAddresses(model.state.messages, hired!.id)[0],
+        kind: "result",
         message: `${answer}: ${evidence}`,
       });
     if (existingPhase === 3)
-      return toolReply("send_message", { to: "manager", kind: "result", message: existingReport });
+      return toolReply("send_message", {
+        ...replyAddresses(model.state.messages, manager.id)[0],
+        kind: "result",
+        message: existingReport,
+      });
     const decision = finishReview(model.state.messages, "Related work delivered");
     return "tool" in decision ? toolReply(decision.tool, decision.args) : decision;
   });
@@ -364,6 +379,7 @@ it("related work keeps its original context while a new member works in parallel
         to: "agent",
         id: experienced.id,
         message: "Please share the previous evidence and relevant decisions.",
+        expectReply: true,
       });
     }
     newEntered = true;
@@ -391,7 +407,7 @@ it("related work keeps its original context while a new member works in parallel
     k.runs,
     {
       conversation: (ctx) =>
-        k.conversations.execute(ctx, (ctx, input) => k.tools.create(ctx, input)),
+        executeConversation(k, ctx, (ctx, input) => k.tools.create(ctx, input)),
       generation: async () => {},
     },
     () => k.access.maintain(),
@@ -425,7 +441,7 @@ it("related work keeps its original context while a new member works in parallel
     )
     .toBe(0);
   expect((await k.conversations.read.forAgent(experienced.id)).id).toBe(original.run.subject_id);
-  expect((await checkpoint(experienced)).slice(0, originalContext.length)).toEqual(originalContext);
+  expect(await checkpoint(experienced)).toEqual(expect.arrayContaining(originalContext));
   expect(await readFile(existingPath, "utf8")).toBe(evidence);
   expect(
     await readFile(join(await k.host.workspace(board, hired!.id), "independent.txt"), "utf8"),
@@ -461,9 +477,10 @@ it("L25 normal work continues past 32 rounds without a manual restart", async ()
   await execute(s);
   expect((await calls(s.run)).filter((c) => c.name === "read_canvas")).toHaveLength(40);
   expect((await k.runs.get(s.run.id)).state).toBe("succeeded");
-  expect((await messages(target)).filter((m) => m.role === "assistant").at(-1)!.content.text).toBe(
-    "investigation delivered",
-  );
+  expect(
+    (await messages(target)).filter((m) => m.role === "assistant" && m.content.text).at(-1)!.content
+      .text,
+  ).toBe("investigation delivered");
 });
 
 it("L26 an explicit turn budget survives approval resume and resets only for new user input", async () => {
@@ -528,7 +545,10 @@ it("L27 an invalid todo update is corrected in the same run and cannot hide the 
   expect((await k.runs.get(s.run.id)).state).toBe("succeeded");
   expect((await calls(s.run)).filter((c) => c.state === "unknown")).toHaveLength(0);
   expect((await k.graph.queries.node(todo.value.id)).text).toContain("[x] deliver");
-  expect((await messages(target)).at(-2)!.content.text).toBe("report saved and task updated");
+  expect(
+    (await messages(target)).filter((m) => m.role === "assistant" && m.content.text).at(-1)!.content
+      .text,
+  ).toBe("report saved and task updated");
 });
 
 it("L28 recovery after a persisted limit summary cannot mark unfinished work succeeded", async () => {
@@ -546,12 +566,17 @@ it("L28 recovery after a persisted limit summary cannot mark unfinished work suc
   });
   await expect(execute(s)).rejects.toThrow("shutdown after summary checkpoint");
   crash.mockRestore();
+  // Review-hook inference is excluded from the business-turn fixture counter.
+  // Recovery must not invoke either kind of inference for an already saved limit summary.
+  const inferenceCount = vi.mocked(Agent.prototype.turn).mock.calls.length;
   await k.runs.fail(s.run, new Error("shutdown"), true);
   await execute(await claim(target));
   expect(await k.runs.get(s.run.id)).toMatchObject({ state: "waiting", reason: "turn_limit" });
+  expect(vi.mocked(Agent.prototype.turn).mock.calls).toHaveLength(inferenceCount);
   expect(seen(target)).toHaveLength(2);
   expect(await calls(s.run)).toHaveLength(1);
   plan(target, () => ({ text: "user continued" }));
+  k.runs.limits.conversationTurns = 4;
   await submit(target, "continue after recovery");
   await execute(await claim(target));
   expect((await k.runs.get(s.run.id)).state).toBe("succeeded");
@@ -702,7 +727,7 @@ it("L30 a manager awaiting its own approval handles a subordinate's request and 
   plan(manager, (_m, turn) =>
     turn === 1
       ? toolReply("read", {
-          target: { kind: "node", nodeId: privateResource.resource.id },
+          nodeId: privateResource.resource.id,
         })
       : { text: "available while approval pending" },
   );
@@ -921,7 +946,13 @@ it("L02 user, downward message, report, broadcast and permission notice interlea
       (entry) => entry.role === "user" && String(entry.content).includes(m.content.text),
     ),
   );
-  expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  // Original instructions have their own ordered authority section; recent inputs retain native order.
+  for (const kind of ["instruction", "input"]) {
+    const seqs = saved
+      .filter((m: any) => m.intrica?.kind === kind)
+      .map((m: any) => BigInt(m.intrica.seq));
+    expect(seqs).toEqual([...seqs].sort((a, b) => (a < b ? -1 : 1)));
+  }
   expect(positions.every((p) => p >= 0)).toBe(true);
   expect(slow.state.calls).toBe(1);
 });
@@ -1287,9 +1318,12 @@ it.each(["before", "after"] as const)(
     let inserted = false;
     vi.spyOn(k.runs, "finish").mockImplementation(async (...args) => {
       if (args[0].id !== s.run.id || args[1] !== "succeeded" || inserted) return finish(...args);
-      inserted = true;
       let completed: boolean | undefined;
-      if (when === "after") completed = await finish(...args);
+      if (when === "after") {
+        completed = await finish(...args);
+        if (!completed) return false;
+      }
+      inserted = true;
       await submit(target, `boundary-user-${when}`);
       await p.call("send_message", {
         to: "agent",
@@ -1335,7 +1369,7 @@ it("L13 the real Worker stops a long tool, consumes old input and does not resta
   plan(target, (_m, turn) => (turn === 1 ? toolReply(slow.tool.name) : { text: "continuing" }));
   const submitted = await submit(target, "worker initial");
   const factory = async (ctx: ExecutionContext) =>
-    k.conversations.execute(ctx, async (ctx, input) => [
+    executeConversation(k, ctx, async (ctx, input) => [
       ...(await k.tools.create(ctx, input)),
       slow.tool,
     ]);
@@ -1403,7 +1437,7 @@ it("L14 a real Worker restart safely retries one pending read and preserves mess
       k.runs,
       {
         conversation: (ctx) =>
-          k.conversations.execute(ctx, async (ctx, input) => [
+          executeConversation(k, ctx, async (ctx, input) => [
             ...(await k.tools.create(ctx, input)),
             slow.tool,
           ]),

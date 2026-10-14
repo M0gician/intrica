@@ -58,13 +58,6 @@ export function teamTools(context: ToolContext) {
       );
     },
   );
-  // Only persisted calls from the old schema may omit the obsolete input on replay.
-  hire.restore = (args, version) => {
-    if (version !== 1) return args;
-    if (!args || typeof args !== "object" || Array.isArray(args)) return args;
-    const { title: _title, ...current } = args;
-    return current;
-  };
   hire.normalize = async (args) => {
     if (args.inheritResources && args.resourceIds?.length)
       throw new DomainError("VALIDATION", "请选择继承全部资源或指定节点，不能同时设置");

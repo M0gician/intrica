@@ -91,6 +91,8 @@ export type ModelEndpointInput = {
   name: string;
   baseUrl: string;
   apiKey?: string;
+  quotaGroupId?: string;
+  concurrency?: number;
 };
 export type ModelEndpointView = {
   id: string;
@@ -98,6 +100,8 @@ export type ModelEndpointView = {
   name: string;
   baseUrl: string;
   hasKey: boolean;
+  quotaGroupId?: string;
+  concurrency?: number;
 };
 export type ManagedModelInput = Omit<ModelProfileInput, "baseUrl" | "apiKey"> & {
   endpointId: string;
@@ -127,3 +131,12 @@ export function effectiveModel(
     return { ready: false, reason: "invalid_selection" as const };
   return { ready: true, profile, endpoint };
 }
+
+/** Safe model admission state; contains no provider request body or credentials. */
+export type ModelRequestStatus = {
+  requestId: string;
+  state: "queued" | "leased" | "streaming" | "retry_wait" | "succeeded" | "failed" | "cancelled";
+  reason: string | null;
+  attempts: number;
+  nextAttemptAt: string | null;
+};

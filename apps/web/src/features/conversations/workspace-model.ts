@@ -1,4 +1,4 @@
-import type { AgentContextUsage } from "@intrica/contracts";
+import type { AgentContextUsage, ModelRequestStatus } from "@intrica/contracts";
 import { tr } from "../../i18n";
 import type { Receipt } from "./InputReceipt";
 import { coalesceToolEvents } from "./tool-display";
@@ -44,7 +44,13 @@ export type ConversationSnapshot = {
   messages: ConversationMessage[];
   unknownTools?: UnknownCall[];
   context?: AgentContextUsage;
-  run?: { id: string; state: string; reason?: string; last_event_seq: string } | null;
+  run?: {
+    id: string;
+    state: string;
+    reason?: string;
+    modelRequest?: ModelRequestStatus | null;
+    last_event_seq: string;
+  } | null;
 };
 export function restoreTurns(value: ConversationSnapshot, sessionId: string): Turn[] {
   const restored: Turn[] = [];

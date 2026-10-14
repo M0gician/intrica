@@ -9,6 +9,8 @@ import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { Agent } from "../../apps/server/dist/adapters/model/agent.js";
 import { DEFAULT_LIMITS } from "../../apps/server/dist/modules/execution/limits.js";
 import { type ExecutionTool, result } from "../../apps/server/dist/modules/execution/tool-calls.js";
+import { finishReview } from "./helpers/collaboration-model.js";
+import { executeConversation } from "./helpers/execute-conversation.js";
 
 // Characterization of a KNOWN LIMITATION, not a safety/regression guarantee:
 // effect=external prevents parallel read batching, but a background receipt does
@@ -119,7 +121,7 @@ it.each(["same-batch", "next-model-turn"] as const)(
       [
         submitted.conversationId,
         JSON.stringify([template]),
-        JSON.stringify({ pendingTurnId: "ordered-intent" }),
+        JSON.stringify({ pendingTurnId: "ordered-intent", toolSchemaVersion: 6 }),
       ],
     );
     const releaseFirst = deferred(),
@@ -141,11 +143,17 @@ it.each(["same-batch", "next-model-turn"] as const)(
         ).toBe(true);
         expect(completions).toEqual([]);
       }
+      const review =
+        completions.length === 2
+          ? finishReview(this.state.messages, "Observed durable tool outcomes.")
+          : { text: "Observe durable tool outcomes." };
       const message: ModelMessage = {
         ...template,
         content: issueSecond
           ? [toolCall("second", path)]
-          : [{ type: "text", text: "Observe durable tool outcomes." }],
+          : "tool" in review
+            ? [{ type: "toolCall", id: key(), name: review.tool, arguments: review.args }]
+            : [{ type: "text", text: review.text }],
         stopReason: issueSecond ? "toolUse" : "stop",
       };
       this.state.messages.push(message);
@@ -169,7 +177,7 @@ it.each(["same-batch", "next-model-turn"] as const)(
       },
     };
     const ctx = { run, store: k.runs, signal: new AbortController().signal, progress() {} };
-    const execution = k.conversations.execute(ctx, async () => [tool]);
+    const execution = executeConversation(k, ctx, async () => [tool]);
     executions.push(execution);
     void execution.catch(() => {});
     try {
@@ -202,7 +210,7 @@ it.each(["same-batch", "next-model-turn"] as const)(
       expect(await readFile(path, "utf8")).toBe("first");
       const calls = (
         await k.db.pool.query(
-          "select id,state,result,args,created_at from tool_calls where run_id=$1 order by created_at,id",
+          "select id,state,result,args,created_at from tool_calls where run_id=$1 and name='write_fixture' order by created_at,id",
           [run.id],
         )
       ).rows;

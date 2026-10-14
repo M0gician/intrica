@@ -13,6 +13,8 @@ import type { Lease } from "../../apps/server/dist/modules/execution/store.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { Worker } from "../../apps/server/dist/modules/execution/worker.js";
 import { expediteInput } from "../../apps/server/dist/modules/work/input-receipts.js";
+import { finishReview } from "./helpers/collaboration-model.js";
+import { executeConversation } from "./helpers/execute-conversation.js";
 
 const key = () => randomUUID();
 const database = `intrica_coordination_${key().replaceAll("-", "")}`;
@@ -43,8 +45,27 @@ beforeAll(async () => {
     });
     const chunk = (delta: object, finish_reason: string | null) =>
       `data: ${JSON.stringify({ id: "provider-response-fixture", object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta, finish_reason }], usage: { prompt_tokens: 120, completion_tokens: 12, total_tokens: 132, prompt_tokens_details: { cached_tokens: 20 } } })}\n\n`;
+    const response = input.messages.some(
+      (m: any) => m.role === "user" && String(m.content).includes('"hook":"review_progress"'),
+    )
+      ? finishReview(input.messages, "Received.")
+      : { text: "Received." };
+    const delta =
+      "tool" in response
+        ? {
+            role: "assistant",
+            tool_calls: [
+              {
+                index: 0,
+                id: key(),
+                type: "function",
+                function: { name: response.tool, arguments: JSON.stringify(response.args) },
+              },
+            ],
+          }
+        : { role: "assistant", content: response.text };
     res.end(
-      `${chunk({ role: "assistant", content: "Received." }, null)}${chunk({}, "stop")}data: [DONE]\n\n`,
+      `${chunk(delta, null)}${chunk({}, "tool" in response ? "tool_calls" : "stop")}data: [DONE]\n\n`,
     );
   });
   await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
@@ -203,7 +224,7 @@ it("ordinary input stays unread during inference; explicit expedite consumes dis
     ]);
     await execution;
     expect(held.cancelled()).toBe(true);
-    expect(inputs).toHaveLength(2);
+    expect(inputs).toHaveLength(3);
     const messages = (await history(member)).filter((m) => m.role === "user");
     expect(messages.slice(1).map((m) => m.client_message_id)).toEqual([
       first.messageId,
@@ -225,7 +246,7 @@ it("approved independent tools resume within two seconds without interrupting in
   const path = join(directory, "outside-workspace.txt");
   await writeFile(path, "read-once");
   const logical = key(),
-    pending = await call(run, "read", { target: { kind: "path", path } }, logical);
+    pending = await call(run, "read", { path }, logical);
   expect(pending.waiting).toBe("approval");
   await k.db.pool.query(
     "update tool_calls set is_async=true,delivered_at=now() where id=(select origin_call_id from approvals where id=$1)",
@@ -319,7 +340,7 @@ it("a rolled-back checkpoint never publishes a read receipt", async () => {
   );
   try {
     await expect(
-      k.conversations.execute(context(run), (ctx, input) => k.tools.create(ctx, input)),
+      executeConversation(k, context(run), (ctx, input) => k.tools.create(ctx, input)),
     ).rejects.toThrow("fixture rollback");
   } finally {
     failing.mockRestore();
@@ -357,7 +378,7 @@ it("connects request, input, run, attempt and provider IDs in a prompt-free trac
   expect(trace.models[0]).toMatchObject({
     run_id: run.id,
     attempt_id: run.attemptId,
-    request_id: response.headers["x-request-id"],
+    request_id: expect.stringMatching(/^model-request-/),
     provider_request_id: "provider-request-fixture",
     response_id: "provider-response-fixture",
     input_tokens: "120",
