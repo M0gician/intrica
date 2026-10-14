@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.2
+## 0.5.3
 
 - Keep assistant tool calls and their results together when compacting context, including oversized final tool groups.
 - Reject empty summary sources and carry the previous valid summary into the next summary's evidence.
@@ -8,7 +8,7 @@
 - Retain specific summary/budget errors and distinguish the three-attempt summary validation limit from an expired retry window.
 - Database schema 17 and tool schema 6 are unchanged.
 
-See [release notes](docs/releases/v0.5.2.md).
+See [release notes](docs/releases/v0.5.3.md).
 
 ## 0.5.1
 

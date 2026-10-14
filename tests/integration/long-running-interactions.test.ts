@@ -24,6 +24,7 @@ import { executeConversation } from "./helpers/execute-conversation.js";
 // Inbox, approval, tool persistence, checkpoints and Worker lifecycle use production code.
 type Reply = ({ text: string } | { calls: { name: string; args: object }[] }) & {
   usageInput?: number;
+  prelude?: string;
 };
 type Program = (model: Agent, turn: number, signal?: AbortSignal) => Reply | Promise<Reply>;
 type Input = {
@@ -161,12 +162,15 @@ beforeEach(async () => {
       content:
         "text" in reply
           ? [{ type: "text", text: reply.text }]
-          : reply.calls.map((call, i) => ({
-              type: "toolCall",
-              id: reviewing.has(this) ? `review-${key()}` : `call-${history.length}-${i}`,
-              name: call.name,
-              arguments: call.args,
-            })),
+          : [
+              ...(reply.prelude ? [{ type: "text" as const, text: reply.prelude }] : []),
+              ...reply.calls.map((call, i) => ({
+                type: "toolCall" as const,
+                id: reviewing.has(this) ? `review-${key()}` : `call-${history.length}-${i}`,
+                name: call.name,
+                arguments: call.args,
+              })),
+            ],
       stopReason: "text" in reply ? "stop" : "toolUse",
       timestamp: Date.now(),
       usage: {
@@ -1649,7 +1653,13 @@ it("L18 input arriving during compaction and a pending tool result survive into 
     return summarize(...args);
   });
   plan(target, (_m, turn) =>
-    turn === 1 ? { ...toolReply(slow.tool.name), usageInput: 500000 } : { text: "continuing" },
+    turn === 1
+      ? {
+          ...toolReply(slow.tool.name),
+          // Real history must shrink; a fabricated usage count alone cannot prove compaction.
+          prelude: "Verified earlier observation.\n".repeat(18000),
+        }
+      : { text: "continuing" },
   );
   const execution = execute(s, [slow.tool]);
   await entered.promise;

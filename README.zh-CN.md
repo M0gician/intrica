@@ -10,20 +10,20 @@
 
 ## 安装
 
-当前版本为 [v0.5.2](https://github.com/M0gician/intrica/releases/tag/v0.5.2)。下载安装包、检查更新和拉取容器镜像均无需 GitHub 账号、个人访问令牌或 GitHub CLI。桌面版自带 Node.js、PostgreSQL 和 Web 界面，无需单独安装这些组件。
+当前版本为 [v0.5.3](https://github.com/M0gician/intrica/releases/tag/v0.5.3)。下载安装包、检查更新和拉取容器镜像均无需 GitHub 账号、个人访问令牌或 GitHub CLI。桌面版自带 Node.js、PostgreSQL 和 Web 界面，无需单独安装这些组件。
 
 | 平台 | 下载 | 安装方式 |
 | --- | --- | --- |
-| macOS，Apple Silicon | [DMG](https://github.com/M0gician/intrica/releases/download/v0.5.2/Intrica-0.5.2-mac-arm64.dmg) · [ZIP](https://github.com/M0gician/intrica/releases/download/v0.5.2/Intrica-0.5.2-mac-arm64.zip) | 将 `Intrica.app` 复制到“应用程序” |
-| Linux x64，Debian/Ubuntu | [DEB](https://github.com/M0gician/intrica/releases/download/v0.5.2/Intrica-0.5.2-linux-amd64.deb) | 使用 `apt` 安装 |
-| Linux x64，其他 glibc 发行版 | [AppImage](https://github.com/M0gician/intrica/releases/download/v0.5.2/Intrica-0.5.2-linux-x86_64.AppImage) | 添加执行权限后运行 |
+| macOS，Apple Silicon | [DMG](https://github.com/M0gician/intrica/releases/download/v0.5.3/Intrica-0.5.3-mac-arm64.dmg) · [ZIP](https://github.com/M0gician/intrica/releases/download/v0.5.3/Intrica-0.5.3-mac-arm64.zip) | 将 `Intrica.app` 复制到“应用程序” |
+| Linux x64，Debian/Ubuntu | [DEB](https://github.com/M0gician/intrica/releases/download/v0.5.3/Intrica-0.5.3-linux-amd64.deb) | 使用 `apt` 安装 |
+| Linux x64，其他 glibc 发行版 | [AppImage](https://github.com/M0gician/intrica/releases/download/v0.5.3/Intrica-0.5.3-linux-x86_64.AppImage) | 添加执行权限后运行 |
 
 Linux 发布检查使用 Ubuntu 22.04 x64。不提供 Windows、Intel Mac、Linux arm64 或 Alpine/musl 安装包。没有图形界面的 Linux x64 主机请使用[服务器安装方式](#服务器安装)。
 
 ### macOS
 
 1. 下载并打开 DMG，将 `Intrica.app` 拖入“应用程序”。也可以解压 ZIP，再将 `Intrica.app` 移入“应用程序”。
-2. 从“应用程序”打开 Intrica。**v0.5.2 使用临时签名（ad-hoc signing），未经 Apple 公证。** 如果 macOS 拦截启动，关闭提示，打开“系统设置 → 隐私与安全性”，选择“仍要打开”，再确认打开 Intrica。
+2. 从“应用程序”打开 Intrica。**v0.5.3 使用临时签名（ad-hoc signing），未经 Apple 公证。** 如果 macOS 拦截启动，关闭提示，打开“系统设置 → 隐私与安全性”，选择“仍要打开”，再确认打开 Intrica。
 3. 如果没有“仍要打开”选项，请向设备管理员核实安全策略。不要全局关闭 Gatekeeper。
 
 替换已有应用前，先退出 Intrica；升级前备份工作区，见[更新与备份](#更新与备份)。
@@ -33,34 +33,34 @@ Linux 发布检查使用 Ubuntu 22.04 x64。不提供 Windows、Intel Mac、Linu
 在 Debian 或 Ubuntu 上，进入安装包所在目录后运行：
 
 ```sh
-sudo apt install ./Intrica-0.5.2-linux-amd64.deb
+sudo apt install ./Intrica-0.5.3-linux-amd64.deb
 intrica
 ```
 
 AppImage 需要图形桌面会话：
 
 ```sh
-chmod +x Intrica-0.5.2-linux-x86_64.AppImage
-./Intrica-0.5.2-linux-x86_64.AppImage
+chmod +x Intrica-0.5.3-linux-x86_64.AppImage
+./Intrica-0.5.3-linux-x86_64.AppImage
 ```
 
 如果没有可用的 FUSE 2，使用 AppImage 的解压运行模式：
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 ./Intrica-0.5.2-linux-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./Intrica-0.5.3-linux-x86_64.AppImage
 ```
 
 以普通用户运行桌面应用。没有图形桌面的主机使用原生服务器包或容器。
 
 ### 校验手动下载的文件
 
-从同一版本下载 [SHA256SUMS](https://github.com/M0gician/intrica/releases/download/v0.5.2/SHA256SUMS)。计算安装包的 SHA-256，与清单中相同文件名对应的值比较。例如：
+从同一版本下载 [SHA256SUMS](https://github.com/M0gician/intrica/releases/download/v0.5.3/SHA256SUMS)。计算安装包的 SHA-256，与清单中相同文件名对应的值比较。例如：
 
 ```sh
 # macOS
-shasum -a 256 Intrica-0.5.2-mac-arm64.dmg
+shasum -a 256 Intrica-0.5.3-mac-arm64.dmg
 # Linux
-sha256sum Intrica-0.5.2-linux-amd64.deb
+sha256sum Intrica-0.5.3-linux-amd64.deb
 ```
 
 校验值不一致时不要安装，应从发布页重新下载。校验值用于核对文件内容，不能代替对发布者的信任判断。
@@ -71,14 +71,14 @@ sha256sum Intrica-0.5.2-linux-amd64.deb
 
 ```sh
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.5.2/install.sh \
+  https://github.com/M0gician/intrica/releases/download/v0.5.3/install.sh \
   -o install.sh
 ```
 
 阅读下载的脚本并退出 Intrica，然后运行：
 
 ```sh
-bash install.sh v0.5.2
+bash install.sh v0.5.3
 ```
 
 脚本会校验安装包。macOS 安装到 `/Applications/Intrica.app`；Debian/Ubuntu 使用 `apt-get` 安装；其他 Linux x64 系统将 AppImage 安装为 `~/.local/bin/intrica`。脚本只在安装需要时申请管理员权限。macOS 首次启动仍需按上述步骤批准。
@@ -114,14 +114,14 @@ linger 检查应输出 `yes`，用户会话检查应成功。使用沙箱模式�
 
 ```sh
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.5.2/install-server.sh \
+  https://github.com/M0gician/intrica/releases/download/v0.5.3/install-server.sh \
   -o install-server.sh
 ```
 
 仍以该非 root 用户运行，不要加 `sudo`：
 
 ```sh
-bash install-server.sh v0.5.2
+bash install-server.sh v0.5.3
 systemctl --user status intrica-server
 curl --fail http://127.0.0.1:3001/api/v2/ready
 ```
@@ -129,7 +129,7 @@ curl --fail http://127.0.0.1:3001/api/v2/ready
 如果主机不允许创建用户命名空间，可以明确选择**无沙箱模式**，用以下命令替代默认安装命令：
 
 ```sh
-bash install-server.sh v0.5.2 --no-sandbox
+bash install-server.sh v0.5.3 --no-sandbox
 ```
 
 请使用无 sudo 权限且不存放个人凭据的专用服务账号。应用权限检查仍然生效，但 shell 和 MCP 命令能够访问该账号可用的全部文件和网络资源，工作目录不会限制其访问范围。此操作不修改内核设置。升级保留所选模式；主机通过隔离检查后，可用 `--sandbox` 恢复默认沙箱。详见[执行模式说明](docs/self-hosting.md#explicit-no-sandbox-mode)。
@@ -162,12 +162,12 @@ ssh -N -L 127.0.0.1:3301:127.0.0.1:3001 intrica-host
 mkdir intrica-deployment
 cd intrica-deployment
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.5.2/compose.release.yaml \
+  https://github.com/M0gician/intrica/releases/download/v0.5.3/compose.release.yaml \
   -o compose.release.yaml
 openssl rand -hex 32
 ```
 
-用编辑器在该目录创建 `.env`。从 [intrica-update.json](https://github.com/M0gician/intrica/releases/download/v0.5.2/intrica-update.json) 复制完整的 `serverImage` 值到 `INTRICA_IMAGE`，替换下方镜像摘要占位值。将令牌占位值替换为刚生成的随机值并妥善保管：
+用编辑器在该目录创建 `.env`。从 [intrica-update.json](https://github.com/M0gician/intrica/releases/download/v0.5.3/intrica-update.json) 复制完整的 `serverImage` 值到 `INTRICA_IMAGE`，替换下方镜像摘要占位值。将令牌占位值替换为刚生成的随机值并妥善保管：
 
 ```ini
 INTRICA_IMAGE=ghcr.io/m0gician/intrica@sha256:RELEASE_DIGEST
@@ -189,7 +189,7 @@ docker compose -f compose.release.yaml ps
 安装 Git、Node.js **24.18.0** 和 pnpm **11.20.0**，然后运行：
 
 ```sh
-git clone --branch v0.5.2 --depth 1 https://github.com/M0gician/intrica.git
+git clone --branch v0.5.3 --depth 1 https://github.com/M0gician/intrica.git
 cd intrica
 pnpm install --frozen-lockfile
 pnpm --filter @intrica/desktop run prepare:app
@@ -206,7 +206,7 @@ HOST=127.0.0.1 pnpm web
 
 ## 更新与备份
 
-在支持自动安装的桌面版中，选择“设置 → 版本与更新 → 更新并重启”。应用保存草稿、停止本地服务、替换应用并重新启动，检查实际版本及原工作区后才显示完成。macOS v0.5.2 使用临时签名，需要手动安装：选择“下载并手动安装”，退出 Intrica，将新版复制到“应用程序”并替换旧版，再重新打开。工作区数据会保留。桌面更新包含内置服务器，远程服务器需单独更新。
+在支持自动安装的桌面版中，选择“设置 → 版本与更新 → 更新并重启”。应用保存草稿、停止本地服务、替换应用并重新启动，检查实际版本及原工作区后才显示完成。macOS v0.5.3 使用临时签名，需要手动安装：选择“下载并手动安装”，退出 Intrica，将新版复制到“应用程序”并替换旧版，再重新打开。工作区数据会保留。桌面更新包含内置服务器，远程服务器需单独更新。
 
 升级前停止所有应用写入进程，备份 PostgreSQL 和完整数据目录。桌面版退出后，复制以下完整目录：
 
