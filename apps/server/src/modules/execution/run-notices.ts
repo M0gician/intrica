@@ -6,7 +6,7 @@ export function failureReason(error: unknown) {
   if (error instanceof DomainError) return error.message;
   const message = error instanceof Error ? error.message : "";
   if (
-    /^MODEL_(AUTH|BALANCE|CAPACITY|OVERLOADED|RATE_LIMIT|COOLDOWN|TIMEOUT|NETWORK|CONFIGURATION|ROLE_UNSUPPORTED):/.test(
+    /^(?:MODEL_(AUTH|BALANCE|CAPACITY|OVERLOADED|RATE_LIMIT|COOLDOWN|TIMEOUT|NETWORK|CONFIGURATION|ROLE_UNSUPPORTED)|CONTEXT_(EMPTY_SOURCE|SOURCE_LIMIT|SUMMARY_INVALID|COMPACTION_LIMIT)|INSTRUCTION_CONTEXT_LIMIT):/.test(
       message,
     )
   )

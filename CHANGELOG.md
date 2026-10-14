@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.2
+
+- Keep assistant tool calls and their results together when compacting context, including oversized final tool groups.
+- Reject empty summary sources and carry the previous valid summary into the next summary's evidence.
+- Validate context reduction and the complete input budget before atomically saving a checkpoint, summary, memory and compaction count; preserve the original state on failure or cancellation.
+- Retain specific summary/budget errors and distinguish the three-attempt summary validation limit from an expired retry window.
+- Database schema 17 and tool schema 6 are unchanged.
+
+See [release notes](docs/releases/v0.5.2.md).
+
 ## 0.5.1
 
 - Include the ripgrep platform binary in desktop packages so file searches work without a separately installed `rg`.

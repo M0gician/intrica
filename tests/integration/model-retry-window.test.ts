@@ -1,4 +1,6 @@
 import { expect, it } from "vitest";
+import { DomainError } from "../../apps/server/dist/adapters/postgres/database.js";
+import { failureReason } from "../../apps/server/dist/modules/execution/run-notices.js";
 import { ModelQueue } from "../../apps/server/dist/modules/model-runtime/queue.js";
 import { scheduledStream } from "../../apps/server/dist/modules/model-runtime/stream.js";
 import { k, key } from "./helpers/runtime-redesign.js";
@@ -89,4 +91,49 @@ it("does not dispatch an already eligible retry after its recovery window expire
     stopReason: "error",
     errorMessage: expect.stringContaining("MODEL_COOLDOWN"),
   });
+});
+
+it("stops summary validation after three attempts and preserves the specific failure", async () => {
+  const { queue } = await request();
+  let attempts = 0;
+  const stream = await scheduledStream(
+    () =>
+      ({
+        async *[Symbol.asyncIterator]() {
+          attempts++;
+          yield {
+            type: "done",
+            reason: "stop",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "Invalid summary" }],
+              stopReason: "stop",
+            },
+          };
+        },
+      }) as any,
+    {
+      queue,
+      validate: () => {
+        throw new DomainError(
+          "CONTEXT_SUMMARY_INVALID",
+          "CONTEXT_SUMMARY_INVALID: invalid reference",
+        );
+      },
+    },
+  )({ id: "test", provider: "custom", api: "openai-completions" } as any, { messages: [] });
+  const result = await stream.result();
+  expect(attempts).toBe(3);
+  expect(result.errorMessage).toContain("CONTEXT_SUMMARY_INVALID");
+  expect(result.errorMessage).toContain("after 3 attempts");
+  expect(result.errorMessage).toContain("连续 3 次失败");
+  expect(result.errorMessage).not.toContain("retry window ended");
+  expect(failureReason(new Error(result.errorMessage))).toBe(result.errorMessage);
+  expect(
+    (
+      await k.db.pool.query("select state,attempts from model_requests where id=$1", [
+        queue.request.id,
+      ])
+    ).rows[0],
+  ).toEqual({ state: "failed", attempts: 3 });
 });

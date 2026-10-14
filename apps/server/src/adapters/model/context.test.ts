@@ -77,8 +77,9 @@ describe("Agent context", () => {
         ]),
       ),
     ).not.toContain("PRIVATE_IMAGE_BYTES");
-    expect((await summarizeContext(config, [], false)).content.memory_text).toBeUndefined();
-    expect((await summarizeContext(config, [], true)).content.memory_text).toBeTruthy();
+    const history = [{ role: "user" as const, content: "Keep this decision", timestamp: 0 }];
+    expect((await summarizeContext(config, history, false)).content.memory_text).toBeUndefined();
+    expect((await summarizeContext(config, history, true)).content.memory_text).toBeTruthy();
     const abort = new AbortController();
     abort.abort();
     await expect(summarizeContext(config, [], true, abort.signal)).rejects.toThrow();
@@ -116,6 +117,10 @@ it("summarizes through the configured transport, keeps the recent task, and reje
     { role: "user" as const, content: "最后任务", timestamp: 1 },
   ];
   try {
+    await expect(summarizeContext(model, [], true)).rejects.toMatchObject({
+      code: "CONTEXT_EMPTY_SOURCE",
+    });
+    expect(seen).toBe(0);
     const result = await summarizeContext(model, messages, true);
     expect(result.content.memory_title).toBe("关键决策");
     expect(result.retainedTail.at(-1)?.role).toBe("user");
