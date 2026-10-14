@@ -4,6 +4,12 @@ import type { Node } from "@intrica/contracts";
 import { expect, test } from "@playwright/test";
 import { API_URL } from "./environment.mjs";
 
+test.afterEach(async ({ page }) => {
+  // Collaboration updates can still be fetching when the last assertion passes.
+  // Drain route handlers before Playwright disposes their response bodies.
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 test("Agent identity moves into the collaboration bar as the profile leaves view", async ({
   page,
   request,
