@@ -282,6 +282,10 @@ it("read cursors bind targets, preserve complete content and cannot grant indexe
   await writeFile(`${path}.other`, "Different authorized content");
   const first = await s.call("read", { path });
   expect(first.value.nextCursor).toEqual(expect.any(String));
+  const otherConversation = await start();
+  expect(
+    (await otherConversation.call("read", { cursor: first.value.nextCursor })).value.error.code,
+  ).toBe("READ_CURSOR_EXPIRED");
   const resumed = await s.call("read", { cursor: first.value.nextCursor });
   expect(resumed.result.isError).not.toBe(true);
   expect(

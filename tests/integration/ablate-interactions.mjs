@@ -62,16 +62,23 @@ const cases = [
   ],
   [
     "atomic edit overlap validation",
-    "../adapters/host/file-io.js",
-    "if(edit.start<end)invalid('修改范围不能重叠');",
-    "",
+    "../adapters/host/files/edit.js",
+    "if (edit.start < end)",
+    "if (false)",
     "owner and Agent file operations share contracts",
   ],
   [
-    "read cursor target binding",
+    "read cursor input binding",
     "work/tools/read.js",
-    "decoded.target !== digest(target)",
-    "false",
+    "if (Object.keys(args).length !== 1)",
+    "if (false)",
+    "read cursors bind targets",
+  ],
+  [
+    "read cursor conversation binding",
+    "work/tools/read.js",
+    "conversation_id=$3 and expires_at>now()",
+    "($3::text is not null) and expires_at>now()",
     "read cursors bind targets",
   ],
   [
@@ -118,9 +125,9 @@ const cases = [
   ],
   [
     "file mode preservation",
-    "../adapters/host/file-io.js",
-    "if(previous)await handle.chmod(previous.mode&0o777);",
-    "",
+    "../adapters/host/files/edit.js",
+    "await handle.chmod(previous.mode & 0o777);",
+    "await Promise.resolve();",
     "T49 atomic text editing",
   ],
   [
