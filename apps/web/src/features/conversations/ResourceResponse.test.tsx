@@ -1,7 +1,7 @@
 import type { ResourceResponseStatus } from "@intrica/contracts";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { setLanguage } from "../../i18n";
+import { cleanup, fireEvent, render, screen } from "../../test/render";
 import { ResourceResponse } from "./ResourceResponse";
 
 afterEach(cleanup);

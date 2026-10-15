@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { API_URL } from "./environment.mjs";
+import { ablatePortraits, visualAblations } from "./experiments/visual-ablations";
 
 const api = API_URL;
 
@@ -124,49 +124,5 @@ test("六种肤色与不同发型镜框的实际头像样张，移除高反差�
           .length,
     );
   expect(whiteStrokes).toBe(0);
-  await page.evaluate(() => {
-    const sheet = document.createElement("div");
-    sheet.id = "portrait-sheet";
-    sheet.style.cssText =
-      "display:grid;grid-template-columns:repeat(3,220px);gap:18px;padding:24px;background:#f6f3ed;width:744px";
-    for (const card of Array.from(document.querySelectorAll(".agent-photo-card"))) {
-      const clone = card.cloneNode(true) as HTMLElement;
-      clone.style.cssText =
-        "height:280px;padding:8px;background:white;border:1px solid #e3dfd6;border-radius:8px";
-      sheet.appendChild(clone);
-    }
-    document.body.replaceChildren(sheet);
-    document.body.style.overflow = "auto";
-  });
-  await page.setViewportSize({ width: 760, height: 1860 });
-  await page.screenshot({ path: test.info().outputPath("warm-portraits.png"), fullPage: true });
-  // Restore the rejected uniform pale feature color as a visual ablation, without changing stored data.
-  await page.evaluate(() => {
-    for (const el of Array.from(
-      document.querySelectorAll(
-        '[data-feature="brows"], [data-feature="nose"] path, [data-feature="mouth"] path, [data-feature="glasses"]',
-      ),
-    )) {
-      el.setAttribute("stroke", "#fff8ee");
-      el.setAttribute("stroke-width", "2.8");
-    }
-  });
-  await page.screenshot({
-    path: test.info().outputPath("white-line-ablation.png"),
-    fullPage: true,
-  });
-  writeFileSync(
-    test.info().outputPath("portrait-review.json"),
-    JSON.stringify(
-      {
-        portraits: 18,
-        skinTones: 6,
-        whiteFeatureStrokes: whiteStrokes,
-        method:
-          "Production card DOM. Comparison changes only face and frame strokes to the rejected pale color.",
-      },
-      null,
-      2,
-    ),
-  );
+  if (visualAblations) await ablatePortraits(page, whiteStrokes);
 });

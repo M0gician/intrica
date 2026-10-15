@@ -1,7 +1,7 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConnectionServices, createSessionConnection } from "../../api/connection";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "../../test/render";
 import { WorkspacePanel } from "../WorkspacePanel";
 
 vi.mock("../FilesPanel", () => ({

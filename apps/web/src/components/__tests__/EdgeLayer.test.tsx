@@ -1,7 +1,7 @@
 import type { Edge, Rect } from "@intrica/contracts";
-import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { makeEdge } from "../../test/factories";
+import { fireEvent, render, screen } from "../../test/render";
 import { EdgeLayer } from "../EdgeLayer";
 
 const RECTS: ReadonlyMap<string, Rect> = new Map([

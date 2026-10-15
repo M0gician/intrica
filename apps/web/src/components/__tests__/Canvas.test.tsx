@@ -1,8 +1,20 @@
 import type { Node, SnapshotResponse } from "@intrica/contracts";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceController } from "../../state/controller";
-import { store } from "../../state/store";
+import { createStore, type Store } from "../../state/store";
+import {
+  act,
+  fireEvent,
+  render as renderWithServices,
+  screen,
+  waitFor,
+  within,
+} from "../../test/render";
+
+let store: Store;
+const render = (ui: ReactNode) => renderWithServices(ui, { store });
+
 import type { OverlaySpaceState } from "../../state/types";
 import { makeNode, makeOperation } from "../../test/factories";
 import { Canvas } from "../Canvas";
@@ -178,6 +190,7 @@ function nodeArticle(name: string | RegExp): HTMLElement {
 }
 
 beforeEach(() => {
+  store = createStore();
   resetStore();
 });
 

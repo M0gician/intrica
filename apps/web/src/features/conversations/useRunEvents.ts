@@ -26,41 +26,43 @@ export function useRunEvents({
   useEffect(() => {
     if (!active || !runId) return;
     let closed = false;
-    let stream: StreamHandle;
+    let stream: StreamHandle | undefined;
     let message: StreamMessage | undefined;
+    let recovering = false;
+    const restore = async () => {
+      if (closed || recovering) return;
+      recovering = true;
+      stream?.close();
+      message = undefined;
+      try {
+        const next = await current.current.recover();
+        recovering = false;
+        if (!closed && next?.runId === runId) connect(next.cursor);
+      } catch (error) {
+        if (!closed) current.current.onError(error);
+      } finally {
+        recovering = false;
+      }
+    };
     const connect = (after: string) => {
       stream = transport.subscribe(
         `/api/v2/runs/${encodeURIComponent(runId)}/events?format=delta`,
         after,
         {
           onEvent(event) {
-            if (closed) return;
+            if (closed || recovering) return;
             if (event.type === "message" || event.type === "stream.snapshot") {
               try {
                 message = applyMessage(message, event.payload);
               } catch {
-                stream.close();
-                message = undefined;
-                void current.current
-                  .recover()
-                  .then((next) => {
-                    if (!closed && next?.runId === runId) connect(next.cursor);
-                  })
-                  .catch((error) => current.current.onError(error));
+                void restore();
                 return;
               }
               current.current.onEvent({ ...event, type: "message", payload: message });
             } else current.current.onEvent(event);
           },
           onReset() {
-            void current.current
-              .recover()
-              .then((next) => {
-                if (!closed && next?.runId === runId) connect(next.cursor);
-              })
-              .catch((error) => {
-                if (!closed) current.current.onError(error);
-              });
+            void restore();
           },
           onError(error) {
             if (!closed) current.current.onError(error);
@@ -71,7 +73,7 @@ export function useRunEvents({
     connect(current.current.cursor);
     return () => {
       closed = true;
-      stream.close();
+      stream?.close();
     };
   }, [active, runId, transport]);
 }

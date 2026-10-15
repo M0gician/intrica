@@ -8,6 +8,22 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "../..");
+if (process.env.INTRICA_ABLATION_DATABASE !== "1") {
+  const child = spawnSync(
+    process.execPath,
+    ["scripts/ci-tests.mjs", "ablation", ...process.argv.slice(2)],
+    {
+      cwd: root,
+      stdio: "inherit",
+    },
+  );
+  if (child.error) throw child.error;
+  process.exit(child.status ?? 1);
+}
+assert.ok(
+  process.env.INTRICA_TEST_ADMIN_URL,
+  "Ablations require the wrapper's isolated PostgreSQL cluster",
+);
 const output = join(import.meta.dirname, "test-results/ablation");
 await mkdir(output, { recursive: true });
 const cases = [
@@ -599,10 +615,13 @@ function run(
 ) {
   const report = join(output, `${name}.json`);
   const child = spawnSync(
-    process.execPath,
+    "pnpm",
     [
-      "scripts/ci-tests.mjs",
-      "integration",
+      "--filter",
+      "@intrica/tests-integration",
+      "exec",
+      "vitest",
+      "run",
       ...files,
       "-t",
       pattern,

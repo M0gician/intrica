@@ -62,6 +62,18 @@ Run `node tests/integration/ablate-interactions.mjs` separately. It mutates
 generated modules one at a time and restores their bytes. No other test or
 build may use that output directory during the experiment.
 
+The safety runner delegates to `node scripts/ci-tests.mjs ablation`, which
+owns one temporary PostgreSQL cluster for the whole experiment. Large-data
+timing and historical visual comparisons are separate, opt-in runs:
+
+```sh
+node scripts/ci-tests.mjs benchmark
+node scripts/ci-tests.mjs visual
+```
+
+See the [cleanup audit](development/cleanup-audit-2026-10-15.md) for retained
+compatibility checks, fixed historical schemas and query-count validation.
+
 Prefer business-level tests with real database, HTTP, worker and file
 operations. Check permission boundaries, durable outcomes and exactly-once
 effects, not just an assistant's final text. New UI tests should use

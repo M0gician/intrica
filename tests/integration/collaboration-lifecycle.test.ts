@@ -6,9 +6,15 @@ import type { AgentRole } from "@intrica/contracts";
 import { buildServer, type Kernel } from "@intrica/server";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
-import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { completionState } from "../../apps/server/dist/modules/work/progress/completion.js";
 import { executeConversation } from "./helpers/execute-conversation.js";
+import {
+  consumeInput,
+  createAgent,
+  readMessageNotices,
+  reviewProgress,
+  startToolSession,
+} from "./helpers/tool-session.js";
 
 const key = (): string => randomUUID();
 const database = `intrica_lifecycle_${key().replaceAll("-", "")}`;
@@ -55,78 +61,20 @@ afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 async function agent(parentId = board, enabled = false, role: AgentRole = "write") {
-  return (
-    await k.graph.createNode({
-      kind: "agent",
-      title: "Member",
-      parentId,
-      position,
-      agent: { role, persona: "", enabled },
-      idempotencyKey: key(),
-    })
-  ).node;
+  return createAgent(k, parentId, enabled, role);
 }
 async function start(agentId?: string) {
-  await k.conversations.submit({
-    canvasId: board,
-    ...(agentId ? { agentId } : {}),
-    message: "Contract verification",
-    key: key(),
-  });
-  const run = (await k.runs.claim("contracts"))!;
-  const ctx = { run, store: k.runs, signal: new AbortController().signal, progress() {} };
-  const tools = await k.tools.create(ctx, run.frozen_input);
-  return {
-    run,
-    ctx,
-    tools,
-    async call(name: string, args: object, logical = key()) {
-      const t = tools.find((t) => t.name === name) ?? name;
-      const response = await invokeTool(ctx, t, logical, args);
-      const text = (response.result.content[0] as { text: string }).text;
-      let value: any;
-      try {
-        value = JSON.parse(text);
-      } catch {
-        value = text;
-      }
-      return { ...response, value, logical };
-    },
-  };
+  return startToolSession(k, board, agentId);
 }
 
 async function review(s: Awaited<ReturnType<typeof start>>) {
-  await consume(s);
-  const inbox = (await s.call("read_inbox", {})).value;
-  const dependencies = inbox.items.filter((i: any) => i.dependency).map((i: any) => i.id);
-  return s.call(
-    "review_progress",
-    dependencies.length
-      ? {
-          outcome: "waiting",
-          reason: "Await verification",
-          remaining_work: "Deliver result",
-          dependency_ids: dependencies,
-        }
-      : { outcome: "completed", reason: "The assigned results are verified and delivered" },
-  );
+  return reviewProgress(k, s);
 }
 async function consume(s: Awaited<ReturnType<typeof start>>) {
-  await k.db.pool.query("update conversations set consumed_message_seq=message_seq where id=$1", [
-    s.run.subject_id,
-  ]);
-  await k.db.pool.query(
-    "update messages set consumed_at=now(),consumed_run_id=$2 where conversation_id=$1 and consumed_run_id is null",
-    [s.run.subject_id, s.run.id],
-  );
+  return consumeInput(k, s);
 }
 async function notices(conversationId: string) {
-  return (
-    await k.db.pool.query(
-      "select * from messages where conversation_id=$1 and role='message_notice' order by seq",
-      [conversationId],
-    )
-  ).rows;
+  return readMessageNotices(k, conversationId);
 }
 
 it("wakes a normally finished sender for unread FYI without a reply expectation and deduplicates across workers", async () => {

@@ -11,6 +11,7 @@ import { Agent } from "../../apps/server/dist/adapters/model/agent.js";
 import { digest } from "../../apps/server/dist/adapters/postgres/database.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { executeConversation } from "./helpers/execute-conversation.js";
+import { createAgent } from "./helpers/tool-session.js";
 
 const key = () => randomUUID();
 const database = `intrica_contracts_${key().replaceAll("-", "")}`;
@@ -56,16 +57,7 @@ afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 async function agent(parentId = board, enabled = false, role: AgentRole = "write") {
-  return (
-    await k.graph.createNode({
-      kind: "agent",
-      title: "Member",
-      parentId,
-      position,
-      agent: { role, persona: "", enabled },
-      idempotencyKey: key(),
-    })
-  ).node;
+  return createAgent(k, parentId, enabled, role);
 }
 async function start(agentId?: string) {
   await k.conversations.submit({

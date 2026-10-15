@@ -34,6 +34,21 @@ export type Turn = {
   error?: string;
 };
 
+export function withAssistantMessage(
+  turn: Turn,
+  id: string,
+  message: { text?: unknown; thinking?: unknown },
+): Turn {
+  return {
+    ...turn,
+    messages: {
+      ...turn.messages,
+      [id]: { text: String(message.text ?? ""), thinking: String(message.thinking ?? "") },
+    },
+    timeline: turn.messages[id] ? turn.timeline : [...turn.timeline, { kind: "message", id }],
+  };
+}
+
 export type ConversationMessage = {
   seq: number;
   role: string;
@@ -93,11 +108,8 @@ export function restoreTurns(value: ConversationSnapshot, sessionId: string): Tu
     }
     const id = String(message.seq);
     if (message.kind === "assistant") {
-      turn.messages[id] = {
-        text: String(message.data.text ?? ""),
-        thinking: String(message.data.thinking ?? ""),
-      };
-      turn.timeline.push({ kind: "message", id });
+      turn = withAssistantMessage(turn, id, message.data);
+      restored[restored.length - 1] = turn;
     }
     if (message.kind === "tool") {
       turn.tools[id] = {

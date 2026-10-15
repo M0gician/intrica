@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
 import { API_URL } from "./environment.mjs";
+import { ablateBookmark, ablateComposer, visualAblations } from "./experiments/visual-ablations";
 
 const api = `${API_URL}/api/v2`;
 async function setup(page: Page, request: APIRequestContext, title: string) {
@@ -30,7 +31,7 @@ async function create(request: APIRequestContext, parentId: string, extra: objec
   return (await response.json()).node;
 }
 
-test("两种输入框控件靠右，窄侧栏可收缩；移除对齐规则会复现偏移", async ({ page, request }) => {
+test("两种输入框控件靠右，窄侧栏可收缩", async ({ page, request }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const board = await setup(page, request, "输入框对齐");
   const agent = await create(request, board);
@@ -65,14 +66,8 @@ test("两种输入框控件靠右，窄侧栏可收缩；移除对齐规则会�
       expect(bounds.overflow).toBeLessThanOrEqual(1);
       measurements.push({ mode, width, ...bounds });
     }
-    const before = (await toolbar.locator(".context-usage-ring").boundingBox())!.x;
-    const ablated = await page.addStyleTag({
-      content: ".agent-composer-toolbar > .context-usage-ring { margin-left: 0; }",
-    });
-    const shift = before - (await toolbar.locator(".context-usage-ring").boundingBox())!.x;
-    expect(shift).toBeGreaterThan(100);
-    measurements.push({ mode, ablatedShift: shift });
-    await ablated.evaluate((el) => el.parentNode?.removeChild(el));
+    if (visualAblations)
+      measurements.push({ mode, ablatedShift: await ablateComposer(page, toolbar) });
   }
   await test.info().attach("composer-geometry", {
     body: JSON.stringify(measurements, null, 2),
@@ -151,21 +146,7 @@ test("网页地址可修改、失败可重试，预览填满不同宽度的卡�
   await page.getByRole("button", { name: "详情", exact: true }).click();
   await expect(address).toHaveValue("https://example.net/new");
   await page.screenshot({ path: test.info().outputPath("editable-full-width-preview.png") });
-  const ablated = await page.addStyleTag({
-    content:
-      ".bookmark-card-preview { flex: none; aspect-ratio: 16 / 10; height: 124px; align-self: flex-start; }",
-  });
-  const gap = await card.evaluate(
-    (el) =>
-      el.querySelector(".node-card-body")!.getBoundingClientRect().right -
-      el.querySelector(".bookmark-card-preview")!.getBoundingClientRect().right,
-  );
-  expect(gap).toBeGreaterThan(30);
-  await ablated.evaluate((el) => el.parentNode?.removeChild(el));
-  await test.info().attach("preview-geometry", {
-    body: JSON.stringify({ gaps, ablatedRightGap: gap }, null, 2),
-    contentType: "application/json",
-  });
+  if (visualAblations) await ablateBookmark(page, card, gaps);
 });
 
 test("拖入与拖出 Agent 更新容器预览，同步管理关系并可撤销", async ({ page, request }) => {

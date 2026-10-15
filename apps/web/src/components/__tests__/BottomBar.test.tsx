@@ -1,7 +1,7 @@
 import type { Node } from "@intrica/contracts";
-import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { makeNode } from "../../test/factories";
+import { render, screen } from "../../test/render";
 import { BottomBar, computeActionAvailability } from "../BottomBar";
 
 function nodeMap(...nodes: Node[]): ReadonlyMap<string, Node> {

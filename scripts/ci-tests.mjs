@@ -10,8 +10,8 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const mode = process.argv[2];
-if (!["functional", "browser", "integration"].includes(mode))
-  throw new Error("Expected functional, browser or integration");
+if (!["functional", "browser", "integration", "benchmark", "visual", "ablation"].includes(mode))
+  throw new Error("Expected functional, browser, integration, benchmark, visual or ablation");
 const root = fileURLToPath(new URL("..", import.meta.url));
 const require = createRequire(new URL("../apps/server/package.json", import.meta.url));
 const entry = require.resolve("embedded-postgres");
@@ -66,23 +66,35 @@ try {
             "--filter=!@intrica/desktop",
             "test",
           ]
-        : mode === "integration"
+        : mode === "integration" || mode === "benchmark"
           ? [
               "--filter",
               "@intrica/tests-integration",
               "exec",
               "vitest",
               "run",
+              ...(mode === "benchmark" ? ["--config", "vitest.benchmark.config.ts"] : []),
               ...process.argv.slice(3),
             ]
-          : ["--filter", "@intrica/tests-e2e", "test", ...process.argv.slice(3)];
-    child = spawn("pnpm", args, {
+          : mode === "ablation"
+            ? ["tests/integration/ablate-interactions.mjs", ...process.argv.slice(3)]
+            : [
+                "--filter",
+                "@intrica/tests-e2e",
+                "test",
+                ...(mode === "visual" && process.argv.length === 3
+                  ? ["canvas-polish.spec.ts", "sidebar-portraits.spec.ts", "long-history.spec.ts"]
+                  : process.argv.slice(3)),
+              ];
+    child = spawn(mode === "ablation" ? process.execPath : "pnpm", args, {
       cwd: root,
       detached: true,
       stdio: "inherit",
       env: {
         ...process.env,
         TMPDIR: directory,
+        ...(mode === "visual" ? { INTRICA_VISUAL_ABLATIONS: "1" } : {}),
+        ...(mode === "ablation" ? { INTRICA_ABLATION_DATABASE: "1" } : {}),
         INTRICA_TEST_ADMIN_URL: `postgres://intrica_ci:${password}@127.0.0.1:${databasePort}/postgres`,
         INTRICA_E2E_API_PORT: String(apiPort),
         INTRICA_E2E_UI_PORT: String(uiPort),

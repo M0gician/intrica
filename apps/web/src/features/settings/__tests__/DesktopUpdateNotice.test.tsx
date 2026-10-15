@@ -1,4 +1,6 @@
 import type { DesktopUpdateState, DesktopUpdates } from "@intrica/contracts";
+import type { ReactNode } from "react";
+import { afterEach, expect, it, vi } from "vitest";
 import {
   act,
   cleanup,
@@ -6,9 +8,7 @@ import {
   render as renderView,
   screen,
   waitFor,
-} from "@testing-library/react";
-import type { ReactNode } from "react";
-import { afterEach, expect, it, vi } from "vitest";
+} from "../../../test/render";
 import { SettingsContext } from "../context";
 import { DesktopUpdateNotice } from "../DesktopUpdateNotice";
 import {

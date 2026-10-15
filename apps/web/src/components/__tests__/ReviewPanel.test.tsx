@@ -1,7 +1,7 @@
 import type { CandidateNodeProjection } from "@intrica/contracts";
-import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { makeOperation } from "../../test/factories";
+import { render, screen } from "../../test/render";
 import { ReviewPanel } from "../ReviewPanel";
 
 const candidate: CandidateNodeProjection = {

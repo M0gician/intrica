@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConnectionServices, createSessionConnection } from "../../api/connection";
+import { cleanup, fireEvent, render, screen } from "../../test/render";
 import { InputReceipt } from "./InputReceipt";
 
 afterEach(cleanup);

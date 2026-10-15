@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrowserBridge, BrowserState } from "../../desktop/bridge";
+import { act, fireEvent, render, screen, waitFor } from "../../test/render";
 import { BrowserPanel } from "../BrowserPanel";
 
 const idle: BrowserState = {

@@ -14,7 +14,12 @@ import { useGraphValue, useStore, useViewValue } from "../../state/store";
 import type { Receipt } from "./InputReceipt";
 import type { UnknownCall } from "./UnknownTools";
 import { useRunEvents } from "./useRunEvents";
-import { type ConversationSnapshot, restoreTurns, type Turn } from "./workspace-model";
+import {
+  type ConversationSnapshot,
+  restoreTurns,
+  type Turn,
+  withAssistantMessage,
+} from "./workspace-model";
 
 const emptyNodes = new Map<string, Node>();
 const emptySelection = new Set<string>();
@@ -199,19 +204,7 @@ export function useWorkspaceConversation(
         setTurns((current) =>
           current.map((turn, index) =>
             index === current.length - 1
-              ? {
-                  ...turn,
-                  messages: {
-                    ...turn.messages,
-                    [event.payload.id]: {
-                      text: event.payload.text ?? "",
-                      thinking: event.payload.thinking ?? "",
-                    },
-                  },
-                  timeline: turn.messages[event.payload.id]
-                    ? turn.timeline
-                    : [...turn.timeline, { kind: "message", id: event.payload.id }],
-                }
+              ? withAssistantMessage(turn, event.payload.id, event.payload)
               : turn,
           ),
         );
@@ -338,16 +331,7 @@ export function useWorkspaceConversation(
           }
           if (event.type === "input.receipt") readInputs(event.messageIds);
           if (event.type === "message")
-            update((turn) => ({
-              ...turn,
-              timeline: turn.messages[event.id]
-                ? turn.timeline
-                : [...turn.timeline, { kind: "message", id: String(event.id) }],
-              messages: {
-                ...turn.messages,
-                [event.id]: { text: event.text, thinking: event.thinking },
-              },
-            }));
+            update((turn) => withAssistantMessage(turn, String(event.id), event));
           if (event.type === "tool")
             update((turn) => ({
               ...turn,

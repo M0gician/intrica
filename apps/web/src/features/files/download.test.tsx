@@ -1,7 +1,7 @@
 import type { FileDownloadProgress } from "@intrica/contracts";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConnectionServices, createSessionConnection } from "../../api/connection";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "../../test/render";
 import { DownloadStatus, useFileDownload } from "./download";
 
 afterEach(() => {

@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AgentTimeline } from "../../features/conversations/AgentTimeline";
 import type { Activity } from "../../features/conversations/model";
 import { makeNode } from "../../test/factories";
+import { cleanup, fireEvent, render, screen } from "../../test/render";
 import { type AccessRecord, AgentAccessCard } from "../AgentAccessCard";
 
 afterEach(cleanup);

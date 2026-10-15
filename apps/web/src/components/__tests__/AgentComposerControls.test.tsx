@@ -1,5 +1,4 @@
 import type { AgentConfig, EffectiveAgentPermissions } from "@intrica/contracts";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import {
@@ -7,6 +6,7 @@ import {
   createSessionConnection,
   type SessionConnection,
 } from "../../api/connection";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "../../test/render";
 import { AgentComposerControls, type AgentComposerControlsHandle } from "../AgentComposerControls";
 
 const config: AgentConfig = { persona: "核查资料", role: "read", enabled: false };

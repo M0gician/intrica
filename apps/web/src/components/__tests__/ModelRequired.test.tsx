@@ -1,8 +1,8 @@
 import { effectiveModel, type ModelDirectory } from "@intrica/contracts";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConnectionServices, createSessionConnection } from "../../api/connection";
 import { ModelSettingsProvider } from "../../data/models";
+import { act, cleanup, render, screen, waitFor } from "../../test/render";
 import { ComposerAction } from "../ComposerAction";
 import { ModelRequired, useModelReady } from "../ModelRequired";
 

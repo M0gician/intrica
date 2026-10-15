@@ -1,6 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConnectionServices, createSessionConnection } from "../../api/connection";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "../../test/render";
 import { FilesPanel } from "../FilesPanel";
 import { PdfPreview } from "../PdfPreview";
 

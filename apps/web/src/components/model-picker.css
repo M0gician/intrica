@@ -51,7 +51,6 @@
   font-size: 12px;
 }
 .model-menu-heading > span,
-.model-note,
 .model-label {
   color: var(--text-secondary);
 }
@@ -101,11 +100,6 @@
   align-items: center;
   flex: 1;
   justify-content: center;
-}
-.model-note {
-  font-size: 11px;
-  line-height: 1.6;
-  margin: 10px 4px 2px;
 }
 .model-label {
   display: block;

@@ -3,17 +3,9 @@ import { writeFileSync } from "node:fs";
 import { AGENT_CAMEOS, colorContrast, PORTRAIT_SKINS, portraitColors } from "@intrica/contracts";
 import { expect, test } from "@playwright/test";
 import { API_URL } from "./environment.mjs";
+import { createBoard as board } from "./helpers/workspace";
 
 const api = API_URL;
-async function board(request: any, title: string) {
-  return (
-    await (
-      await request.post(`${api}/api/v2/canvases`, {
-        data: { title, idempotencyKey: randomUUID() },
-      })
-    ).json()
-  ).node;
-}
 async function agent(request: any, parentId: string, title: string, index = 0) {
   const res = await request.post(`${api}/api/v2/nodes`, {
     data: {

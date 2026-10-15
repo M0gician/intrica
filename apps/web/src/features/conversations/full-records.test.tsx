@@ -1,12 +1,3 @@
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  renderHook,
-  screen,
-  waitFor,
-} from "@testing-library/react";
 import { type ReactNode, useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import {
@@ -15,6 +6,7 @@ import {
   type SessionConnection,
 } from "../../api/connection";
 import { ToolCallBody } from "../../components/ToolCallDetails";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "../../test/render";
 import { AgentTimeline } from "./AgentTimeline";
 import { FullRecords } from "./full-records";
 import type { Activity } from "./model";

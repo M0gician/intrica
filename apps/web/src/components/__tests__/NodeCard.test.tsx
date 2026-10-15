@@ -1,9 +1,9 @@
 import type { CandidateNodeProjection, Node } from "@intrica/contracts";
-import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CandidateCard } from "../../features/canvas/nodes/CandidateCards";
 import type { NodeCardProps } from "../../features/canvas/nodes/types";
 import { makeNode } from "../../test/factories";
+import { fireEvent, render, screen } from "../../test/render";
 import { NodeCard } from "../NodeCard";
 
 function renderNodeCard(overrides: Partial<NodeCardProps> & { node?: Node } = {}) {

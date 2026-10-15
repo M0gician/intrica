@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "../../test/render";
 import { type AccessRecord, AgentAccessCard } from "../AgentAccessCard";
 
 afterEach(cleanup);

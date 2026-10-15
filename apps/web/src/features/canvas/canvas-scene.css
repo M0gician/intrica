@@ -98,10 +98,6 @@
   opacity: 0.7;
 }
 
-.edge-arrow-marker {
-  fill: var(--primary);
-}
-
 .marquee {
   position: absolute;
   border: 1px dashed var(--primary);

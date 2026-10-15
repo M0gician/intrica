@@ -1,4 +1,3 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   ConnectionServices,
@@ -6,6 +5,7 @@ import {
   type SessionConnection,
 } from "../../api/connection";
 import { setLanguage } from "../../i18n";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "../../test/render";
 import { ContextLibrary } from "./ContextLibrary";
 
 const scopes: SessionConnection[] = [];
