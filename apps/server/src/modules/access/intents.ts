@@ -38,12 +38,7 @@ export function operation(intent: AccessIntent) {
   const { requiredRole: _, ...action } = intent as AccessIntent & { requiredRole?: AgentRole };
   return action;
 }
-export async function reviewerFor(
-  sql: Sql,
-  subject: string,
-  _intent: AccessIntent,
-  after?: string,
-) {
+export async function reviewerFor(sql: Sql, subject: string, after?: string) {
   const chain = await managementChain(sql, subject);
   for (const candidate of chain.slice(after ? chain.indexOf(after) + 1 : 0))
     if ((await agentIdentity(sql, candidate)).config.role === "admin") return candidate;

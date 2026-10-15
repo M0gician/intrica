@@ -63,7 +63,8 @@ export class ModelRegistry {
         return;
       if (!(await tx.query("select id from model_profiles limit 1")).rowCount) {
         if (this.fallback?.kind === "pi") {
-          for (const profile of [initialModelProfile(this.fallback)].filter((p) => p !== null)) {
+          const profile = initialModelProfile(this.fallback);
+          if (profile) {
             const { apiKey, baseUrl, id: profileId, ...config } = profile;
             await tx.query(
               "insert into model_endpoints(id,name,base_url,credential_ref) values($1,$2,$3,$4)",

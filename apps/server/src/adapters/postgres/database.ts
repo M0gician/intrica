@@ -112,109 +112,32 @@ export class Database {
         schemaFile ?? fileURLToPath(new URL("../../../../../db/schema.sql", import.meta.url));
       if (rows[0].name) {
         let version = (await tx.query("select version from intrica.schema_info")).rows[0]?.version;
-        if (version === 2) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0003-async-tools.sql"), "utf8"),
-          );
-          version = 3;
-        }
-        if (version === 3) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0004-agent-hierarchy.sql"), "utf8"),
-          );
-          version = 4;
-        }
-        if (version === 4) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0005-settings.sql"), "utf8"),
-          );
-          version = 5;
-        }
-        if (version === 5) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0006-approvals.sql"), "utf8"),
-          );
-          version = 6;
-        }
-        if (version === 6) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0007-delegated-resources.sql"), "utf8"),
-          );
-          version = 7;
-        }
-        if (version === 7) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0008-pdf-nodes.sql"), "utf8"),
-          );
-          version = 8;
-        }
-        if (version === 8) {
-          await tx.query(
-            await readFile(
-              join(dirname(path), "migrations/0009-conversation-coordination.sql"),
-              "utf8",
-            ),
-          );
-          version = 9;
-        }
-        if (version === 9) {
-          const { migrateToolContracts } = await import("./migrations/tool-contracts.js");
-          await migrateToolContracts(tx);
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0010-tool-contracts.sql"), "utf8"),
-          );
-          version = 10;
-        }
-        if (version === 10) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0011-workflow-controls.sql"), "utf8"),
-          );
-          version = 11;
-        }
-        if (version === 11) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0012-tracing-media.sql"), "utf8"),
-          );
-          version = 12;
-        }
-        if (version === 12) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0013-resource-responses.sql"), "utf8"),
-          );
-          version = 13;
-        }
-        if (version === 13) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0014-message-hooks.sql"), "utf8"),
-          );
-          version = 14;
-        }
-        if (version === 14) {
-          await tx.query(
-            await readFile(
-              join(dirname(path), "migrations/0015-collaboration-lifecycle.sql"),
-              "utf8",
-            ),
-          );
-          version = 15;
-        }
-        if (version === 15) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0016-runtime-reliability.sql"), "utf8"),
-          );
-          version = 16;
-        }
-        if (version === 16) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0017-runtime-redesign.sql"), "utf8"),
-          );
-          version = 17;
-        }
-        if (version === 17) {
-          await tx.query(
-            await readFile(join(dirname(path), "migrations/0018-context-library.sql"), "utf8"),
-          );
-          version = 18;
+        const migrations: Array<[number, string]> = [
+          [3, "0003-async-tools.sql"],
+          [4, "0004-agent-hierarchy.sql"],
+          [5, "0005-settings.sql"],
+          [6, "0006-approvals.sql"],
+          [7, "0007-delegated-resources.sql"],
+          [8, "0008-pdf-nodes.sql"],
+          [9, "0009-conversation-coordination.sql"],
+          [10, "0010-tool-contracts.sql"],
+          [11, "0011-workflow-controls.sql"],
+          [12, "0012-tracing-media.sql"],
+          [13, "0013-resource-responses.sql"],
+          [14, "0014-message-hooks.sql"],
+          [15, "0015-collaboration-lifecycle.sql"],
+          [16, "0016-runtime-reliability.sql"],
+          [17, "0017-runtime-redesign.sql"],
+          [18, "0018-context-library.sql"],
+        ];
+        for (const [target, file] of migrations) {
+          if (version !== target - 1) continue;
+          if (target === 10) {
+            const { migrateToolContracts } = await import("./migrations/tool-contracts.js");
+            await migrateToolContracts(tx);
+          }
+          await tx.query(await readFile(join(dirname(path), "migrations", file), "utf8"));
+          version = target;
         }
         if (version !== SCHEMA_VERSION) throw new Error("不支持此数据库版本，请使用独立数据库");
         return;

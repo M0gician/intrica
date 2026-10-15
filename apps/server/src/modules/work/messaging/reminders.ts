@@ -25,7 +25,9 @@ export async function tickReminders(context: MessagingContext, cooldownMs = 6000
   const groups = new Map<string, typeof candidates>();
   for (const q of candidates) {
     const key = `${q.sender_conversation_id}:${q.cause_id}`;
-    groups.set(key, [...(groups.get(key) ?? []), q]);
+    const group = groups.get(key);
+    if (group) group.push(q);
+    else groups.set(key, [q]);
   }
   for (const group of groups.values())
     await context.db.canvas(group[0].canvas_id, async (tx) => {
