@@ -9,7 +9,7 @@ export async function pauseContextFailure(
   ctx: ExecutionContext,
   error: unknown,
   language: PromptLanguage,
-  stopBackground: () => Promise<void> = async () => {},
+  stopBackground: () => Promise<void>,
 ) {
   ctx.signal.throwIfAborted();
   const code =

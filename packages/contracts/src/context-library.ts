@@ -1,9 +1,16 @@
-export type ContextLibraryQuery = {
-  ref?: string;
-  query?: string;
-  offset?: number;
-  limit?: number;
-};
+import { type Static, Type } from "typebox";
+
+/** Shared by the HTTP and model-tool boundaries. Domain code receives validated queries. */
+export const ContextLibraryQuerySchema = Type.Object(
+  {
+    ref: Type.Optional(Type.String({ minLength: 1, maxLength: 240 })),
+    query: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+    offset: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 6000 })),
+  },
+  { additionalProperties: false },
+);
+export type ContextLibraryQuery = Static<typeof ContextLibraryQuerySchema>;
 
 export type ContextArchiveEntry = {
   ref: string;

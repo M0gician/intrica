@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { createCanvasAgent } from "../../apps/server/dist/adapters/model/agent.js";
 import { withModelUsage } from "../../apps/server/dist/adapters/model/usage.js";
+import { validateContextSummary as validate } from "../../apps/server/dist/modules/context/summary-contract.js";
 import { ModelQueue } from "../../apps/server/dist/modules/model-runtime/queue.js";
 import {
   ResponseValidationError,
@@ -43,25 +44,6 @@ const textOf = (message: any) =>
     .filter((p: any) => p.type === "text")
     .map((p: any) => p.text)
     .join("\n");
-function validate(message: any) {
-  if (message.content.some((p: any) => p.type === "toolCall"))
-    throw new ResponseValidationError("tool_call", "Return handoff text only. Do not call tools.");
-  if (message.stopReason !== "stop")
-    throw new ResponseValidationError(
-      "truncated",
-      "Shorten the handoff so that it ends completely.",
-    );
-  if (!textOf(message).trim())
-    throw new ResponseValidationError(
-      "empty",
-      "Return a nonempty handoff preserving R1, E1 and U1.",
-    );
-  if (textOf(message).length > 1000)
-    throw new ResponseValidationError(
-      "over_budget",
-      "Return at most 1000 characters while preserving R1, E1 and U1.",
-    );
-}
 
 async function execute(
   provider: (context: any, attempt: number, options: any) => any,
@@ -79,7 +61,7 @@ async function execute(
     validateResponse: validate,
     ...extra,
   };
-  const model = createCanvasAgent(config, conversationId, (_model, context, options) => {
+  const model = createCanvasAgent(config, (_model, context, options) => {
     contexts.push(structuredClone(context));
     return {
       async *[Symbol.asyncIterator]() {
@@ -123,11 +105,11 @@ async function execute(
 }
 
 const faults = [
-  ["empty", response("")],
-  ["over_budget", response("x".repeat(17000))],
-  ["truncated", response("Requirement R1", "length")],
+  ["summary_empty", response("")],
+  ["summary_too_long", response("x".repeat(24001))],
+  ["output_truncated", response("Requirement R1", "length")],
   [
-    "tool_call",
+    "summary_tool_call",
     {
       ...response(),
       stopReason: "toolUse",
@@ -162,7 +144,7 @@ it.each(faults)(
     ]);
     expect(run.receipts[0].output_hash).toBe(validationReceipt(invalid).outputHash);
     expect(run.receipts[0].output_excerpt.length).toBeLessThanOrEqual(16000);
-    expect(run.receipts[0].output_truncated).toBe(issue === "over_budget");
+    expect(run.receipts[0].output_truncated).toBe(issue === "summary_too_long");
     expect(run.calls.map((c: any) => c.outcome)).toEqual(["succeeded", "succeeded"]);
   },
 );
@@ -346,40 +328,4 @@ it("cancels during correction without accepting or dispatching another response"
       )
     ).rows[0].n,
   ).toBe(1);
-});
-
-it("compares the former three unchanged attempts against one informed correction on identical controlled faults", async () => {
-  // This reference reproduces the former validation policy, not a second production retry owner.
-  // Both policies receive identical sources and responses; only actionable feedback changes output.
-  const results = await Promise.all(
-    faults.map(async ([issue, invalid]) => {
-      let replayCalls = 0,
-        replayAccepted = false;
-      while (replayCalls < 3) {
-        replayCalls++;
-        try {
-          validate(invalid);
-          replayAccepted = true;
-          break;
-        } catch {}
-      }
-      const repaired = await execute((context) =>
-        context.messages.length === 1 ? invalid : response(),
-      );
-      return {
-        issue,
-        replayCalls,
-        replayAccepted,
-        repairCalls: repaired.contexts.length,
-        repairAccepted: !repaired.error,
-        requiredFactsPreserved: ["R1", "E1", "U1"].every((fact) =>
-          textOf(repaired.value).includes(fact),
-        ),
-      };
-    }),
-  );
-  expect(results.reduce((n, r) => n + r.replayCalls, 0)).toBe(12);
-  expect(results.reduce((n, r) => n + r.repairCalls, 0)).toBe(8);
-  expect(results.filter((r) => r.replayAccepted)).toHaveLength(0);
-  expect(results.filter((r) => r.repairAccepted && r.requiredFactsPreserved)).toHaveLength(4);
 });

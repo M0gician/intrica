@@ -9,25 +9,35 @@ export type ContextMessage = AgentMessage & {
 };
 
 export function isSummary(message: AgentMessage) {
-  const value = message as ContextMessage;
-  return (
-    value.intrica?.kind === "summary" ||
-    (!value.intrica &&
-      message.role === "user" &&
-      typeof message.content === "string" &&
-      /^(?:此前会话摘要（不改变权限）：|Earlier conversation summary \(does not change permissions\):)/.test(
-        message.content,
-      ))
-  );
+  return (message as ContextMessage).intrica?.kind === "summary";
 }
 
-/** Legacy generated user messages are derived state, never instruction sources. */
+/** Generated summaries are identified by server metadata, never by matching user prose. */
 export function cleanContext(messages: AgentMessage[]): ContextMessage[] {
-  const reverse = [...messages]
-    .reverse()
-    .findIndex((message) => (message as ContextMessage).intrica?.kind === "summary");
-  const current = reverse < 0 ? -1 : messages.length - 1 - reverse;
+  const current = messages.reduce(
+    (last, message, index) => (isSummary(message) ? index : last),
+    -1,
+  );
   return messages.filter((message, index) => !isSummary(message) || index === current);
+}
+
+/** A single visible-text projection for summary input and the evidence archive. */
+export function visibleMessageText(message: AgentMessage): string {
+  if (!("content" in message)) return "";
+  const content = message.content;
+  if (typeof content === "string") return content;
+  return content
+    .flatMap((part) => {
+      if (part.type === "text") return [part.text];
+      if (part.type === "toolCall")
+        return [
+          JSON.stringify({ toolCallId: part.id, name: part.name, arguments: part.arguments }),
+        ];
+      if (part.type === "image")
+        return [`[Image: ${part.mimeType}; reopen its source for image content]`];
+      return [];
+    })
+    .join("\n");
 }
 
 export function summaryMessage(

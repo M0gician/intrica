@@ -1,9 +1,9 @@
 import type { ContextSnapshot } from "@intrica/contracts";
 import { describe, expect, it } from "vitest";
+import { buildCompactionPrompt } from "../../modules/context/summary-contract.js";
 import { promptLanguage } from "../../prompt-language.js";
 import {
   buildClosingPrompt,
-  buildCompactionPrompt,
   buildConversationPrompt,
   buildSystemPrompt,
   parseModelOutput,

@@ -45,19 +45,11 @@ export async function compactConversation(
     if (usage(withOriginalInstructions([], sources, language)).tokens >= before.safeLimit)
       throw contextFailure("INSTRUCTION_CONTEXT_LIMIT", language);
     diagnostics.phase = "summary";
-    const summary = await summarizeContext(
-      config,
-      await model.prepareMessages(previous),
-      ctx.signal,
-      language,
-      (count) => {
-        diagnostics.sourceCount = count;
-      },
-    );
+    const summary = await summarizeContext(config, previous, ctx.signal, language, (count) => {
+      diagnostics.sourceCount = count;
+    });
     ctx.signal.throwIfAborted();
     diagnostics.phase = "candidate";
-    diagnostics.sourceCount = summary.sources.length;
-    if (!summary.sources.length) throw contextFailure("CONTEXT_EMPTY_SOURCE", language);
     const candidate = withOriginalInstructions(
       [
         summaryMessage(model.state.model, summary.id, summary.content, language),

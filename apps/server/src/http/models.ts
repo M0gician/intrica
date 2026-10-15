@@ -147,7 +147,7 @@ export function registerModelSettingsRoutes(app: AppInstance, store: ModelRegist
       { schema: { body: input } },
       async (request, reply) => {
         const config = await store.testConfig(request.body);
-        const agent = createCanvasAgent(config, "connection-test");
+        const agent = createCanvasAgent(config);
         const language = promptLanguage(request.headers["accept-language"]);
         agent.state.systemPrompt = promptText(
           language,

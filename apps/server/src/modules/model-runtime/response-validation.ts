@@ -46,6 +46,5 @@ export function validationReceipt(message: AssistantMessage, error?: unknown): R
 
 /** A correction replaces only the generated response, never its frozen source. */
 export function responseCorrection(error: unknown): string | null {
-  if (!(error instanceof ResponseValidationError) || !error.correction) return null;
-  return error.correction.slice(0, 4000);
+  return error instanceof ResponseValidationError ? (error.correction ?? null) : null;
 }

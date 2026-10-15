@@ -1,6 +1,6 @@
 import type { Sql } from "../../../adapters/postgres/database.js";
 import { type PromptLanguage, promptText } from "../../../prompt-language.js";
-import { recentReadObservations } from "../evidence/read-observations.js";
+import type { recentReadObservations } from "../evidence/read-observations.js";
 import { mailboxState } from "../progress/mailbox.js";
 
 /** Rebuilt from durable records before inference; never inferred from generated summaries. */
@@ -22,7 +22,7 @@ export async function workingState(
       "select outcome,left(remaining_work,1200) as remaining_work,reviewed_at from progress_reviews where conversation_id=$1",
       [conversationId],
     ),
-    readObservations ? readObservations() : recentReadObservations(sql, conversationId),
+    readObservations?.(),
   ]);
   const data = {
     obligations: {
@@ -40,7 +40,7 @@ export async function workingState(
       items: tools.rows.map(({ total: _total, ...r }) => r),
       inspect: "get_tool_result({callId})",
     },
-    reads,
+    reads: reads ?? [],
     latestReview: review.rows[0] ?? null,
   };
   return `${promptText(

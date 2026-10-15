@@ -1,18 +1,13 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import {
-  checkpointMessages,
-  contextTail,
-  estimatedMessageTokens,
-} from "../../adapters/model/context.js";
+import { contextTail, estimatedMessageTokens } from "../../adapters/model/context.js";
 import { digest } from "../../adapters/postgres/database.js";
 import type { PromptLanguage } from "../../prompt-language.js";
-import { cleanContext, isSummary } from "./messages.js";
+import { cleanContext, isSummary, visibleMessageText } from "./messages.js";
 
-/** Archive complete visible evidence; only the model-facing tool preview is shortened. */
-export function compactionSources(
+/** Sanitize once, then freeze the source identity before assigning archive references. */
+export function selectCompactionSources(
   messages: AgentMessage[],
   contextWindow: number,
-  archiveId: string,
   language: PromptLanguage,
 ) {
   const parts = contextTail(
@@ -24,41 +19,29 @@ export function compactionSources(
     contextWindow,
     language,
   );
-  const original = checkpointMessages([...parts.older, ...parts.tail.filter(isSummary)], language);
-  const sourceMessages = original.map((message) =>
-    message.role === "assistant"
-      ? { ...message, content: message.content.filter((part) => part.type !== "thinking") }
-      : message,
-  );
-  const sources = sourceMessages.map((message, index) => ({
+  const sourceMessages = [...parts.older, ...parts.tail.filter(isSummary)];
+  return {
+    sourceMessages,
+    sourceHash: digest(sourceMessages),
+    retainedTail: parts.tail.filter((message) => !isSummary(message)),
+  };
+}
+
+/** Only model-facing tool previews are shortened. Archive source text remains complete. */
+export function renderCompactionSources(
+  sourceMessages: AgentMessage[],
+  archiveId: string,
+  contextWindow: number,
+) {
+  const entries = sourceMessages.map((message, index) => ({
+    message,
+    text: visibleMessageText(message),
     ref: `context:${archiveId}:${index}`,
     hash: digest(message),
   }));
   const render = (previewLimit: number) =>
-    sourceMessages
-      .map((message, index) => {
-        const ref = sources[index]!.ref;
-        const content = "content" in message ? message.content : "";
-        const text =
-          typeof content === "string"
-            ? content
-            : Array.isArray(content)
-              ? content
-                  .flatMap((part) =>
-                    part.type === "text"
-                      ? [part.text]
-                      : part.type === "toolCall"
-                        ? [
-                            JSON.stringify({
-                              toolCallId: part.id,
-                              tool: part.name,
-                              args: part.arguments,
-                            }),
-                          ]
-                        : [],
-                  )
-                  .join("\n")
-              : "";
+    entries
+      .map(({ message, text, ref }) => {
         if (isSummary(message))
           return `[previous-summary ${ref}; preserve the complete handoff]\n${text}`;
         const preview =
@@ -77,11 +60,5 @@ export function compactionSources(
       break;
     transcript = render(limit);
   }
-  return {
-    sourceMessages,
-    sources,
-    sourceHash: digest(sourceMessages),
-    transcript,
-    retainedTail: parts.tail.filter((message) => !isSummary(message)),
-  };
+  return { sources: entries.map(({ ref, hash }) => ({ ref, hash })), transcript };
 }

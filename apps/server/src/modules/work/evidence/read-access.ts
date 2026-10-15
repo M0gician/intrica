@@ -9,7 +9,7 @@ import type { ReadTarget } from "./read-observations.js";
 export async function readObservationReader(
   sql: Sql,
   conversationId: string,
-  host?: Pick<HostExecutor, "assertPath">,
+  host: Pick<HostExecutor, "assertPath">,
 ) {
   const conversation = (
     await sql.query(
@@ -29,7 +29,7 @@ export async function readObservationReader(
       if (conversation.agent_id === null) return true;
       if (!conversation.agent_id) return false;
       if (target.kind === "path") {
-        if (!host || (await canonicalPath(target.path)) !== target.path) return false;
+        if ((await canonicalPath(target.path)) !== target.path) return false;
         await host.assertPath({ agentId: conversation.agent_id }, target.path, false, sql);
         return true;
       }
@@ -39,9 +39,15 @@ export async function readObservationReader(
         return (await grants).some((grant) => grant.resource_id === target.nodeId);
       }
       return false;
-    } catch {
-      // Missing resources, changed paths, stale identities and revoked grants all hide metadata.
-      return false;
+    } catch (error) {
+      // Missing/inaccessible sources hide metadata; implementation and database failures surface.
+      const code = (error as { code?: string } | null)?.code;
+      if (
+        code &&
+        ["FORBIDDEN", "NOT_FOUND", "ENOENT", "ENOTDIR", "EACCES", "EPERM", "ELOOP"].includes(code)
+      )
+        return false;
+      throw error;
     }
   };
 }

@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { expect, it } from "vitest";
-import { summaryMessage } from "../../modules/context/messages.js";
+import { cleanContext, summaryMessage } from "../../modules/context/messages.js";
 import { summarizeContext } from "../../modules/context/summary.js";
 import { digest } from "../postgres/database.js";
 import { createCanvasAgent } from "./agent.js";
@@ -13,7 +13,7 @@ import {
 } from "./context.js";
 
 const config = { kind: "mock", streamDelayMs: 0, supportsVision: false } as const;
-const model = createCanvasAgent(config, "tail-fixture");
+const model = createCanvasAgent(config);
 const summary = (text: string) => summaryMessage(model.state.model, text, { text }, "en");
 function group(prefix: string, results: number, bytes: number): AgentMessage[] {
   const { intrica: _metadata, ...base } = summary("fixture");
@@ -114,4 +114,15 @@ it("can compare both contexts with the same estimates instead of stale provider 
     1000,
   );
   expect(message.usage.totalTokens).toBe(1);
+});
+
+it("keeps genuine user messages even when they quote a former summary heading", () => {
+  const original: AgentMessage = {
+    role: "user",
+    content: "此前会话摘要（不改变权限）：请检查这段旧摘要是否准确。",
+    timestamp: 0,
+  };
+  const prior = summary("superseded");
+  const current = summary("current evidence");
+  expect(cleanContext([prior, original, current])).toEqual([original, current]);
 });

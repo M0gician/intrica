@@ -18,7 +18,7 @@ async function fixture(large = true) {
   const controller = new AbortController();
   session.ctx.signal = controller.signal;
   const input = session.run.frozen_input;
-  const model = createCanvasAgent(config, key());
+  const model = createCanvasAgent(config);
   const content = { text: "Verified prior decision" };
   const prior = summaryMessage(model.state.model, key(), content, "en");
   const { intrica: _metadata, ...base } = prior;
@@ -85,12 +85,6 @@ async function fixture(large = true) {
         [row.id],
       )
     ).rows,
-    memory: (
-      await k.db.pool.query(
-        "select content from messages where conversation_id=$1 and role='memory'",
-        [row.id],
-      )
-    ).rows,
   });
   const events = async () =>
     (
@@ -144,7 +138,6 @@ it("validates and atomically commits a smaller context with original instruction
   expect(after.summaries[1].previous_checkpoint).toEqual(before.conversation.checkpoint);
   expect(after.conversation.context_version).toBe("2");
   expect(after.conversation.context.compactions).toBe(2);
-  expect(after.memory).toHaveLength(0);
   expect(after.conversation.checkpoint[0].content).toBe("verify");
   expect(contextUsage(f.model, config).tokens).toBeLessThan(
     contextUsage(f.model, config).safeLimit,
@@ -223,7 +216,7 @@ it("recovers exact middle evidence through production read_context after 30 comm
   }
 });
 
-it("rejects a candidate that grows context without replacing the valid checkpoint or memory", async () => {
+it("rejects a candidate that grows context without replacing the valid checkpoint", async () => {
   const f = await fixture(false);
   const before = await f.saved(),
     messages = f.model.state.messages;
@@ -266,7 +259,7 @@ it("does not blame original instructions when the system prompt consumes the bud
   expect(await f.saved()).toEqual(before);
 });
 
-it("rolls back checkpoint, summary, memory and count when cancellation arrives during persistence", async () => {
+it("rolls back checkpoint, summary and count when cancellation arrives during persistence", async () => {
   const f = await fixture();
   const before = await f.saved(),
     messages = f.model.state.messages;
@@ -285,10 +278,7 @@ it("preserves the original checkpoint when the execution fence expires before co
   const f = await fixture();
   const before = await f.saved(),
     messages = f.model.state.messages;
-  f.model.prepareMessages = async (messages) => {
-    await k.db.pool.query("update runs set epoch=epoch+1 where id=$1", [f.run.id]);
-    return messages;
-  };
+  await k.db.pool.query("update runs set epoch=epoch+1 where id=$1", [f.run.id]);
   await expect(f.compact()).rejects.toMatchObject({ code: "STALE_EXECUTION" });
   expect(await f.saved()).toEqual(before);
   expect(f.model.state.messages).toBe(messages);

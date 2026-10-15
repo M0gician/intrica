@@ -87,47 +87,34 @@ export function portableValidate(text, stop = "stop", maxChars = 6000) {
   return null;
 }
 
-/** Immutable revision store; queries and page reads are separately counted. */
+/** Synthetic text store for the frozen experiment; production tests own access validation. */
 export class Archive {
   entries = new Map();
   reads = 0;
   readChars = 0;
   searches = 0;
-  save(id, body, scope = "agent:reader") {
+  save(id, body) {
     const revision = hash(body);
     const ref = `${id}@${revision.slice(0, 12)}`;
-    this.entries.set(ref, { ref, body, revision, scope });
+    this.entries.set(ref, { ref, body, revision });
     return ref;
   }
-  index() {
-    return [...this.entries.values()].map((e) => `${e.ref} (${e.body.length} chars)`).join("\n");
-  }
-  search(term, scope = "agent:reader") {
+  search(term) {
     if (!term) throw new Error("INVALID_QUERY");
     this.searches++;
-    return [...this.entries.values()]
-      .filter((e) => e.scope === scope)
-      .flatMap((entry) => {
-        const matches = [];
-        let offset = entry.body.indexOf(term);
-        while (offset !== -1 && matches.length < 1000) {
-          matches.push({ ref: entry.ref, offset, revision: entry.revision });
-          offset = entry.body.indexOf(term, offset + term.length);
-        }
-        return matches;
-      });
+    return [...this.entries.values()].flatMap((entry) => {
+      const matches = [];
+      let offset = entry.body.indexOf(term);
+      while (offset !== -1 && matches.length < 1000) {
+        matches.push({ ref: entry.ref, offset, revision: entry.revision });
+        offset = entry.body.indexOf(term, offset + term.length);
+      }
+      return matches;
+    });
   }
-  read(ref, offset = 0, limit = 512, scope = "agent:reader") {
+  read(ref, offset = 0, limit = 512) {
     const entry = this.entries.get(ref);
-    if (!entry || entry.scope !== scope) throw new Error("EVIDENCE_NOT_FOUND");
-    if (
-      !Number.isInteger(offset) ||
-      offset < 0 ||
-      !Number.isInteger(limit) ||
-      limit < 1 ||
-      limit > 4096
-    )
-      throw new Error("INVALID_PAGE");
+    if (!entry) throw new Error("EVIDENCE_NOT_FOUND");
     const text = entry.body.slice(offset, offset + limit);
     this.reads++;
     this.readChars += text.length;

@@ -35,7 +35,7 @@ it("does not use arbitrary error text as audit detail or correction instructions
   expect(validationReceipt({ content: [], stopReason: "stop" } as any, error).issue).toBe(
     "invalid_response",
   );
-  expect(responseCorrection(new ResponseValidationError("empty", "x".repeat(5000)))).toHaveLength(
-    4000,
+  expect(responseCorrection(new ResponseValidationError("empty", "Return the handoff."))).toBe(
+    "Return the handoff.",
   );
 });

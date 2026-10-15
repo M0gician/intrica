@@ -141,19 +141,16 @@ afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 it("OpenAI Responses sends selected effort through the explicit protocol", async () => {
-  const agent = createCanvasAgent(
-    {
-      kind: "pi",
-      provider: "custom",
-      modelId: "custom-reasoner",
-      baseUrl: `${baseUrl}/v1`,
-      api: "openai-responses",
-      apiKey: "fixture-key",
-      reasoning: true,
-      thinkingLevel: "high",
-    },
-    "responses",
-  );
+  const agent = createCanvasAgent({
+    kind: "pi",
+    provider: "custom",
+    modelId: "custom-reasoner",
+    baseUrl: `${baseUrl}/v1`,
+    api: "openai-responses",
+    apiKey: "fixture-key",
+    reasoning: true,
+    thinkingLevel: "high",
+  });
   await agent.prompt("hello");
   expect(captured[0].path).toBe("/v1/responses");
   expect(captured[0].body.input[0].role).toBe("system");
@@ -168,19 +165,16 @@ it("OpenAI Responses sends selected effort through the explicit protocol", async
   });
 });
 it("Anthropic Messages uses a thinking budget and x-api-key", async () => {
-  const agent = createCanvasAgent(
-    {
-      kind: "pi",
-      provider: "custom",
-      modelId: "custom-claude",
-      baseUrl,
-      api: "anthropic-messages",
-      apiKey: "fixture-key",
-      reasoning: true,
-      thinkingLevel: "low",
-    },
-    "anthropic",
-  );
+  const agent = createCanvasAgent({
+    kind: "pi",
+    provider: "custom",
+    modelId: "custom-claude",
+    baseUrl,
+    api: "anthropic-messages",
+    apiKey: "fixture-key",
+    reasoning: true,
+    thinkingLevel: "low",
+  });
   await agent.prompt("hello");
   expect(captured[0].path).toBe("/v1/messages?beta=true");
   expect(captured[0].headers["x-api-key"]).toBe("fixture-key");
@@ -191,19 +185,16 @@ it("Anthropic Messages uses a thinking budget and x-api-key", async () => {
   expect(agent.state.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "stop" });
 });
 it("Google Gemini uses its own endpoint and thinking configuration", async () => {
-  const agent = createCanvasAgent(
-    {
-      kind: "pi",
-      provider: "custom",
-      modelId: "gemini-2.5-flash",
-      baseUrl,
-      api: "google-generative-ai",
-      apiKey: "fixture-key",
-      reasoning: true,
-      thinkingLevel: "low",
-    },
-    "google",
-  );
+  const agent = createCanvasAgent({
+    kind: "pi",
+    provider: "custom",
+    modelId: "gemini-2.5-flash",
+    baseUrl,
+    api: "google-generative-ai",
+    apiKey: "fixture-key",
+    reasoning: true,
+    thinkingLevel: "low",
+  });
   await agent.prompt("hello");
   expect(captured[0].path).toContain("models/gemini-2.5-flash:streamGenerateContent");
   expect(captured[0].body.generationConfig.thinkingConfig.thinkingBudget).toBeGreaterThan(0);

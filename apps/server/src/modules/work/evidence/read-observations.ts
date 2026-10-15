@@ -187,16 +187,15 @@ export async function recordReadObservations(
 export async function recentReadObservations(
   sql: Sql,
   conversationId: string,
-  limit = 8,
-  host?: Pick<HostExecutor, "assertPath">,
+  host: Pick<HostExecutor, "assertPath">,
 ) {
   const allowed = await readObservationReader(sql, conversationId, host);
   const rows = await sql.query(
     `select latest.*,exists(select 1 from read_cursors c where c.id=latest.next_cursor and c.conversation_id=$1 and c.expires_at>now()) as cursor_valid from (
        select distinct on(source_key) tool_call_id,source_key,target,source_version,position,next_cursor,created_at
        from read_observations where conversation_id=$1 order by source_key,created_at desc,tool_call_id desc
-     ) latest order by created_at desc,tool_call_id desc limit $2`,
-    [conversationId, Number.isFinite(limit) ? Math.min(12, Math.max(1, Math.floor(limit))) : 8],
+     ) latest order by created_at desc,tool_call_id desc limit 8`,
+    [conversationId],
   );
   let remaining = 6000;
   const entries = [];

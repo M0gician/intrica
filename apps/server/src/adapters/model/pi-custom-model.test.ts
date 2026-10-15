@@ -191,16 +191,16 @@ describe("PiRunner 自定义 baseUrl", () => {
     expect(JSON.parse(captured[0]!.body).reasoning_effort).toBe("high");
     expect(JSON.parse(captured[0]!.body).messages[0].role).toBe("system");
     const { createCanvasAgent } = await import("./agent.js");
-    const agent = createCanvasAgent(config, "test");
+    const agent = createCanvasAgent(config);
     await agent.prompt("hello");
     expect(JSON.parse(captured[1]!.body).reasoning_effort).toBe("high");
     expect(JSON.parse(captured[1]!.body).model).toBe("reasoner");
     expect(JSON.parse(captured[1]!.body).messages[0].role).toBe("system");
     expect(captured[1]!.authorization).toBe("Bearer configured-key");
-    const off = createCanvasAgent({ ...config, thinkingLevel: "off" }, "test-off");
+    const off = createCanvasAgent({ ...config, thinkingLevel: "off" });
     await off.prompt("hello");
     expect(JSON.parse(captured[2]!.body).reasoning_effort).toBeUndefined();
-    const legacy = createCanvasAgent(config, "role-ablation");
+    const legacy = createCanvasAgent(config);
     legacy.state.model = {
       ...legacy.state.model,
       compat: { ...legacy.state.model.compat, supportsDeveloperRole: true },

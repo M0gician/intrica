@@ -1,17 +1,19 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { createCanvasAgent } from "../../adapters/model/agent.js";
 import { estimatedMessageTokens } from "../../adapters/model/context.js";
 import { modelCapabilities, modelContextWindow } from "../../adapters/model/model-catalog.js";
-import { buildCompactionPrompt } from "../../adapters/model/prompt.js";
 import type { ModelConfig } from "../../adapters/model/types.js";
 import { modelPurposeRequestId, withModelPurpose } from "../../adapters/model/usage.js";
 import { DomainError, digest } from "../../adapters/postgres/database.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
-import { ResponseValidationError } from "../model-runtime/response-validation.js";
 import { contextFailure } from "./errors.js";
-import { compactionSources } from "./sources.js";
-import { inspectContextSummary, type SummaryContent } from "./summary-contract.js";
+import { renderCompactionSources, selectCompactionSources } from "./sources.js";
+import {
+  buildCompactionPrompt,
+  SUMMARY_TEMPLATE_VERSION,
+  type SummaryContent,
+  validateContextSummary,
+} from "./summary-contract.js";
 
 export type ContextSummary = {
   id: string;
@@ -23,20 +25,6 @@ export type ContextSummary = {
   retainedTail: AgentMessage[];
 };
 
-function validate(message: AssistantMessage): SummaryContent {
-  if (message.content.some((part) => part.type === "toolCall"))
-    throw new ResponseValidationError(
-      "summary_tool_call",
-      "Return only a handoff of the supplied evidence. Do not call tools or continue the task.",
-    );
-  const inspected = inspectContextSummary(
-    message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
-    message.stopReason !== "stop",
-  );
-  if (!inspected.ok) throw new ResponseValidationError(inspected.issue, inspected.correction);
-  return inspected.content;
-}
-
 /** Freeze source and archive identity before inference; commit them with the checkpoint. */
 export async function summarizeContext(
   config: ModelConfig,
@@ -47,16 +35,16 @@ export async function summarizeContext(
 ): Promise<ContextSummary> {
   signal?.throwIfAborted();
   const window = modelContextWindow(config).contextWindow;
-  const sourceHash = compactionSources(messages, window, "pending", language).sourceHash;
+  const source = selectCompactionSources(messages, window, language);
   const requestId = modelPurposeRequestId(
     "compaction",
-    digest(["handoff-v1", language, sourceHash]),
+    digest([SUMMARY_TEMPLATE_VERSION, language, source.sourceHash]),
   );
   const summaryId = `summary-${digest(requestId)}`;
-  const { transcript, ...source } = compactionSources(messages, window, summaryId, language);
-  onSource?.(source.sources.length);
-  if (!source.sources.length) throw contextFailure("CONTEXT_EMPTY_SOURCE", language);
-  const metadata = { id: summaryId, requestId, ...source };
+  onSource?.(source.sourceMessages.length);
+  if (!source.sourceMessages.length) throw contextFailure("CONTEXT_EMPTY_SOURCE", language);
+  const { transcript, sources } = renderCompactionSources(source.sourceMessages, summaryId, window);
+  const metadata = { id: summaryId, requestId, ...source, sources };
   if (config.kind === "mock")
     return {
       ...metadata,
@@ -68,17 +56,14 @@ export async function summarizeContext(
         ),
       },
     };
-  const summarizer = createCanvasAgent(
-    {
-      ...config,
-      maxOutputTokens: Math.min(
-        config.maxOutputTokens ?? 8192,
-        8192,
-        Math.max(256, Math.floor(window * 0.08)),
-      ),
-    },
-    requestId,
-  );
+  const summarizer = createCanvasAgent({
+    ...config,
+    maxOutputTokens: Math.min(
+      config.maxOutputTokens ?? 8192,
+      8192,
+      Math.max(256, Math.floor(window * 0.08)),
+    ),
+  });
   if (modelCapabilities(config).thinkingLevels.includes("off"))
     summarizer.state.thinkingLevel = "off";
   summarizer.state.systemPrompt = buildCompactionPrompt(language);
@@ -101,11 +86,14 @@ export async function summarizeContext(
   const abort = () => summarizer.abort();
   signal?.addEventListener("abort", abort, { once: true });
   try {
-    await withModelPurpose("compaction", () => summarizer.prompt(transcript), requestId, validate);
+    const response = await withModelPurpose(
+      "compaction",
+      () => summarizer.prompt(transcript),
+      requestId,
+      validateContextSummary,
+    );
     signal?.throwIfAborted();
-    const last = summarizer.state.messages.at(-1);
-    if (last?.role !== "assistant") throw new ResponseValidationError("summary_missing");
-    return { ...metadata, content: validate(last) };
+    return { ...metadata, content: validateContextSummary(response) };
   } finally {
     signal?.removeEventListener("abort", abort);
   }

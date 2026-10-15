@@ -98,7 +98,7 @@ export class ToolRegistry {
     return Object.assign(combined, {
       capabilities,
       readObservations: () =>
-        recentReadObservations(this.graph.db.pool, input.conversationId, 8, this.host),
+        recentReadObservations(this.graph.db.pool, input.conversationId, this.host),
     });
   }
 

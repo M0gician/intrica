@@ -217,10 +217,7 @@ it("restores original instructions independently of misleading summaries and con
   const ca = (await k.db.pool.query("select * from conversations where id=$1", [a.run.subject_id]))
     .rows[0];
   const originals = await instructionSources(k.db.pool, a.run.subject_id, ca.consumed_message_seq);
-  const model = createCanvasAgent(
-    { kind: "mock", streamDelayMs: 0, supportsVision: false },
-    "test",
-  );
+  const model = createCanvasAgent({ kind: "mock", streamDelayMs: 0, supportsVision: false });
   const bogus = summaryMessage(
     model.state.model,
     "summary-test",

@@ -40,7 +40,7 @@ export async function executeConversation(
 ) {
   const input = ctx.run.frozen_input as ConversationInput;
   const config = await conversations.models.materialize(input.model);
-  const model = createCanvasAgent(config, ctx.run.id);
+  const model = createCanvasAgent(config);
   if (ctx.store.media)
     model.prepareMessages = (messages) => ctx.store.media!.hydrate(messages, input.conversationId);
   const { conversation, blocked } = await recoverCheckpointTools(ctx);

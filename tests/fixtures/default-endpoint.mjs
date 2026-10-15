@@ -69,7 +69,7 @@ export async function createDefaultEndpoint() {
             })),
           });
         }
-        if (!input.tools?.length && system.includes("[intrica-context-handoff-v1]"))
+        if (!input.tools?.length && system.includes("[intrica-context-handoff-"))
           output =
             "The supplied historical sources are archived. Continue the original instructions and retrieve exact evidence with read_context when needed.";
         if (input.tools?.some((t) => t.function?.name === "review_progress")) {

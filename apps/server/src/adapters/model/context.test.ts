@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { describe, expect, it } from "vitest";
 import { summaryMessage } from "../../modules/context/messages.js";
 import { summarizeContext } from "../../modules/context/summary.js";
-import { parseContextSummary } from "../../modules/context/summary-contract.js";
+import { validateContextSummary } from "../../modules/context/summary-contract.js";
 import { createCanvasAgent } from "./agent.js";
 import { checkpointMessages, contextUsage } from "./context.js";
 import { resolveModel } from "./pi.js";
@@ -25,7 +25,7 @@ describe("Agent context", () => {
     expect(resolved.model.maxTokens).toBe(96000);
   });
   it("counts mock/zero usage as estimated and includes tools and instructions", async () => {
-    const agent = createCanvasAgent(config, "context-test");
+    const agent = createCanvasAgent(config);
     await agent.prompt("保留这个任务");
     const info = contextUsage(agent, config);
     expect(info.tokens).toBeGreaterThan(0);
@@ -48,7 +48,7 @@ describe("Agent context", () => {
     expect(resolved.model.maxTokens).toBeLessThan(4096);
   });
   it("uses provider usage including cache tokens", async () => {
-    const agent = createCanvasAgent(config, "usage");
+    const agent = createCanvasAgent(config);
     await agent.prompt("task");
     const last = agent.state.messages.at(-1)!;
     if (last.role !== "assistant") throw new Error("missing answer");
@@ -82,7 +82,6 @@ describe("Agent context", () => {
     const summary = await summarizeContext(config, history);
     expect(summary.content.text).toBeTruthy();
     expect(summary.sourceMessages).toEqual(history);
-    expect(summary.content).not.toHaveProperty("memory_text");
     const abort = new AbortController();
     abort.abort();
     await expect(summarizeContext(config, [], abort.signal)).rejects.toThrow();
@@ -101,7 +100,7 @@ it("summarizes through the configured transport, keeps the recent task, and reje
     seen++;
     res.writeHead(200, { "content-type": "text/event-stream" });
     res.end(
-      `data: ${JSON.stringify({ id: "summary", object: "chat.completion.chunk", model: "summary-test", choices: [{ index: 0, delta: { role: "assistant", content: valid ? "已确认关键决策。继续最后任务，必要时查询归档来源。" : '{"summary":' }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify({ id: "summary", object: "chat.completion.chunk", model: "summary-test", choices: [{ index: 0, delta: { role: "assistant", content: valid ? "已确认关键决策。继续最后任务，必要时查询归档来源。" : "incomplete handoff" }, finish_reason: valid ? "stop" : "length" }] })}\n\ndata: [DONE]\n\n`,
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -175,17 +174,18 @@ it("drops incomplete tool pairs when saving a stopped conversation", () => {
   expect(saved).not.toContain("orphan");
 });
 
-it("accepts concise handoff prose and rejects promises, old schemas, empty and truncated outputs", () => {
-  const text =
-    "Observed behavior: input is retained. Continue the original task and verify the remaining file.";
-  expect(parseContextSummary(text)).toEqual({ text });
-  expect(parseContextSummary(JSON.stringify({ summary: text }))).toEqual({ text });
-  expect(parseContextSummary("我会整理摘要，不继续执行原任务")).toBeNull();
-  expect(
-    parseContextSummary(JSON.stringify({ facts: ["obsolete"], source_refs: ["s1"] })),
-  ).toBeNull();
-  expect(parseContextSummary("  ")).toBeNull();
-  expect(parseContextSummary(text, true)).toBeNull();
+it("preserves handoff text without treating its prose or JSON layout as semantic validation", () => {
+  const model = createCanvasAgent(config);
+  for (const text of [
+    "I will retain the current plan: deployment is blocked pending approval; the review remains open.",
+    "我会继续沿用已确认的方案：检查已通过，部署仍需授权。",
+    '{"summary":"Review passed; deployment still requires approval.","references":["audit.md"]}',
+  ]) {
+    const message = summaryMessage(model.state.model, "test", { text }, "en");
+    if (message.role !== "assistant") throw new Error("fixture");
+    message.content = [{ type: "text", text }];
+    expect(validateContextSummary(message)).toEqual({ text });
+  }
 });
 
 it("passes complete previous handoffs through 30 real transport compactions with distinct stable source references", async () => {
@@ -212,7 +212,7 @@ it("passes complete previous handoffs through 30 real transport compactions with
     contextWindow: 128000,
     thinkingLevel: "off" as const,
   };
-  const model = createCanvasAgent(config, "repeated-compaction");
+  const model = createCanvasAgent(config);
   let prior = summaryMessage(model.state.model, "initial", { text: handoff }, "en");
   const references = new Set<string>();
   try {

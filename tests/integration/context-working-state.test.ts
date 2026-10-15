@@ -42,7 +42,12 @@ it("pauses without changing the checkpoint; only explicit continuation creates n
     session.run.subject_id,
     JSON.stringify(checkpoint),
   ]);
-  await pauseContextFailure(session.ctx, new Error("CONTEXT_SUMMARY_INVALID: summary_empty"), "en");
+  await pauseContextFailure(
+    session.ctx,
+    new Error("CONTEXT_SUMMARY_INVALID: summary_empty"),
+    "en",
+    async () => {},
+  );
   expect(await k.runs.get(session.run.id)).toMatchObject({
     state: "waiting",
     reason: "context_blocked",

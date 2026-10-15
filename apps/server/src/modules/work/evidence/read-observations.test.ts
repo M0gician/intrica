@@ -144,8 +144,10 @@ it("bounds the recent source projection and labels it as returned, not analyzed"
         },
       ],
     });
-  const recent = await recentReadObservations({ query } as unknown as Sql, "conversation", 100);
-  expect(query.mock.calls[1]![1]).toEqual(["conversation", 12]);
+  const recent = await recentReadObservations({ query } as unknown as Sql, "conversation", {
+    assertPath: vi.fn(),
+  });
+  expect(query.mock.calls[1]![1]).toEqual(["conversation"]);
   expect(recent).toHaveLength(1);
   expect(recent[0]).toMatchObject({
     evidenceRef: "tool-1",

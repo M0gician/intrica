@@ -254,3 +254,25 @@ it("classifies background receipts as tool evidence and links both delivery form
     ),
   ).toBe(1);
 });
+
+it("validates query fields at the tool boundary and source positions against stored evidence", async () => {
+  const session = await start((await agent(board, "read")).id);
+  for (const args of [
+    { offset: -1 },
+    { offset: 1.5 },
+    { offset: Number.MAX_SAFE_INTEGER + 1 },
+    { limit: 0 },
+    { limit: 6001 },
+    { query: "x".repeat(201) },
+  ]) {
+    const rejected = await session.call("read_context", args);
+    expect(rejected.value.error).toMatchObject({ code: "TOOL_ARGUMENTS" });
+    expect(rejected.value.call.effect).toBe("none");
+  }
+  const ref = await archive(session, [{ role: "user", content: "a😀z", timestamp: 0 }]);
+  const source = (await session.call("read_context", { ref })).value.sources[0].ref;
+  for (const offset of [2, 10]) {
+    const rejected = await session.call("read_context", { ref: source, offset });
+    expect(rejected.value.error.code).toBe("CONTEXT_OFFSET");
+  }
+});

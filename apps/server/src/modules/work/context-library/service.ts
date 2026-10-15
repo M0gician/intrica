@@ -59,17 +59,7 @@ async function queryLibrary(
 ): Promise<ContextLibraryResponse> {
   const permitted = await archiveReader(sql, actor, canvasId, conversationId);
   const offset = args.offset ?? 0;
-  if (!Number.isSafeInteger(offset) || offset < 0)
-    throw new DomainError(
-      "CONTEXT_OFFSET",
-      "offset must be a non-negative integer / offset 必须为非负整数",
-    );
   const query = (args.query ?? "").trim();
-  if (
-    args.limit !== undefined &&
-    (!Number.isSafeInteger(args.limit) || args.limit < 1 || args.limit > 6000)
-  )
-    throw new DomainError("CONTEXT_LIMIT", "limit must be 1–6000 / limit 必须为 1–6000");
   if (!args.ref) {
     const limit = Math.min(args.limit ?? 20, 40);
     const rows = await searchArchives(sql, conversationId, query, offset, limit + 1);

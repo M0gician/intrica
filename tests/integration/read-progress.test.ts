@@ -48,7 +48,7 @@ it("persists successful returned ranges once and restores the latest source posi
       checkpointResult(next),
     ]),
   );
-  const restored = await recentReadObservations(k.db.pool, session.run.subject_id, 8, k.host);
+  const restored = await recentReadObservations(k.db.pool, session.run.subject_id, k.host);
   expect(restored).toHaveLength(1);
   expect(restored[0]).toMatchObject({
     source: { kind: "path", path },
@@ -85,7 +85,7 @@ it("expired cursors expose safe reopening arguments; failed or changed reads can
     code: "READ_CURSOR_EXPIRED",
     reopen: { path, line: 201, sourceVersion: first.value.sourceVersion },
   });
-  const state = await recentReadObservations(k.db.pool, session.run.subject_id, 8, k.host);
+  const state = await recentReadObservations(k.db.pool, session.run.subject_id, k.host);
   expect(state[0]).toMatchObject({
     nextCursor: null,
     reopen: { path, line: 201, sourceVersion: first.value.sourceVersion },
