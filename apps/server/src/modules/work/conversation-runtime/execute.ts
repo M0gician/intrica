@@ -223,6 +223,7 @@ export async function executeConversation(
         }
         waitingForInput = false;
       }
+      model.state.tools = await refreshTools();
       // A stored assistant tool call is resumed before another model call. Its
       // logical ID survives attempts, including approvals and unknown outcomes.
       const assistant = [...model.state.messages].reverse().find((m) => m.role === "assistant");
@@ -238,7 +239,6 @@ export async function executeConversation(
               (p): p is ToolCall => p.type === "toolCall" && !completed.has(p.id),
             )
           : [];
-      if (outstanding.length) model.state.tools = await refreshTools();
       let reviewedCompletion = false;
       for (let index = 0; index < outstanding.length; ) {
         const limits = await ctx.store.settings.limits();
