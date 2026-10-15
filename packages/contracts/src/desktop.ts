@@ -144,6 +144,14 @@ export type BrowserBridge = {
   subscribe: (listener: (state: BrowserState) => void) => () => void;
 };
 
-export type DesktopBridge = { connection: DesktopConnections; browser: BrowserBridge };
+export type DesktopBridge = {
+  files?: DesktopFiles;
+  connection?: DesktopConnections;
+  ssh?: DesktopSsh;
+  preferences?: { setLanguage: (value: "system" | "zh-CN" | "en") => Promise<void> };
+  browser: BrowserBridge;
+  updates?: DesktopUpdates;
+};
 
-import type { ServerVersion } from "./updates.js";
+import type { DesktopFiles } from "./downloads.js";
+import type { DesktopUpdates, ServerVersion } from "./updates.js";

@@ -109,8 +109,6 @@ export type DeleteNodesGraphOpRequest = {
   idempotencyKey: string;
 };
 
-export type SubmitGraphOpRequest = MoveGraphOpRequest | DeleteNodesGraphOpRequest;
-
 export type CreateLinkRequest = {
   fromId: string;
   toId: string;
@@ -215,12 +213,3 @@ export const ERROR_CODES = [
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
-
-export type ApiErrorBody = {
-  error: {
-    code: ErrorCode;
-    message: string;
-    details?: ConflictDetail[];
-    upstreamStatus?: number;
-  };
-};

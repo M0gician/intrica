@@ -24,10 +24,6 @@ type PdfPreviewProps = PdfSource & {
   downloadBusy?: boolean | undefined;
 };
 
-export function isPdfPath(path: string) {
-  return /\.pdf$/i.test(path);
-}
-
 /** Classify only explicit server evidence; preserve details for unknown failures. */
 function pdfFailure(reason: unknown) {
   const error = reason as { code?: string; serverMessage?: string; message?: string };

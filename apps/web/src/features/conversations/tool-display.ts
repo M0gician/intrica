@@ -156,9 +156,7 @@ export function toolOutcomeLabel(data: Record<string, unknown>) {
     return tr("无匹配");
   if (data.name === "bash" && typeof output?.exitCode === "number" && output.exitCode !== 0)
     return tr("命令退出码 {{v0}}", { v0: output.exitCode });
-  return toolStatusLabel(
-    status === "succeeded" ? "complete" : status === "failed" ? "error" : status,
-  );
+  return toolStatusLabel(status);
 }
 
 export function parsedToolOutput(value: unknown): Record<string, unknown> | undefined {

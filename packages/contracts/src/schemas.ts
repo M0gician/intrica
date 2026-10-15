@@ -100,31 +100,6 @@ export const NodeSchema = Type.Object({
   revision: Type.Number(),
 });
 
-export const CandidateNodeProjectionSchema = Type.Object({
-  id: Type.String(),
-  kind: Type.Literal("text"),
-  parentId: Type.String(),
-  position: RectSchema,
-  lifecycle: Type.Literal("candidate"),
-  operationId: Type.String(),
-  origin: Type.Literal("model"),
-  title: Type.Optional(Type.String()),
-  text: Type.Optional(Type.String()),
-});
-
-export const CandidateContainerProjectionSchema = Type.Object({
-  id: Type.String(),
-  kind: Type.Literal("group"),
-  parentId: Type.String(),
-  position: RectSchema,
-  lifecycle: Type.Literal("candidate"),
-  operationId: Type.String(),
-  projection: Type.Union([Type.Literal("readonly_canvas"), Type.Literal("review_only")]),
-  title: Type.Optional(Type.String()),
-  summary: Type.Optional(Type.String()),
-  childIds: Type.Array(Type.String()),
-});
-
 export const EdgeSchema = Type.Object({
   id: Type.String(),
   from: Type.String(),
@@ -189,30 +164,6 @@ export const OperationTypeSchema = Type.Union([
   Type.Literal("expand"),
   Type.Literal("deepen"),
   Type.Literal("compress"),
-]);
-
-export const PlacementModeSchema = Type.Union([
-  Type.Literal("sibling"),
-  Type.Literal("inside_selected"),
-  Type.Literal("inside_result_container"),
-  Type.Literal("compress_container"),
-]);
-
-export const ResultContainerStateSchema = Type.Union([
-  Type.Literal("none"),
-  Type.Literal("reserved"),
-  Type.Literal("committed"),
-  Type.Literal("tombstoned"),
-]);
-
-export const OperationStatusSchema = Type.Union([
-  Type.Literal("queued"),
-  Type.Literal("running"),
-  Type.Literal("candidate"),
-  Type.Literal("committed"),
-  Type.Literal("discarded"),
-  Type.Literal("failed"),
-  Type.Literal("cancelled"),
 ]);
 
 /* ---------- API 请求体 ---------- */
@@ -313,11 +264,3 @@ export const CreateOperationBodySchema = Type.Intersect([
   OperationIntentBodySchema,
   IdempotencyBodySchema,
 ]);
-
-/** Ordered durable event envelope. BIGINT cursors remain decimal strings. */
-export const StreamEventSchema = Type.Object({
-  seq: Type.String({ pattern: "^[0-9]+$" }),
-  type: Type.String(),
-  payload: Type.Unknown(),
-  attemptId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-});
