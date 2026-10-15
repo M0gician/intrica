@@ -43,11 +43,15 @@ export const ModelSelectionSchema = Type.Object(
   {
     profileId: Type.String({ minLength: 1, maxLength: 100 }),
     thinkingLevel: Type.Optional(
-      Type.Union(
-        (["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const).map((value) =>
-          Type.Literal(value),
-        ),
-      ),
+      Type.Union([
+        Type.Literal("off"),
+        Type.Literal("minimal"),
+        Type.Literal("low"),
+        Type.Literal("medium"),
+        Type.Literal("high"),
+        Type.Literal("xhigh"),
+        Type.Literal("max"),
+      ]),
     ),
   },
   { additionalProperties: false },

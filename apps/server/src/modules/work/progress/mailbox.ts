@@ -100,29 +100,32 @@ export async function readInbox(tx: Tx, conversationId: string, cursor?: string)
       );
     ids = page.item_ids;
   } else ids = state.items.map((i) => i.id);
-  const selected = ids.slice(0, 40);
-  const items = [];
-  for (const key of selected) {
-    const item = state.items.find((i) => i.id === key);
-    if (!item) continue;
-    const row = (
-      await tx.query(
-        `insert into mailbox_refs(conversation_id,item_id) values($1,$2)
-       on conflict(conversation_id,item_id) do update set item_id=excluded.item_id returning ref`,
-        [conversationId, key],
-      )
-    ).rows[0];
-    items.push({
-      ...item,
-      ref: row.ref,
-      actions:
-        item.kind === "outgoing"
-          ? ["wait", "background", "expedite", "cancel"]
-          : item.kind === "removal"
-            ? ["handled"]
-            : ["send_message"],
-    });
-  }
+  const selected = ids.slice(0, 40).flatMap((key) => {
+    const item = state.items.find((candidate) => candidate.id === key);
+    return item ? [item] : [];
+  });
+  const refs = selected.length
+    ? (
+        await tx.query(
+          `insert into mailbox_refs(conversation_id,item_id)
+         select $1,item_id from unnest($2::text[]) as item_id
+         on conflict(conversation_id,item_id) do update set item_id=excluded.item_id
+         returning item_id,ref`,
+          [conversationId, [...new Set(selected.map((item) => item.id))]],
+        )
+      ).rows
+    : [];
+  const references = new Map(refs.map((row) => [row.item_id, row.ref]));
+  const items = selected.map((item) => ({
+    ...item,
+    ref: references.get(item.id),
+    actions:
+      item.kind === "outgoing"
+        ? ["wait", "background", "expedite", "cancel"]
+        : item.kind === "removal"
+          ? ["handled"]
+          : ["send_message"],
+  }));
   const next = ids.length > 40 ? id("inbox-page") : null;
   if (next)
     await tx.query("insert into mailbox_pages(id,conversation_id,item_ids) values($1,$2,$3)", [

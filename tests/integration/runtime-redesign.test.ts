@@ -1,17 +1,75 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { createCanvasAgent } from "../../apps/server/dist/adapters/model/agent.js";
+import { collaborationNeedsApproval } from "../../apps/server/dist/modules/access/policy.js";
 import { summaryMessage } from "../../apps/server/dist/modules/context/messages.js";
 import { invokeTool } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { completionState } from "../../apps/server/dist/modules/work/progress/completion.js";
 import { hasReviewedAnswer } from "../../apps/server/dist/modules/work/progress/deliveries.js";
 import { progressExecutionState } from "../../apps/server/dist/modules/work/progress/execution-state.js";
+import { readInbox } from "../../apps/server/dist/modules/work/progress/mailbox.js";
 import {
   instructionSources,
   withOriginalInstructions,
 } from "../../apps/server/dist/modules/work/progress/sources.js";
 import { agent, board, consume, k, key, start } from "./helpers/runtime-redesign.js";
+
+it("reads one permission view when comparing peers and observes a later grant change", async () => {
+  const left = await agent();
+  const right = await agent();
+  await k.db.canvas(board, async (tx) => {
+    const query = vi.spyOn(tx, "query");
+    try {
+      expect(await collaborationNeedsApproval(tx, left.id, right.id)).toBe(false);
+      expect(query.mock.calls.length).toBeLessThanOrEqual(6);
+    } finally {
+      query.mockRestore();
+    }
+  });
+  await k.graph
+    .createNode({
+      kind: "text",
+      parentId: board,
+      text: "private resource",
+      position: { x: 0, y: 0, width: 240, height: 160 },
+      idempotencyKey: key(),
+    })
+    .then(({ node }) =>
+      k.graph.createLink({ fromId: left.id, toId: node.id, idempotencyKey: key() }),
+    );
+  await k.db.canvas(board, async (tx) => {
+    expect(await collaborationNeedsApproval(tx, left.id, right.id)).toBe(true);
+  });
+});
+
+it("creates a page of inbox references in one query and preserves their identity on reread", async () => {
+  const session = await start((await agent()).id);
+  await k.db.canvas(board, async (tx) => {
+    await tx.query(
+      `insert into messages(conversation_id,seq,client_message_id,role,content)
+       select $1,100+i,'removed-'||i,'team_notice',jsonb_build_object('event','member_removed','text','Member '||i)
+       from generate_series(1,45) i`,
+      [session.run.subject_id],
+    );
+    const query = vi.spyOn(tx, "query");
+    try {
+      const first = await readInbox(tx, session.run.subject_id);
+      expect(first.items).toHaveLength(40);
+      expect(
+        query.mock.calls.filter(([sql]) => String(sql).includes("insert into mailbox_refs")),
+      ).toHaveLength(1);
+      const again = await readInbox(tx, session.run.subject_id);
+      expect(again.items.map((item) => item.ref)).toEqual(first.items.map((item) => item.ref));
+      const next = await readInbox(tx, session.run.subject_id, first.next_cursor!);
+      expect(next.items).toHaveLength(5);
+      expect(next.next_cursor).toBeNull();
+      expect(new Set([...first.items, ...next.items].map((item) => item.ref)).size).toBe(45);
+    } finally {
+      query.mockRestore();
+    }
+  });
+});
 
 it("uses only flat current tools and rejects obsolete calls before effects", async () => {
   const s = await start((await agent()).id);
