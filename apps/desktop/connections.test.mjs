@@ -1,10 +1,63 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createConnections } from "./connections.mjs";
+
+test("invalid saved profiles do not discard later connections on save or reload", async (t) => {
+  const userData = await mkdtemp(join(tmpdir(), "intrica-connections-"));
+  t.after(() => rm(userData, { recursive: true, force: true }));
+  const path = join(userData, "connections.json");
+  const first = { id: "first", label: "First", baseUrl: "https://first.example" };
+  const last = { id: "last", label: "Last", baseUrl: "https://last.example" };
+  await writeFile(
+    path,
+    JSON.stringify([
+      first,
+      { id: "invalid", label: "Invalid", baseUrl: "javascript:bad" },
+      null,
+      { id: "incomplete" },
+      last,
+    ]),
+  );
+  const options = {
+    userData,
+    safeStorage: { isEncryptionAvailable: () => false },
+    fetchImpl: async (url) =>
+      Response.json(url.endsWith("/server") ? { id: "new-server", apiVersion: "v2" } : {}),
+  };
+  const connections = await createConnections(options);
+  t.after(() => connections.close());
+  assert.deepEqual(
+    connections.list().map(({ id }) => id),
+    ["first", "last", "local"],
+  );
+  const added = await connections.save({ label: "New", baseUrl: "https://new.example", token: "" });
+  const persisted = JSON.parse(await readFile(path, "utf8"));
+  assert.deepEqual(persisted.slice(0, 2), [first, last]);
+  const reloaded = await createConnections(options);
+  t.after(() => reloaded.close());
+  assert.deepEqual(
+    reloaded.list().map(({ id }) => id),
+    ["first", "last", added.id, "local"],
+  );
+});
+
+test("unreadable or corrupt connection files are not treated as an empty store", async (t) => {
+  const userData = await mkdtemp(join(tmpdir(), "intrica-connections-"));
+  t.after(() => rm(userData, { recursive: true, force: true }));
+  const path = join(userData, "connections.json");
+  for (const source of ["{", "{}", "null"]) {
+    await writeFile(path, source);
+    await assert.rejects(createConnections({ userData }));
+    assert.equal(await readFile(path, "utf8"), source);
+  }
+  await rm(path);
+  await mkdir(path);
+  await assert.rejects(createConnections({ userData }), { code: "EISDIR" });
+});
 
 test("fixed server bindings preserve streaming and reject stale routes, redirects and identity changes", async () => {
   const dir = await mkdtemp(join(tmpdir(), "intrica-connections-"));

@@ -21,15 +21,24 @@ export async function createConnections({
   const secure = () =>
     safeStorage.isEncryptionAvailable() &&
     safeStorage.getSelectedStorageBackend?.() !== "basic_text";
+  let saved = "[]";
   try {
-    for (const record of JSON.parse(await readFile(path, "utf8"))) {
-      if (typeof record.id === "string" && typeof record.label === "string") {
-        record.baseUrl = serverOrigin(record.baseUrl);
-        if (record.sshAlias) delete record.encryptedToken;
-        records.set(record.id, record);
-      }
+    saved = await readFile(path, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  const profiles = JSON.parse(saved);
+  if (!Array.isArray(profiles)) throw new Error("Saved connections must be an array");
+  for (const record of profiles) {
+    if (!record || typeof record.id !== "string" || typeof record.label !== "string") continue;
+    try {
+      record.baseUrl = serverOrigin(record.baseUrl);
+    } catch {
+      continue;
     }
-  } catch {}
+    if (record.sshAlias) delete record.encryptedToken;
+    records.set(record.id, record);
+  }
   records.set("local", { id: "local", label: "Local", baseUrl: localUrl ?? "", local: true });
   tokens.set("local", localToken);
   const publicRecord = (record) => ({
