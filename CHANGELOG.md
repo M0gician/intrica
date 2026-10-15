@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.5
+
+- Recover valid desktop connections even when another saved entry is malformed; preserve unreadable or corrupt identity and update-journal files for diagnosis.
+- Share streamed-message updates and recovery, reset stale conversation state, and give each application or browser fixture explicit connection and store providers.
+- Reduce repeated permission and context-library queries, batch message references, and derive public request types from the validated schemas.
+- Remove unused helpers, duplicate contracts, selectors and fallback paths while preserving permission checks and durable recovery behavior.
+- Verify real database snapshots and frozen historical upgrade schemas; separate benchmarks and visual experiments from ordinary regressions and reuse an isolated database cluster for safety ablations.
+- Wait for default-model persistence in browser acceptance before reading the selected model, eliminating an asynchronous assertion race.
+- Database schema 18 and tool schema 7 are unchanged. Fresh databases omit the unused inbox review table; existing historical data is retained.
+
+See [release notes](docs/releases/v0.5.5.md) and the [implementation audit](docs/development/cleanup-audit-2026-10-15.md).
+
 ## 0.5.4
 
 - Preserve complete previous summaries and archive compaction sources for authorized search and progressive reading with `read_context` and the bilingual Working materials panel.

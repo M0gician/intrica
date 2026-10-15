@@ -3,7 +3,32 @@
 This map covers RFCs #2 through #13, #17 and #18 under #1, and #19–#23 under #16, plus #24. Assertions check observable
 results and durable state. Test model responses come from dependency injection
 or an isolated compatible HTTP endpoint. Production configuration cannot enable
-the built-in test model.
+the built-in test model. This map records coverage of implemented behavior; it
+does not establish that every requirement later added to an RFC is complete.
+
+## Open issue review for v0.5.5
+
+Reviewed against `main` at `85e79ea` on 2026-10-15. Cleanup issues #34–#40 are
+closed following merged PRs #41–#45. The remaining open RFCs describe additional
+implementation or acceptance work and remain open:
+
+| Issues | Remaining work |
+| --- | --- |
+| #1 | Parent RFC still depends on the open implementation and platform acceptance items below. |
+| #3, #10 | Read receipts, explicit expedite and independent authorized-tool recovery are covered. Automatic timed input cutover is not implemented; the inference monitor currently interrupts only for explicit expedite. |
+| #5 | Matching-version SSH installation and recovery have fixture coverage; actual first installation on a separate Linux host still needs its own acceptance record. |
+| #6 | Signing-dependent automatic replacement, the legacy transition and real Debian replacement still need acceptance. Current macOS releases use ad-hoc signing and manual installation. |
+| #12 | Delta streams, scoped media and correlated traces are covered. The RFC also requires per-attempt input/output-item manifests and cutover tracing, which are not present in the current request records. |
+| #13 | The common regression matrix exists; actual remote installation and automatic-update acceptance remain separate requirements. |
+| #15 | Model-provider OAuth login and token refresh are not implemented. |
+| #18 | Role-aware prompts, generated names and controlled collaboration are covered. The RFC also requires the automatic input policy and the expanded message contract from #3/#26/#27. |
+| #24 | Linux and macOS CI passed actual sandbox network and Chromium/WebGL tests. The expanded runtime discovery contract still lacks explicit `verification=unverified`, and current acceptance does not cover the full click/screenshot/private-browser-read matrix. |
+| #26 | Flat `send_message` routing is implemented. Ordinary final text still appends to the conversation; it does not use the RFC's unified explicit-recipient final-output protocol or private internal-note target. |
+| #27 | Per-output-item persistence, continuation validation and automatic timed cutover are not implemented. The current runner persists the completed assistant response as a whole. |
+
+Some RFC links point to `codex/rfc-implementation`. A branch implementation or
+historical experiment is not evidence that the same behavior is merged into
+the release. Recheck remaining items against released code before closing them.
 
 | RFC | Contract and principal checks |
 | --- | --- |
@@ -21,7 +46,7 @@ the built-in test model.
 | #17 | Collaboration tests cover admin sends across roles, teams and resource scopes; selected/canvas broadcasts; deduplication; self exclusion; unchanged resource grants; resource-reader filtering; frozen audiences; deletion and foreign-target rejection; demotion; zero recipients; completed replay; and promotion resuming the original send. Terminal and escalated approvals remain barriers. Existing inbox tests cover busy/on-demand Agents, missing model configuration and activation limits. |
 | #18 | Prompt and tool-contract tests compare read/write/admin/owner instructions and visible parameters, including excluded management operations. Real conversation tests change role and resource access between model turns and recover old checkpoint-only hires under current authority. Name tests cover language fallback, concurrent UI/tool creation, pool exhaustion, rollback, new-field rejection, legacy restore, receipt reuse and human renaming. A controlled Worker scenario reuses an original conversation, recruits an independent member, holds both tasks in flight, exchanges peer evidence and verifies two real file writes with no duplicate hiring, tasks or reports. Shared Web/Electron recruitment uses generated names and actual member IDs. |
 
-| #24 | `sandbox-network.test.ts` runs a real isolated process against a local HTTP server, resolves a hostname, writes the response to its workspace, and checks private, ungranted and read-only file boundaries. It skips when platform isolation or Linux user namespaces are unavailable. A separate macOS probe verified external DNS and certificate-verified HTTPS to PyPI; Linux runtime verification remains pending. |
+| #24 | `sandbox-network.test.ts` runs a real isolated process against a local HTTP server, resolves a hostname, writes the response to its workspace, and checks private, ungranted and read-only file boundaries. `sandbox-browser.test.ts` launches Chromium, renders WebGL and invokes Node inside isolation. Both passed on Linux and macOS in CI run `38732297737`; that run separately failed a macOS model-settings browser assertion. Tests skip when platform isolation or Linux user namespaces are unavailable. External DNS/HTTPS and the expanded browser interaction matrix require separate evidence for each released platform. |
 
 ## Test layers
 

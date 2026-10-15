@@ -82,9 +82,17 @@ test("模型设置：共享 API 密钥、获取列表、测试、保存与用量
   await expect(dialog.getByRole("status")).toHaveText("连接成功");
   expect(calls.at(-1).reasoning_effort).toBe("high");
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
-  await dialog
-    .getByLabel("服务器默认模型", { exact: true })
-    .selectOption({ label: "settings-research" });
+  const [selection] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/api/v2/workspace/models/select",
+    ),
+    dialog
+      .getByLabel("服务器默认模型", { exact: true })
+      .selectOption({ label: "settings-research" }),
+  ]);
+  expect(selection.ok()).toBe(true);
   const directory = await (await request.get(`${api}/api/v2/workspace/models`)).json();
   expect(JSON.stringify(directory)).not.toContain("settings-private-key");
   expect(directory.profiles.find((p: any) => p.id === directory.selectedId).modelId).toBe(

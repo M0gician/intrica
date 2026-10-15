@@ -11,7 +11,7 @@ Packaged Desktop checks after startup and then every six hours. Automatic
 download is optional. Checks and downloads do not stop Agents or install
 software. Failures use bounded backoff.
 
-For macOS ad-hoc releases (including v0.5.4), choose **Download and install manually**.
+For macOS ad-hoc releases (including v0.5.5), choose **Download and install manually**.
 Quit Intrica, copy the new app from the DMG to Applications, replace the previous
 copy and reopen it. Workspace data is preserved. These packages are not notarized
 by Apple; if macOS blocks startup, use System Settings → Privacy & Security →
@@ -116,7 +116,7 @@ invalidated; operations with uncertain effects remain blocked for verification.
 Schema 18 archives compaction sources and their access scopes, records successful
 reading positions, and persists response-validation records and correction budgets.
 Tool schema 7 adds `read_context` for archived evidence and `read_next` for continued
-reads. The obsolete pre-compaction memory switch is removed. Version 0.5.4 uses
+reads. The obsolete pre-compaction memory switch is removed. Versions 0.5.4–0.5.5 use
 these new contracts; versions 0.5.0–0.5.3 use database schema 17 and tool schema 6.
 Context-compaction failures preserve the checkpoint and pause automatic inference.
 After verifying any uncertain effects, explicitly continue the conversation.
