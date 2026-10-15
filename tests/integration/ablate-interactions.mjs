@@ -71,7 +71,7 @@ const cases = [
     "read cursor input binding",
     "work/tools/read.js",
     "object({ cursor: idParameter })",
-    "object({ cursor: idParameter }, { additionalProperties: true })",
+    "object({ cursor: idParameter, mode: Type.Optional(Type.String()) })",
     "read cursors bind targets",
   ],
   [

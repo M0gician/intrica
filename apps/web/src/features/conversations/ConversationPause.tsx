@@ -30,6 +30,12 @@ export function ConversationPause({
         {tr("摘要未通过校验，正在根据具体原因修正。")}
       </p>
     );
+  if (reason === "model_retry" && modelRequest?.reason === "MODEL_INTERRUPTED")
+    return (
+      <p role="status" className="conversation-pause">
+        {tr("正在恢复中断的模型请求，任务将自动继续。")}
+      </p>
+    );
   if (
     reason?.startsWith("CONTEXT_SUMMARY_INVALID") ||
     (modelRequest?.state === "failed" && modelRequest.reason === "CONTEXT_SUMMARY_INVALID")

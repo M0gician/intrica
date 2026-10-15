@@ -1204,5 +1204,6 @@
   "搜索": "Search",
   "来源信息": "Source details",
   "引用": "Reference",
-  "内容哈希": "Content hash"
+  "内容哈希": "Content hash",
+  "正在恢复中断的模型请求，任务将自动继续。": "Resuming the interrupted model request. Work will continue automatically."
 }

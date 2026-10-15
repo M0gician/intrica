@@ -34,5 +34,23 @@ it.each(["zh-CN", "en"] as const)(
     expect(screen.getByRole("status").textContent).not.toContain(
       chinese ? "服务繁忙" : "service is busy",
     );
+    view.rerender(
+      <ConversationPause
+        reason="model_retry"
+        modelRequest={{
+          requestId: "interrupted",
+          state: "retry_wait",
+          reason: "MODEL_INTERRUPTED",
+          attempts: 1,
+          nextAttemptAt: null,
+        }}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toContain(
+      chinese ? "恢复中断的模型请求" : "Resuming the interrupted model request",
+    );
+    expect(screen.getByRole("status").textContent).not.toContain(
+      chinese ? "服务繁忙" : "service is busy",
+    );
   },
 );

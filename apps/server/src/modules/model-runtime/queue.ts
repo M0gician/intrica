@@ -227,9 +227,24 @@ export class ModelQueue {
     });
   }
   async cancel(owner?: string | null) {
-    // Retain the upstream slot until its lease expires when transport shutdown is unconfirmed.
+    // Aborting transport during worker shutdown is not a user cancellation. Keep
+    // the same logical request and its correction budget recoverable after requeue.
+    // In both cases the uncertain upstream slot remains occupied until lease expiry.
     await this.db.pool.query(
-      "update model_requests set state='cancelled',owner=null,reason='MODEL_CANCELLED',finished_at=now() where id=$1 and state<>'succeeded' and (owner=$2 or (owner is null and state in('queued','retry_wait'))) and ($3::int is null or exists(select 1 from runs where id=model_requests.run_id and epoch=$3))",
+      `with interrupted as (
+        select m.id,($3::int is not null and exists(
+          select 1 from runs r where r.id=m.run_id and r.epoch=$3
+            and r.cancel_requested_at is null and r.state in ('running','queued','waiting')
+        )) as recoverable from model_requests m
+        where m.id=$1 and m.state in ('queued','retry_wait','leased','streaming')
+          and (m.owner=$2 or (m.owner is null and m.state in ('queued','retry_wait')))
+          and ($3::int is null or exists(select 1 from runs r where r.id=m.run_id and r.epoch=$3))
+        for update of m
+      ) update model_requests m set
+        state=case when i.recoverable then 'retry_wait' else 'cancelled' end,
+        reason=case when i.recoverable then 'MODEL_INTERRUPTED' else 'MODEL_CANCELLED' end,
+        owner=null,finished_at=case when i.recoverable then null else now() end
+      from interrupted i where m.id=i.id`,
       [this.request.id, owner ?? null, this.request.runEpoch ?? null],
     );
   }
