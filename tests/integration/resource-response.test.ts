@@ -14,6 +14,7 @@ import { resourceResponse } from "../../apps/server/dist/modules/execution/sched
 import { tickSchedules } from "../../apps/server/dist/modules/work/agent-schedules.js";
 import { retryResourceResponse } from "../../apps/server/dist/modules/work/resource-response.js";
 import { executeConversation } from "./helpers/execute-conversation.js";
+import { installLegacySchema } from "./helpers/legacy-schema.js";
 
 const key = () => randomUUID();
 const name = `intrica_responses_${key().replaceAll("-", "")}`;
@@ -815,7 +816,7 @@ it("migrates ambiguous legacy blocks without reviving stopped work", async () =>
   url.pathname = `/${migrationName}`;
   const db = new Database(url.href);
   try {
-    await db.migrate();
+    await installLegacySchema(db, 12);
     await db.pool.query("insert into canvases(id,title) values('c','migration')");
     for (const agentId of [
       "old-block",
@@ -867,23 +868,6 @@ it("migrates ambiguous legacy blocks without reviving stopped work", async () =>
         ],
       );
     }
-    await db.pool.query(
-      "drop table model_response_validations,read_observations,context_summaries,read_cursors,model_requests,model_fairness,message_dispositions,mailbox_refs,mailbox_pages,progress_reviews; drop sequence mailbox_ref_seq; alter table conversations drop column context_version; alter table model_endpoints drop column quota_group_id; drop table model_quota_groups",
-    );
-    // Reconstruct v12, including removal of fields introduced by later migrations.
-    await db.pool.query(
-      "alter table model_calls drop column last_response_at, drop column response_phase",
-    );
-    await db.pool.query(
-      "drop table message_deliveries;drop table inbox_reviews;alter table agent_configs drop column paused;alter table tool_calls drop column schema_version",
-    );
-    // Use the real migration runner.
-    await db.pool.query(
-      "alter table schedules drop column revision, drop column dispatch_state, drop column blocked_reason, drop column delivery_seq, drop column delivery_run_id",
-    );
-    await db.pool.query(
-      "alter table schema_info drop constraint schema_info_version_check; update schema_info set version=12; alter table schema_info add constraint schema_info_version_check check(version=12)",
-    );
     await db.migrate();
     const models = new ModelRegistry(db, dir, null);
     await models.initialize();

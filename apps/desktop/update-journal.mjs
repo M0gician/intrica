@@ -3,12 +3,17 @@ import { join } from "node:path";
 
 export const updateJournalPath = (userData) => join(userData, "updates", "operation.json");
 export async function readUpdateOperation(userData) {
+  let source;
   try {
-    const value = JSON.parse(await readFile(updateJournalPath(userData), "utf8"));
-    return value.format === 1 && typeof value.id === "string" ? value : null;
-  } catch {
-    return null;
+    source = await readFile(updateJournalPath(userData), "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
   }
+  const value = JSON.parse(source);
+  if (value?.format !== 1 || typeof value.id !== "string" || !value.id)
+    throw new Error("Invalid update journal; restore operation.json before retrying the update");
+  return value;
 }
 export async function writeUpdateOperation(userData, operation) {
   const path = updateJournalPath(userData);

@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
 import { assertFence, digest } from "../../apps/server/dist/adapters/postgres/database.js";
 import { invokeTool, result } from "../../apps/server/dist/modules/execution/tool-calls.js";
 import { Worker } from "../../apps/server/dist/modules/execution/worker.js";
+import { installLegacySchema } from "./helpers/legacy-schema.js";
 
 const key = () => randomUUID();
 let admin: pg.Client, app: Awaited<ReturnType<typeof buildServer>>, k: Kernel;
@@ -152,26 +153,9 @@ async function checkpoint(calls: Array<{ providerId: string; name: string; args:
   ]);
 }
 async function version(value: 8 | 9) {
-  await k.db.pool.query(
-    "drop table model_response_validations,read_observations,context_summaries,read_cursors,model_requests,model_fairness,message_dispositions,mailbox_refs,mailbox_pages,progress_reviews; drop sequence mailbox_ref_seq; alter table conversations drop column context_version; alter table model_endpoints drop column quota_group_id; drop table model_quota_groups",
-  );
-  await k.db.pool.query(
-    "alter table model_calls drop column last_response_at, drop column response_phase",
-  );
-  await k.db.pool.query(
-    "drop table message_deliveries;drop table inbox_reviews;alter table agent_configs drop column paused;alter table tool_calls drop column schema_version",
-  );
-  await k.db.pool.query(
-    "alter table schedules drop column revision, drop column dispatch_state, drop column blocked_reason, drop column delivery_seq, drop column delivery_run_id",
-  );
-  if (value === 8)
-    await k.db.pool.query(
-      "drop index runs_handoffs; alter table runs drop column superseded_by_run_id; alter table messages drop column consumed_run_id",
-    );
-  await k.db.pool.query(
-    `alter table schema_info drop constraint schema_info_version_check; update schema_info set version=${value}; alter table schema_info add constraint schema_info_version_check check(version=${value})`,
-  );
+  await installLegacySchema(k.db, value, true);
 }
+
 async function reopen() {
   await app.close();
   app = await buildServer(options);

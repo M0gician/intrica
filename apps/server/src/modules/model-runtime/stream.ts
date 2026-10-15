@@ -1,6 +1,7 @@
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { type AssistantMessage, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { classifyModelFailure, retryDelay } from "./errors.js";
+import { emptyAssistantMessage } from "./message.js";
 import type { ModelQueue } from "./queue.js";
 import { responseCorrection, validationReceipt } from "./response-validation.js";
 
@@ -36,23 +37,7 @@ export function scheduledStream(source: StreamFn, runtime: Options): StreamFn {
         started = false,
         validationFailures = 0,
         repairFeedback: string | null = null;
-      let partial: AssistantMessage = {
-        role: "assistant",
-        content: [],
-        model: model.id,
-        provider: model.provider,
-        api: model.api,
-        timestamp: Date.now(),
-        stopReason: "error",
-        usage: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          totalTokens: 0,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        },
-      };
+      let partial: AssistantMessage = emptyAssistantMessage(model);
       try {
         const group = await queue?.initialize();
         for (;;) {

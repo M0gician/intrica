@@ -17,6 +17,22 @@ import {
   selectTransitionTarget,
 } from "./update-transition.mjs";
 
+test("missing update journals are distinct from corrupt or unreadable recovery state", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "intrica-journal-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  assert.equal(await readUpdateOperation(directory), null);
+  const path = join(directory, "updates", "operation.json");
+  await mkdir(join(directory, "updates"));
+  for (const source of ["{", "null", "{}", '{"format":2,"id":"existing"}']) {
+    await writeFile(path, source);
+    await assert.rejects(readUpdateOperation(directory));
+    assert.equal(await readFile(path, "utf8"), source);
+  }
+  await rm(path);
+  await mkdir(path);
+  await assert.rejects(readUpdateOperation(directory), { code: "EISDIR" });
+});
+
 test("macOS automatic updates require a valid signature and Gatekeeper acceptance", async () => {
   const executable = "/Applications/Intrica.app/Contents/MacOS/Intrica";
   assert.equal(

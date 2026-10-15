@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { type AssistantMessage, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { emptyAssistantMessage } from "../../modules/model-runtime/message.js";
 import { ModelQueue } from "../../modules/model-runtime/queue.js";
 import { scheduledStream } from "../../modules/model-runtime/stream.js";
 import { type Database, digest, id } from "../postgres/database.js";
@@ -107,23 +108,7 @@ export function meteredStream(source: StreamFn): StreamFn {
     void (async () => {
       let call: Awaited<ReturnType<typeof startModelCall>> = null;
       let progress = modelProgress(null);
-      let partial: AssistantMessage = {
-        role: "assistant",
-        content: [],
-        model: model.id,
-        provider: model.provider,
-        api: model.api,
-        timestamp: Date.now(),
-        stopReason: "error",
-        usage: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          totalTokens: 0,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        },
-      };
+      let partial: AssistantMessage = emptyAssistantMessage(model);
       let rejectAbort: (error: Error) => void = () => {};
       const cancelled = new Promise<never>((_, reject) => {
         rejectAbort = reject;

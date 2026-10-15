@@ -55,7 +55,8 @@ CREATE TABLE agent_configs (
 CREATE TABLE conversations (
  id text PRIMARY KEY, canvas_id text NOT NULL REFERENCES canvases(id), agent_id text UNIQUE REFERENCES agent_configs(node_id) ON DELETE SET NULL,
  message_seq bigint NOT NULL DEFAULT 0, consumed_message_seq bigint NOT NULL DEFAULT 0,
- checkpoint jsonb NOT NULL DEFAULT '[]', context jsonb, model jsonb, created_at timestamptz NOT NULL DEFAULT now()
+ checkpoint jsonb NOT NULL DEFAULT '[]', context jsonb, model jsonb, created_at timestamptz NOT NULL DEFAULT now(),
+ context_version bigint NOT NULL DEFAULT 0
 );
 CREATE TABLE messages (
  conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, seq bigint NOT NULL,
@@ -96,7 +97,7 @@ CREATE TABLE proposals (
 CREATE INDEX proposals_canvas ON proposals(canvas_id,created_at DESC);
 CREATE TABLE tool_calls (
  id text PRIMARY KEY, run_id text NOT NULL REFERENCES runs(id), attempt_id text NOT NULL REFERENCES attempts(id),
- schema_version integer NOT NULL DEFAULT 5,
+ schema_version integer NOT NULL DEFAULT 7,
  logical_call_id text NOT NULL, name text NOT NULL, args jsonb NOT NULL, args_hash text NOT NULL,
  effect_class text NOT NULL CHECK(effect_class IN ('read','graph','external')),
  state text NOT NULL CHECK(state IN ('prepared','dispatching','succeeded','failed','unknown','waiting')),
@@ -137,9 +138,13 @@ CREATE TABLE schedules (
  blocked_reason text, delivery_seq bigint, delivery_run_id text
 );
 CREATE INDEX schedules_due ON schedules(next_due_at) WHERE enabled;
+CREATE TABLE model_quota_groups (
+ id text PRIMARY KEY, capacity integer NOT NULL DEFAULT 4 CHECK(capacity between 1 and 1000), cooldown_until timestamptz
+);
 CREATE TABLE model_endpoints (
  id text PRIMARY KEY, name text NOT NULL, base_url text NOT NULL,
- credential_ref text NOT NULL DEFAULT '', revision integer NOT NULL DEFAULT 1
+ credential_ref text NOT NULL DEFAULT '', revision integer NOT NULL DEFAULT 1,
+ quota_group_id text REFERENCES model_quota_groups(id)
 );
 CREATE TABLE model_profiles (
  id text PRIMARY KEY, version integer NOT NULL DEFAULT 1, public_config jsonb NOT NULL,
@@ -191,20 +196,17 @@ CREATE TABLE message_deliveries (
  UNIQUE(sender_conversation_id,source_message_id,recipient_conversation_id)
 );
 CREATE INDEX message_deliveries_due ON message_deliveries(deadline_at) WHERE state='open' AND notified_at IS NULL;
-CREATE TABLE inbox_reviews (
- conversation_id text PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
- token text NOT NULL, fingerprint text NOT NULL, inspection_token text, inspection_fingerprint text, reviewed_seq bigint NOT NULL DEFAULT 0, reviewed_at timestamptz NOT NULL DEFAULT now(), decisions jsonb NOT NULL DEFAULT '[]'
-);
 
 CREATE INDEX message_deliveries_unread_due ON message_deliveries(unread_deadline_at) WHERE state='open' AND NOT tracking_stopped AND unread_notified_at IS NULL;
 
-ALTER TABLE conversations ADD COLUMN context_version bigint NOT NULL DEFAULT 0;
 CREATE TABLE context_summaries (
  id text PRIMARY KEY, conversation_id text NOT NULL REFERENCES conversations(id),
  run_id text NOT NULL REFERENCES runs(id), request_id text NOT NULL,
  source_hash text NOT NULL, source_refs jsonb NOT NULL, instruction_hash text NOT NULL,
  content jsonb NOT NULL, previous_checkpoint jsonb NOT NULL, context_version bigint NOT NULL,
- created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(conversation_id,context_version)
+ created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(conversation_id,context_version),
+ source_messages jsonb NOT NULL DEFAULT '[]',
+ access_scope jsonb
 );
 
 CREATE TABLE message_dispositions (
@@ -229,16 +231,14 @@ CREATE TABLE progress_reviews (
  execution_hash text NOT NULL DEFAULT '', input_boundary text NOT NULL, instruction_hash text NOT NULL, obligations jsonb NOT NULL, reviewed_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE model_quota_groups (
- id text PRIMARY KEY, capacity integer NOT NULL DEFAULT 4 CHECK(capacity between 1 and 1000), cooldown_until timestamptz
-);
-ALTER TABLE model_endpoints ADD COLUMN quota_group_id text REFERENCES model_quota_groups(id);
 CREATE TABLE model_requests (
  id text PRIMARY KEY, run_id text REFERENCES runs(id), conversation_id text NOT NULL, purpose text NOT NULL,
  group_id text NOT NULL REFERENCES model_quota_groups(id), source_hash text NOT NULL,
  state text NOT NULL DEFAULT 'queued' CHECK(state in ('queued','leased','streaming','retry_wait','succeeded','failed','cancelled')),
  owner text, lease_until timestamptz, first_failure_at timestamptz, attempts integer NOT NULL DEFAULT 0, reason text,
- next_attempt_at timestamptz NOT NULL DEFAULT now(), response jsonb, created_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz
+ next_attempt_at timestamptz NOT NULL DEFAULT now(), response jsonb, created_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz,
+ validation_failures integer NOT NULL DEFAULT 0,
+ validation_feedback text
 );
 CREATE INDEX model_request_queue ON model_requests(group_id,next_attempt_at) WHERE state in ('queued','retry_wait','leased','streaming');
 CREATE TABLE model_fairness (group_id text NOT NULL REFERENCES model_quota_groups(id), conversation_id text NOT NULL, served_at timestamptz NOT NULL, PRIMARY KEY(group_id,conversation_id));
@@ -250,12 +250,7 @@ CREATE TABLE read_cursors (
 );
 CREATE INDEX read_cursor_owner ON read_cursors(conversation_id,created_at);
 
-ALTER TABLE tool_calls ALTER COLUMN schema_version SET DEFAULT 6;
 
-ALTER TABLE context_summaries ADD COLUMN source_messages jsonb NOT NULL DEFAULT '[]';
-ALTER TABLE context_summaries ADD COLUMN access_scope jsonb;
-ALTER TABLE model_requests ADD COLUMN validation_failures integer NOT NULL DEFAULT 0;
-ALTER TABLE model_requests ADD COLUMN validation_feedback text;
 CREATE TABLE model_response_validations (
  request_id text NOT NULL REFERENCES model_requests(id) ON DELETE CASCADE,
  attempt integer NOT NULL, status text NOT NULL CHECK(status IN ('accepted','rejected')),
@@ -272,4 +267,3 @@ CREATE TABLE read_observations (
  created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX read_observations_source ON read_observations(conversation_id,source_key,created_at DESC);
-ALTER TABLE tool_calls ALTER COLUMN schema_version SET DEFAULT 7;
