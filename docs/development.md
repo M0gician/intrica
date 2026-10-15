@@ -41,6 +41,7 @@ pnpm typecheck
 pnpm lint
 node scripts/ci-tests.mjs functional
 node scripts/ci-tests.mjs browser
+pnpm test:browser-fixtures
 node --test tests/integration/public-releases.test.mjs
 node --test scripts/deploy-server.test.mjs scripts/install-server.test.mjs scripts/service-sandbox.test.mjs
 pnpm test:matrix

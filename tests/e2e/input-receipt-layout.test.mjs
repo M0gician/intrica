@@ -11,6 +11,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8"></head><body><div
 <script type="module">
 import React from "react";
 import {createRoot} from "react-dom/client";
+import {createTestProviders} from "/src/test/providers.tsx";
 import {InputReceipt} from "/src/features/conversations/InputReceipt.tsx";
 import {TimelineEvent} from "/src/features/conversations/TimelineEvent.tsx";
 import {MarkdownLite} from "/src/components/MarkdownLite.tsx";
@@ -29,7 +30,9 @@ function Fixture() {
       h("article",{id:"agent",className:"agent-event agent-event-user",tabIndex:-1},
         h(TimelineEvent,{event:{id:"agent-input",kind:"user",agentId:"agent",conversationId:"conversation",createdAt:"2026-10-01T01:02:03Z",data:{text:texts.agent,inputReceipt:texts.receiptState===null?undefined:{messageId:"agent-input",state:texts.receiptState??"unread"}}},nodes:new Map(),requestEvent:new Map()}))));
 }
-createRoot(document.getElementById("root")).render(h(Fixture));
+const {Provider,dispose} = createTestProviders();
+window.addEventListener("pagehide", dispose, {once:true});
+createRoot(document.getElementById("root")).render(h(Provider,null,h(Fixture)));
 </script></body></html>`;
 
 async function assertTimestampFits(bubble) {

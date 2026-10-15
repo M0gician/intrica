@@ -8,41 +8,30 @@ import {
 } from "@testing-library/react";
 import type { PropsWithChildren, ReactNode } from "react";
 import { afterEach } from "vitest";
-import {
-  ConnectionServices,
-  createSessionConnection,
-  type SessionConnection,
-} from "../api/connection";
-import { createStore, type Store, StoreContext } from "../state/store";
+import { createTestProviders, type TestServices } from "./providers";
 
 export * from "@testing-library/react";
 
-const connections = new Set<SessionConnection>();
+const disposers = new Set<() => void>();
 afterEach(() => {
   cleanup();
-  for (const connection of connections) connection.dispose();
-  connections.clear();
+  for (const dispose of disposers) dispose();
+  disposers.clear();
 });
-type Services = { store?: Store; connection?: SessionConnection };
-function wrapper(services: Services, Wrapper?: RenderOptions["wrapper"]) {
-  const store = services.store ?? createStore();
-  const connection = services.connection ?? createSessionConnection();
-  if (!services.connection) connections.add(connection);
+function wrapper(services: TestServices, Wrapper?: RenderOptions["wrapper"]) {
+  const { Provider, dispose } = createTestProviders(services);
+  disposers.add(dispose);
   return ({ children }: PropsWithChildren) => (
-    <ConnectionServices.Provider value={connection}>
-      <StoreContext.Provider value={store}>
-        {Wrapper ? <Wrapper>{children}</Wrapper> : children}
-      </StoreContext.Provider>
-    </ConnectionServices.Provider>
+    <Provider>{Wrapper ? <Wrapper>{children}</Wrapper> : children}</Provider>
   );
 }
-export function render(ui: ReactNode, options: RenderOptions & Services = {}): RenderResult {
+export function render(ui: ReactNode, options: RenderOptions & TestServices = {}): RenderResult {
   const { wrapper: Wrapper, ...rest } = options;
   return renderView(ui, { ...rest, wrapper: wrapper(options, Wrapper) });
 }
 export function renderHook<Result, Props>(
   callback: (props: Props) => Result,
-  options: RenderHookOptions<Props> & Services = {},
+  options: RenderHookOptions<Props> & TestServices = {},
 ) {
   const { wrapper: Wrapper, ...rest } = options;
   return renderTestHook(callback, { ...rest, wrapper: wrapper(options, Wrapper) });

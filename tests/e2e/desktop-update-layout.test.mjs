@@ -12,6 +12,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8"></head><body><div
 <script type="module">
 import React from "react";
 import {createRoot} from "react-dom/client";
+import {createTestProviders} from "/src/test/providers.tsx";
 import {DesktopUpdateNotice} from "/src/features/settings/DesktopUpdateNotice.tsx";
 import {DesktopUpdateProvider, DesktopUpdateBadge} from "/src/features/settings/desktop-update-state.tsx";
 import {BottomBar} from "/src/components/BottomBar.tsx";
@@ -35,7 +36,9 @@ function Fixture() {
         layout.toast && h("div", {className:"toast"}, "Task status")),
       layout.panel && h("aside", {className:"workspace-panel", "aria-label":"Sidebar fixture", style:{width:layout.sidebar+"px"}}, "Sidebar fixture")));
 }
-createRoot(document.getElementById("root")).render(h(Fixture));
+const {Provider,dispose} = createTestProviders();
+window.addEventListener("pagehide", dispose, {once:true});
+createRoot(document.getElementById("root")).render(h(Provider,null,h(Fixture)));
 </script></body></html>`;
 
 test("desktop update notice defers to real canvas controls at narrow and wide widths without dismissing or moving focus", async () => {

@@ -35,7 +35,7 @@ CPU 测量使用 Node.js 24.18.0，50 次采样前预热 10 次，每条工具�
 | --- | --- |
 | 26 | 快照恢复、运行订阅、初始响应共用 assistant 消息和时间线更新函数。工具状态合并与用户回执仍按各自事件语义处理。 |
 | 27 | reset 与断裂 delta 共用恢复流程，关闭旧流、清空旧消息、合并重复恢复请求；卸载后不再重连或上报恢复错误。新增回归覆盖同一消息 ID 的 revision 回退。 |
-| 28 | 删除模块加载时创建的默认 connection/store。生产 App 显式提供两者；测试 render helper 为每次渲染创建独立实例并清理连接。 |
+| 28 | 删除模块加载时创建的默认 connection/store。生产 App 显式提供两者；单元测试 render helper 与独立浏览器组件夹具共用 provider 工厂，创建独立实例并清理连接。 |
 | 33 | 删除只校验手写快照的 contract 测试包，改用真实数据库的图快照及 generation preview 校验公开 schema。由此发现并修正 metadata SQL 将缺失 text/summary 投影为 null 的契约偏差。 |
 | 34 | 抽取完全相同的 Agent 创建、工具会话、输入消费、进度检查与通知读取 helper。保留各文件数据库生命周期、视觉能力、清理规则及工具查找失败语义的差异。 |
 | 36 | 相同的 E2E 侧栏缩放与画布创建共用 helper；其他 setup/open 保留场景特定参数与交互步骤。 |
@@ -70,6 +70,7 @@ pnpm typecheck
 pnpm lint
 node scripts/ci-tests.mjs functional
 node scripts/ci-tests.mjs browser
+pnpm test:browser-fixtures
 pnpm --filter @intrica/desktop test
 node --test tests/integration/public-releases.test.mjs
 node scripts/ci-tests.mjs benchmark
