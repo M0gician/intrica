@@ -18,6 +18,27 @@ export function ConversationPause({
     return () => clearInterval(interval);
   }, [retryAt, reason]);
   const seconds = retryAt ? Math.max(0, Math.ceil((Date.parse(retryAt) - now) / 1000)) : 0;
+  if (reason === "context_blocked")
+    return (
+      <p role="status" className="conversation-pause">
+        {tr("上下文整理未完成，任务已暂停。原始记录已保留，点击继续后将重新规划整理。")}
+      </p>
+    );
+  if (reason === "model_retry" && modelRequest?.reason === "CONTEXT_SUMMARY_INVALID")
+    return (
+      <p role="status" className="conversation-pause">
+        {tr("摘要未通过校验，正在根据具体原因修正。")}
+      </p>
+    );
+  if (
+    reason?.startsWith("CONTEXT_SUMMARY_INVALID") ||
+    (modelRequest?.state === "failed" && modelRequest.reason === "CONTEXT_SUMMARY_INVALID")
+  )
+    return (
+      <p role="status" className="conversation-pause">
+        {tr("摘要未通过校验，本次压缩未生效，原始上下文已保留。")}
+      </p>
+    );
   if (reason === "progress_review" || reason === "inbox_review")
     return (
       <p role="status" className="conversation-pause">

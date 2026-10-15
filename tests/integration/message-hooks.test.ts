@@ -163,7 +163,7 @@ it("rejects retired and malformed tools with precise audited failures and no del
       )
     ).rows[0];
     expect(row.state).toBe("failed");
-    expect(row.schema_version).toBe(6);
+    expect(row.schema_version).toBe(7);
     expect(row.result).toEqual(called.result);
   }
   expect(

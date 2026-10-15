@@ -1,5 +1,7 @@
 /** UI labels for built-in and historical tool receipts; identifiers stay in diagnostics. */
 export const toolLabelKeys = {
+  read_context: "读取工作资料",
+  read_next: "继续读取",
   bash: "运行命令",
   read: "读取",
   rg: "搜索文件内容",

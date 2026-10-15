@@ -69,14 +69,9 @@ export async function createDefaultEndpoint() {
             })),
           });
         }
-        if (!input.tools?.length && system.includes('"source_refs"'))
-          output = JSON.stringify({
-            facts: ["The supplied historical sources were summarized."],
-            decisions: [],
-            completed_work: [],
-            remaining_work: ["Continue the original instructions."],
-            source_refs: ["s1"],
-          });
+        if (!input.tools?.length && system.includes("[intrica-context-handoff-v1]"))
+          output =
+            "The supplied historical sources are archived. Continue the original instructions and retrieve exact evidence with read_context when needed.";
         if (input.tools?.some((t) => t.function?.name === "review_progress")) {
           const reply = reviewedReply(input.messages, { text: output });
           if ("tool" in reply) {

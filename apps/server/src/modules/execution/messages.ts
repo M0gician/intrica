@@ -4,8 +4,8 @@ import { canvasEvent, type Tx } from "../../adapters/postgres/database.js";
 export async function projectToolOutcome(tx: Tx, callId: string) {
   const rows = await tx.query(
     `update messages m set content=m.content||jsonb_build_object(
-    'status',case t.state when 'succeeded' then 'complete' else 'error' end,'result',t.result)
-    from tool_calls t where t.id=$1 and t.state in('succeeded','failed') and m.role='tool'
+    'status',case t.state when 'succeeded' then 'complete' when 'unknown' then 'unknown' else 'error' end,'result',t.result)
+    from tool_calls t where t.id=$1 and t.state in('succeeded','failed','unknown') and m.role='tool'
     and m.content->>'callId'=t.id returning m.conversation_id`,
     [callId],
   );

@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { createCanvasAgent } from "../../apps/server/dist/adapters/model/agent.js";
 import { contextUsage } from "../../apps/server/dist/adapters/model/context.js";
 import { summaryMessage } from "../../apps/server/dist/modules/context/messages.js";
+import { persistContextArchive } from "../../apps/server/dist/modules/work/context-library/archive.js";
 import { createCheckpointWriter } from "../../apps/server/dist/modules/work/conversation-runtime/checkpoints.js";
 import { compactConversation } from "../../apps/server/dist/modules/work/conversation-runtime/compaction.js";
 import {
@@ -18,13 +19,7 @@ async function fixture(large = true) {
   session.ctx.signal = controller.signal;
   const input = session.run.frozen_input;
   const model = createCanvasAgent(config, key());
-  const content = {
-    facts: ["Verified prior decision"],
-    decisions: [],
-    completed_work: [],
-    remaining_work: [],
-    source_refs: ["s1"],
-  };
+  const content = { text: "Verified prior decision" };
   const prior = summaryMessage(model.state.model, key(), content, "en");
   const { intrica: _metadata, ...base } = prior;
   const row = (
@@ -62,6 +57,17 @@ async function fixture(large = true) {
     "insert into context_summaries(id,conversation_id,run_id,request_id,source_hash,source_refs,instruction_hash,content,previous_checkpoint,context_version) values($1,$2,$3,$4,'prior','[]','prior',$5,'[]',0)",
     [prior.intrica!.id, row.id, session.run.id, key(), JSON.stringify(content)],
   );
+  await k.db.canvas(session.run.canvas_id, (tx) =>
+    persistContextArchive(tx, {
+      summaryId: prior.intrica!.id,
+      conversationId: row.id,
+      canvasId: session.run.canvas_id,
+      agentId: session.actor.agentId,
+      sourceMessages: [
+        { role: "user", content: "Original verified decision evidence", timestamp: 0 },
+      ],
+    }),
+  );
   await k.db.pool.query(
     "update conversations set checkpoint=$2,context_version=1,context=$3 where id=$1",
     [row.id, JSON.stringify(model.state.messages), JSON.stringify({ compactions: 1 })],
@@ -75,7 +81,7 @@ async function fixture(large = true) {
     ).rows[0],
     summaries: (
       await k.db.pool.query(
-        "select id,content,previous_checkpoint,context_version from context_summaries where conversation_id=$1 order by context_version",
+        "select id,content,previous_checkpoint,context_version,source_messages,access_scope from context_summaries where conversation_id=$1 order by context_version",
         [row.id],
       )
     ).rows,
@@ -104,7 +110,7 @@ async function fixture(large = true) {
       consumed: String(row.consumed_message_seq),
       compactions: count,
       pendingTurnId: "fixture",
-      toolSchemaVersion: 6,
+      toolSchemaVersion: 7,
       budget: 0,
       exhausted: false,
     }),
@@ -120,7 +126,7 @@ async function fixture(large = true) {
     persist,
     count: () => count,
     compact: (write = persist) =>
-      compactConversation(session.ctx, input, model, config, sources, true, write, (delta) => {
+      compactConversation(session.ctx, input, model, config, sources, write, (delta) => {
         count += delta;
       }),
   };
@@ -138,7 +144,7 @@ it("validates and atomically commits a smaller context with original instruction
   expect(after.summaries[1].previous_checkpoint).toEqual(before.conversation.checkpoint);
   expect(after.conversation.context_version).toBe("2");
   expect(after.conversation.context.compactions).toBe(2);
-  expect(after.memory).toHaveLength(1);
+  expect(after.memory).toHaveLength(0);
   expect(after.conversation.checkpoint[0].content).toBe("verify");
   expect(contextUsage(f.model, config).tokens).toBeLessThan(
     contextUsage(f.model, config).safeLimit,
@@ -158,6 +164,63 @@ it("validates and atomically commits a smaller context with original instruction
     afterTokens: expect.any(Number),
     safeLimit: expect.any(Number),
   });
+});
+
+it("recovers exact middle evidence through production read_context after 30 committed compactions", async () => {
+  const f = await fixture();
+  const prior = summaryMessage(f.model.state.model, key(), { text: "fixture" }, "en");
+  if (prior.role !== "assistant") throw new Error("Expected assistant handoff");
+  const { intrica: _metadata, ...base } = prior;
+  const known = new Map<string, string>();
+  for (let index = 0; index < 30; index++) {
+    const marker = `exact-context-evidence-${String(index).padStart(2, "0")}`;
+    const text = `${"before detail\n".repeat(5000)}${marker}\n${"after detail\n".repeat(5000)}`;
+    known.set(marker, text);
+    f.model.state.messages.push(
+      {
+        ...base,
+        role: "assistant",
+        stopReason: "toolUse",
+        content: [
+          {
+            type: "toolCall",
+            id: `phase-${index}`,
+            name: "read",
+            arguments: { path: "fixture.txt" },
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolName: "read",
+        toolCallId: `phase-${index}`,
+        content: [{ type: "text", text }],
+        isError: false,
+        timestamp: index,
+      },
+    );
+    await f.compact();
+  }
+  expect((await f.saved()).summaries).toHaveLength(31);
+  for (const [marker, text] of known) {
+    const found = (await f.call("read_context", { query: marker })).value;
+    expect(found.archives).toHaveLength(1);
+    const overview = (await f.call("read_context", { ref: found.archives[0].ref, query: marker }))
+      .value;
+    expect(overview.sources).toHaveLength(1);
+    const source = overview.sources[0];
+    const page = (
+      await f.call("read_context", { ref: source.ref, offset: source.matchOffset, limit: 200 })
+    ).value;
+    expect(page.text).toBe(text.slice(source.matchOffset, source.matchOffset + 200));
+    expect(page.text).toContain(marker);
+    const stored = (
+      await k.db.pool.query("select source_refs from context_summaries where id=$1", [
+        found.archives[0].archiveId,
+      ])
+    ).rows[0].source_refs;
+    expect(stored.find((entry: any) => entry.ref === source.ref).hash).toBe(page.hash);
+  }
 });
 
 it("rejects a candidate that grows context without replacing the valid checkpoint or memory", async () => {

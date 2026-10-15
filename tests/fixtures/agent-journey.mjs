@@ -140,13 +140,13 @@ export async function prepareJourney(call, { pauseSecondHire = false } = {}) {
             );
             if (!reports.every(Boolean)) reply = reviewedReply(body.messages, { waiting: true });
             else {
-              const reads = toolResults(body.messages, "read");
+              const reads = toolResults(body.messages, ["read", "read_next"]);
               for (const [i, id] of reports.entries()) {
                 const pages = reads.filter((r) => r.value.id === id || r.value.nodeId === id);
                 const last = pages.at(-1)?.value;
                 if (!last || last.nextCursor !== null) {
                   reply = {
-                    tool: "read",
+                    tool: last ? "read_next" : "read",
                     args: last ? { cursor: last.nextCursor } : { nodeId: id },
                   };
                   break;

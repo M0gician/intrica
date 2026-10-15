@@ -4,6 +4,7 @@ import { useSessionConnection } from "../api/connection";
 import { AgentProfile } from "../features/conversations/AgentProfile";
 import { AgentTimeline } from "../features/conversations/AgentTimeline";
 import { CollaborationState } from "../features/conversations/CollaborationState";
+import { ContextLibrary } from "../features/conversations/ContextLibrary";
 import { ConversationPause } from "../features/conversations/ConversationPause";
 import { activityRecipient } from "../features/conversations/model";
 import { ResourceResponse } from "../features/conversations/ResourceResponse";
@@ -206,6 +207,7 @@ export function AgentNodePanel({
               profile={profile}
               setError={setError}
             />
+            <ContextLibrary conversationId={data.conversationId} />
             {context}
           </>
         }

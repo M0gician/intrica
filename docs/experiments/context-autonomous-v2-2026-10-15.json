@@ -1,0 +1,116 @@
+{
+  "experiment": "model-led-context-recovery-v1",
+  "api": "openai-completions",
+  "modelFingerprint": "3c51a0b181f2",
+  "maxRequests": 6,
+  "maxOutputTokens": 2000,
+  "retries": 0,
+  "requests": 6,
+  "calls": [
+    {
+      "elapsedMs": 5789,
+      "inputTokens": 594,
+      "outputTokens": 196
+    },
+    {
+      "elapsedMs": 3904,
+      "inputTokens": 1291,
+      "outputTokens": 149
+    },
+    {
+      "elapsedMs": 4254,
+      "inputTokens": 2128,
+      "outputTokens": 101
+    },
+    {
+      "elapsedMs": 16530,
+      "inputTokens": 2608,
+      "outputTokens": 373
+    },
+    {
+      "elapsedMs": 26337,
+      "inputTokens": 3542,
+      "outputTokens": 595
+    },
+    {
+      "elapsedMs": 3808,
+      "inputTokens": 4251,
+      "outputTokens": 112
+    }
+  ],
+  "toolTrace": [
+    {
+      "name": "read_context",
+      "args": {
+        "query": "Authentication audit continuation approvalRequired overallComplete nextCursor pendingReport cacheTtlSeconds failedCase"
+      },
+      "resultKind": "directory",
+      "returnedCharacters": 1385,
+      "resultHash": "576a5a236c10b029be088c435cb976fc2606c54203165c96bbc9c0f321efeb43"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "ref": "context:summary-43c583ba-ccf9-4282-aa60-e91ae2390ae2:1",
+        "offset": 6500,
+        "limit": 2500
+      },
+      "resultKind": "source",
+      "returnedCharacters": 3112,
+      "resultHash": "8e75764744e19ad38358ed2cfa69080273a94af13618dedec87733d67dfe0d5c"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "query": "approvalRequired Authentication audit"
+      },
+      "resultKind": "directory",
+      "returnedCharacters": 1050,
+      "resultHash": "d69abb58f32ded599f04e6c9250d90a90bc2de7705f285c3569c66a65f2ae503"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "ref": "context:summary-43c583ba-ccf9-4282-aa60-e91ae2390ae2:1",
+        "offset": 0,
+        "limit": 1800
+      },
+      "resultKind": "source",
+      "returnedCharacters": 2407,
+      "resultHash": "267eb66e9dc42d8408c89ac1e3886e61a9c56c36a4daba787e328c08fe80fc00"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "query": "approvalRequired"
+      },
+      "resultKind": "directory",
+      "returnedCharacters": 236,
+      "resultHash": "7f8d84db78c19223c67053245640f48e45ce1059daa7609f09b7d36ddd046b7a"
+    }
+  ],
+  "answer": "{\"approvalRequired\":null,\"overallComplete\":false,\"nextCursor\":\"read-083\",\"pendingReport\":\"report-119\",\"cacheTtlSeconds\":287,\"failedCase\":\"case-331\"}",
+  "limitations": "One synthetic task and one model sample. The model selects all search queries, archive refs and source offsets. Sources are seeded through the production archive writer and tools execute through invokeTool against an isolated database. This does not measure multi-round live compression or production task completion.",
+  "fixture": "large-tool-result-middle",
+  "score": {
+    "parsed": true,
+    "correct": 5,
+    "total": 6,
+    "fields": {
+      "approvalRequired": false,
+      "overallComplete": true,
+      "nextCursor": true,
+      "pendingReport": true,
+      "cacheTtlSeconds": true,
+      "failedCase": true
+    },
+    "answer": {
+      "approvalRequired": null,
+      "overallComplete": false,
+      "nextCursor": "read-083",
+      "pendingReport": "report-119",
+      "cacheTtlSeconds": 287,
+      "failedCase": "case-331"
+    }
+  }
+}

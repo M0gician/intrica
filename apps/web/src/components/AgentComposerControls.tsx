@@ -133,18 +133,6 @@ export function AgentComposerControls({
             onChange={(event) => void onSave({ enabled: event.target.checked })}
           />
         </label>
-        <label className="agent-collaboration-choice">
-          <span>
-            {tr("压缩前保存关键资料")}
-            <small>{tr("允许 Agent 将重要会话另存为自己的笔记，不修改已有资料。")}</small>
-          </span>
-          <input
-            type="checkbox"
-            aria-label={tr("压缩前保存关键资料")}
-            checked={config.saveMemoryBeforeCompaction !== false}
-            onChange={(e) => void onSave({ saveMemoryBeforeCompaction: e.target.checked })}
-          />
-        </label>
         <details
           className="agent-available-tools"
           onToggle={(e) => {

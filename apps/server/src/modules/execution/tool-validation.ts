@@ -60,10 +60,12 @@ export function validationFailure(name: string, schema: any, args: unknown) {
       name === "send_message"
         ? '使用扁平字段，例如 {to:"agent",id:"当前成员ID",message:"正文",expectReply:true,replyWithinSeconds:120}。to 是字符串；不要使用 target 对象或 JSON 字符串。'
         : name === "read"
-          ? 'Use one flat target: {path:"/workspace/file",line:1}, {nodeId:"id"} or {skillId:"id"}. Continue with {cursor:"token"} only. / 恰选一个顶层目标，续读只传 cursor。'
-          : name === "request_permission" && (args as any)?.scope?.access === "file"
-            ? "单文件只接受 execution=none；在自己的工作目录运行隔离命令即可读取已授权文件。"
-            : "保持正确字段，只修正 issues 指出的字段；工具尚未执行。",
+          ? 'Use one flat target: {path:"/workspace/file",line:1}, {nodeId:"id"} or {skillId:"id"}. Continue with read_next({cursor:"token"}). / 恰选一个顶层目标，续读使用 read_next。'
+          : name === "read_next"
+            ? 'Use read_next({cursor:"returned-nextCursor"}) with no target or positions. / 仅传上次返回的 nextCursor，不传目标或定位字段。'
+            : name === "request_permission" && (args as any)?.scope?.access === "file"
+              ? "单文件只接受 execution=none；在自己的工作目录运行隔离命令即可读取已授权文件。"
+              : "保持正确字段，只修正 issues 指出的字段；工具尚未执行。",
   };
 }
 export function toolFailure(error: unknown) {

@@ -1,12 +1,13 @@
 // Pair real protocol responses with their calls; a scripted final string alone
 // must never satisfy the acceptance journey.
 export function toolResults(messages, name) {
+  const names = new Set(Array.isArray(name) ? name : [name]);
   const calls = new Map(
     messages.flatMap((m) => (m.tool_calls ?? []).map((c) => [c.id, c.function])),
   );
   return messages.flatMap((m) => {
     const call = calls.get(m.tool_call_id);
-    if (m.role !== "tool" || call?.name !== name) return [];
+    if (m.role !== "tool" || !names.has(call?.name)) return [];
     const value = JSON.parse(m.content);
     return value.error ? [] : [{ args: JSON.parse(call.arguments), value }];
   });

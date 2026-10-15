@@ -14,19 +14,7 @@ import {
 
 const config = { kind: "mock", streamDelayMs: 0, supportsVision: false } as const;
 const model = createCanvasAgent(config, "tail-fixture");
-const summary = (text: string) =>
-  summaryMessage(
-    model.state.model,
-    text,
-    {
-      facts: [text],
-      decisions: [],
-      completed_work: [],
-      remaining_work: [],
-      source_refs: ["s1"],
-    },
-    "en",
-  );
+const summary = (text: string) => summaryMessage(model.state.model, text, { text }, "en");
 function group(prefix: string, results: number, bytes: number): AgentMessage[] {
   const { intrica: _metadata, ...base } = summary("fixture");
   const calls = Array.from({ length: results }, (_, i) => ({
@@ -76,7 +64,9 @@ it.each([
     expect(messages.reduce((n, m) => n + estimatedMessageTokens(m), 0)).toBeGreaterThan(176800);
     const parts = contextTail(messages, 272000);
     expect(parts.older.length).toBeGreaterThan(0);
-    expect(parts.tail.reduce((n, m) => n + estimatedMessageTokens(m), 0)).toBeLessThanOrEqual(4096);
+    expect(parts.tail.reduce((n, m) => n + estimatedMessageTokens(m), 0)).toBeLessThanOrEqual(
+      20000,
+    );
     expect([...parts.older, ...parts.tail]).toEqual(checkpointMessages(messages));
     paired(parts.older);
     paired(parts.tail);
@@ -104,12 +94,12 @@ it("retains only whole small tool groups and never duplicates the latest task", 
 it("uses the previous valid summary as evidence even when it would fit in the retained tail", async () => {
   let prior = summary("Previously verified decision");
   for (let attempt = 0; attempt < 2; attempt++) {
-    const result = await summarizeContext(
-      config,
-      [{ ...task, content: "older evidence ".repeat(4000) }, prior, task],
-      false,
-    );
-    expect(result.sources).toContainEqual({ ref: "s2", hash: digest(prior) });
+    const result = await summarizeContext(config, [
+      { ...task, content: "older evidence ".repeat(4000) },
+      prior,
+      task,
+    ]);
+    expect(result.sources).toContainEqual({ ref: `context:${result.id}:1`, hash: digest(prior) });
     expect(result.retainedTail).toEqual([task]);
     prior = summaryMessage(model.state.model, result.id, result.content, "en");
   }

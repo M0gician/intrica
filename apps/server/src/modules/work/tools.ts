@@ -11,6 +11,7 @@ import type { ExecutionContext } from "../execution/worker.js";
 import type { GraphCommands } from "../graph/commands.js";
 import { tickSchedules } from "./agent-schedules.js";
 import type { ConversationInput, Conversations } from "./conversations.js";
+import { recentReadObservations } from "./evidence/read-observations.js";
 import { MessageHooks } from "./message-hooks.js";
 import { canvasTools } from "./tools/canvas.js";
 import { collaborationTools } from "./tools/collaboration.js";
@@ -18,12 +19,15 @@ import { toolContext } from "./tools/context.js";
 import { conversationTools } from "./tools/conversations.js";
 import { adaptToolDiscovery } from "./tools/discovery.js";
 import { permissionTools } from "./tools/permissions.js";
-import { readTool } from "./tools/read.js";
+import { readTools } from "./tools/read.js";
 import { resourceHandoffTools } from "./tools/resource-handoff.js";
 import { reviewTools } from "./tools/reviews.js";
 import { teamTools } from "./tools/team.js";
 
-export type ToolSet = ExecutionTool[] & { capabilities?: AgentCapabilities };
+export type ToolSet = ExecutionTool[] & {
+  capabilities?: AgentCapabilities;
+  readObservations?: () => ReturnType<typeof recentReadObservations>;
+};
 
 export class ToolRegistry {
   readonly messages: MessageHooks;
@@ -84,14 +88,18 @@ export class ToolRegistry {
       ...teamTools(context),
     ];
     const combined = [
-      readTool(context, files.find((t) => t.name === "read")!),
+      ...readTools(context, files.find((t) => t.name === "read")!),
       ...tools.filter((t) => t.name !== "read"),
     ];
     for (const definition of combined)
       if (definition.parameters.type === "object")
         definition.parameters = { ...definition.parameters, additionalProperties: false };
     adaptToolDiscovery(combined, context);
-    return Object.assign(combined, { capabilities });
+    return Object.assign(combined, {
+      capabilities,
+      readObservations: () =>
+        recentReadObservations(this.graph.db.pool, input.conversationId, 8, this.host),
+    });
   }
 
   async tickSchedules() {

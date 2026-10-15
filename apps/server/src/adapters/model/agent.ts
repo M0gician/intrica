@@ -50,7 +50,11 @@ export class Agent {
       ? AbortSignal.any([signal, this.abortController.signal])
       : this.abortController.signal;
     combined.throwIfAborted();
-    const options: any = { signal: combined, apiKey: this.apiKey ?? "intrica-keyless" };
+    const options: any = {
+      signal: combined,
+      apiKey: this.apiKey ?? "intrica-keyless",
+      maxTokens: this.state.model.maxTokens,
+    };
     if (this.state.thinkingLevel !== "off") options.reasoning = this.state.thinkingLevel;
     const source = await this.stream(
       this.state.model,

@@ -1,0 +1,142 @@
+.context-library-body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 12px 14px;
+}
+.context-library-body button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  background: var(--surface, #fffefa);
+  padding: 6px 9px;
+}
+.context-library-body button:hover {
+  background: #f2f0e9;
+}
+.context-library-body button:focus-visible,
+.context-library-source:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.context-library-body button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.context-library-toolbar,
+.context-library-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+.context-library-toolbar > button {
+  display: inline-flex;
+  padding: 5px;
+}
+.context-library-toolbar .context-library-refresh {
+  margin-left: auto;
+}
+.context-library-search {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.panel-body .context-library-search input {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  background: #fffefa;
+}
+.context-library-search button {
+  flex-shrink: 0;
+}
+.context-library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.context-library-list .context-library-entry {
+  display: grid;
+  width: 100%;
+  gap: 6px;
+  text-align: left;
+  padding: 9px 10px;
+}
+.context-library-meta > span,
+.context-library-meta > time,
+.context-library-entry > time {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.context-library-entry time {
+  opacity: 0;
+}
+.context-library-entry:hover time,
+.context-library-entry:focus-visible time {
+  opacity: 1;
+}
+.context-library-excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.context-library-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.context-library-overview,
+.context-library-source {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.7;
+  max-height: 320px;
+  overflow: auto;
+}
+.context-library-source {
+  background: #fffefa;
+  padding: 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+}
+.context-library-provenance {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+.context-library-provenance > summary {
+  cursor: pointer;
+}
+.context-library-provenance dl {
+  display: grid;
+  gap: 4px;
+}
+.context-library-provenance dd {
+  margin: 0 0 4px;
+}
+.context-library-body h4 {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+.context-library-next {
+  justify-self: start;
+}

@@ -15,6 +15,19 @@ export function nodeReader(context: ToolContext): Pick<ExecutionTool, "prepare" 
     execute: async (_call, args, signal) => {
       await requireResource(args.nodeId, "read");
       const node = await registry.graph.queries.node(args.nodeId);
+      if (
+        args.line !== undefined &&
+        !(
+          node.resource?.snapshot &&
+          node.assetId &&
+          !node.resource.snapshot.mime.startsWith("image/") &&
+          node.resource.snapshot.mime !== "application/pdf"
+        )
+      )
+        throw new DomainError(
+          "READ_POSITION",
+          "line is only for a published text attachment / line 仅适用于已发布的文本附件",
+        );
       if (args.frame !== undefined && !node.assetId)
         throw new DomainError("VALIDATION", "frame 需要已发布的图片节点", { path: "frame" });
       if (node.kind === "pdf" || node.resource?.snapshot?.mime === "application/pdf") {
@@ -83,8 +96,18 @@ export function nodeReader(context: ToolContext): Pick<ExecutionTool, "prepare" 
         node.assetId &&
         !node.resource.snapshot.mime.startsWith("image/")
       ) {
+        if (args.characterOffset !== undefined)
+          throw new DomainError(
+            "READ_POSITION",
+            "Text attachments use line pages; reopen the node and follow read_next / 文本附件按行分页，请重新打开节点并使用 read_next 续读",
+          );
         if (args.mode === "image") throw new DomainError("VALIDATION", "此文件没有图像内容");
-        const page = await registry.assets.readText(node.assetId, args);
+        const page = await registry.assets.readText(node.assetId, {
+          ...args,
+          ...(args.line !== undefined
+            ? { position: { byteOffset: 0, line: 1, column: 0, targetLine: args.line } }
+            : {}),
+        });
         await requireResource(args.nodeId, "read");
         return result({
           ...nodeContent(node),

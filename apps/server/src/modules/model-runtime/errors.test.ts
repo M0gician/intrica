@@ -11,6 +11,7 @@ it.each([
   ["ECONNRESET", "MODEL_NETWORK", true],
   ["quota_exceeded: unexplained", "MODEL_CONFIGURATION", false],
   ["role 'developer' is not allowed", "MODEL_ROLE_UNSUPPORTED", false],
+  ["CONTEXT_SUMMARY_INVALID: rejected", "CONTEXT_SUMMARY_INVALID", false],
 ] as const)("classifies %s safely", (raw, code, retryable) => {
   const result = classifyModelFailure(raw);
   expect(result).toMatchObject({ code, retryable });

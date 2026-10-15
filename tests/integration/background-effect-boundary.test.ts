@@ -121,7 +121,7 @@ it.each(["same-batch", "next-model-turn"] as const)(
       [
         submitted.conversationId,
         JSON.stringify([template]),
-        JSON.stringify({ pendingTurnId: "ordered-intent", toolSchemaVersion: 6 }),
+        JSON.stringify({ pendingTurnId: "ordered-intent", toolSchemaVersion: 7 }),
       ],
     );
     const releaseFirst = deferred(),

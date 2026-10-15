@@ -88,7 +88,7 @@ it.each(["path", "node"] as const)(
       expect(page.error).toBeUndefined();
       pages.push(page);
       if (!page.nextCursor) break;
-      page = (await s.call("read", { cursor: page.nextCursor })).value;
+      page = (await s.call("read_next", { cursor: page.nextCursor })).value;
     }
     expect(pages.filter((p) => p.page === 1).length).toBeGreaterThan(1);
     expect(

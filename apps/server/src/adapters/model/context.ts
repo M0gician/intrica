@@ -40,7 +40,7 @@ export function contextTail(
     if (message.role === "toolResult") pending.delete(message.toolCallId);
     if (!pending.size) boundaries.push(index + 1);
   }
-  const budget = Math.min(4096, Math.floor(contextWindow * 0.05));
+  const budget = Math.min(20000, Math.floor(contextWindow * 0.1));
   let cut = saved.length,
     tokens = 0;
   for (let index = boundaries.length - 2; index >= 1; index--) {

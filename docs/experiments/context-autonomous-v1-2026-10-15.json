@@ -1,0 +1,167 @@
+{
+  "experiment": "model-led-context-recovery-v1",
+  "api": "openai-completions",
+  "modelFingerprint": "3c51a0b181f2",
+  "maxRequests": 6,
+  "maxOutputTokens": 2000,
+  "retries": 0,
+  "requests": 6,
+  "calls": [
+    {
+      "elapsedMs": 7797,
+      "inputTokens": 558,
+      "outputTokens": 310
+    },
+    {
+      "elapsedMs": 7588,
+      "inputTokens": 1283,
+      "outputTokens": 192
+    },
+    {
+      "elapsedMs": 6646,
+      "inputTokens": 1573,
+      "outputTokens": 244
+    },
+    {
+      "elapsedMs": 2637,
+      "inputTokens": 2659,
+      "outputTokens": 110
+    },
+    {
+      "elapsedMs": 4821,
+      "inputTokens": 3315,
+      "outputTokens": 137
+    },
+    {
+      "elapsedMs": 31046,
+      "inputTokens": 4706,
+      "outputTokens": 1078
+    }
+  ],
+  "toolTrace": [
+    {
+      "name": "read_context",
+      "args": {
+        "query": "Authentication audit continuation questions approvalRequired overallComplete nextCursor pendingReport cacheTtlSeconds failedCase",
+        "limit": 6000
+      },
+      "resultKind": "directory",
+      "returnedCharacters": 236,
+      "resultHash": "939494a16191f3cd4e4b62cf5613e6e2313d240e6f6a8a4a7101d814a81c05d0"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "query": "Authentication cacheTtlSeconds",
+        "limit": 6000
+      },
+      "resultKind": "directory",
+      "returnedCharacters": 236,
+      "resultHash": "d3d69bf17d173a54b4bdfb2b93adde1a15a27abbaded40aae79ec35368f6b432"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "query": "Authentication failedCase",
+        "limit": 6000
+      },
+      "resultKind": "directory",
+      "returnedCharacters": 236,
+      "resultHash": "07d01ced85f9ac079a22c2439089891ab84e723a43321596ec32c794669189ef"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "query": "Authentication nextCursor pendingReport",
+        "limit": 6000
+      },
+      "resultKind": "directory",
+      "returnedCharacters": 236,
+      "resultHash": "5950b79e6c9e2bb9266ab83e9de209ce6b269ee7a82443207f125dc9c9c248bf"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "ref": "conversation-b5179ca5-51a6-47d6-92fc-e460f882d384",
+        "offset": 0,
+        "limit": 6000
+      },
+      "resultKind": "error",
+      "returnedCharacters": 224,
+      "resultHash": "59ada7996ea5e5de8648c0808dd4487a528273cf8cf7960f26fe63121001021a"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "query": "authentication",
+        "limit": 6000
+      },
+      "resultKind": "directory",
+      "returnedCharacters": 559,
+      "resultHash": "99eb7271162d3f9982a3703f2b90123b595f89cb12506454a44dd501cee62e5c"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "query": "Review all four modules",
+        "limit": 6000
+      },
+      "resultKind": "directory",
+      "returnedCharacters": 559,
+      "resultHash": "d1cbc23213327e8f929e39df867ed0ff9548ff7b194edbf4abbe229448fbda8b"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "query": "continuation",
+        "limit": 6000
+      },
+      "resultKind": "directory",
+      "returnedCharacters": 559,
+      "resultHash": "694c7d293ff1ff3fa5402b13451b1b7d2b1c0771ada009ef8248e717e8076bd5"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "query": "audit",
+        "limit": 6000
+      },
+      "resultKind": "directory",
+      "returnedCharacters": 559,
+      "resultHash": "6dd93bbed09d3de6e88f53333520bcdf6871722c1938d7d40b251e098fe3ff60"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "ref": "context:summary-e84788bf-eabc-4ceb-baed-da6ce9c90d2c",
+        "offset": 0,
+        "limit": 6000
+      },
+      "resultKind": "archive",
+      "returnedCharacters": 1685,
+      "resultHash": "38113cf963e0ad6ccf7002c89a4e2e0d2b164b9d6f00f2a5f08951d33c17a025"
+    },
+    {
+      "name": "read_context",
+      "args": {
+        "ref": "context:summary-e84788bf-eabc-4ceb-baed-da6ce9c90d2c:1",
+        "offset": 0,
+        "limit": 6000
+      },
+      "resultKind": "source",
+      "returnedCharacters": 6607,
+      "resultHash": "87448667078ebf80f4f93e8110af71370ce1221b0e052705e241b44ae1c8d3a8"
+    }
+  ],
+  "answer": "",
+  "error": "TOOL_BATCH_LIMIT",
+  "limitations": "One synthetic task and one model sample. The model selects all search queries, archive refs and source offsets. Sources are seeded through the production archive writer and tools execute through invokeTool against an isolated database. This does not measure multi-round live compression or production task completion.",
+  "fixture": "large-tool-result-middle",
+  "score": {
+    "parsed": false,
+    "correct": 0,
+    "total": 6,
+    "fields": {},
+    "answer": null
+  }
+}

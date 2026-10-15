@@ -11,7 +11,7 @@ export function classifyModelFailure(raw: string, status?: number): ModelFailure
   if (/CONTEXT_SUMMARY_INVALID/.test(raw))
     return error(
       "CONTEXT_SUMMARY_INVALID",
-      true,
+      false,
       false,
       "Summary rejected; original checkpoint preserved / 摘要无效，原 checkpoint 已保留",
     );

@@ -5,11 +5,13 @@ import { DomainError } from "../../../adapters/postgres/database.js";
 import { agentIdentity, grantsFor } from "../../access/policy.js";
 import { result } from "../../execution/tool-calls.js";
 import { createArtifact, requireArtifactFile } from "../artifact-delivery.js";
+import { readContextLibrary } from "../context-library/service.js";
+import { contextLibraryTool } from "../context-library/tools.js";
 import { object, idParameter as string, type ToolContext, tool } from "./context.js";
 import { resourcePermission } from "./resource-access.js";
 
 export function canvasTools(context: ToolContext) {
-  const { registry, ctx, actor, text, requireResource } = context;
+  const { registry, ctx, input, actor, text, requireResource } = context;
   const readCanvas = tool(
     "read_canvas",
     text(
@@ -35,10 +37,25 @@ export function canvasTools(context: ToolContext) {
           [ctx.run.canvas_id, allowed, args.query ?? "", args.offset ?? 0, (args.limit ?? 20) + 1],
         )
       ).rows;
+      const library = await readContextLibrary(
+        registry.graph.db,
+        actor,
+        ctx.run.canvas_id,
+        input.conversationId,
+        { limit: 1 },
+      );
       return result({
         nodes: rows.slice(0, args.limit ?? 20),
         nextOffset:
           rows.length > (args.limit ?? 20) ? (args.offset ?? 0) + (args.limit ?? 20) : null,
+        contextLibrary:
+          library.kind === "directory" && library.archives.length
+            ? {
+                latestRef: library.archives[0]!.ref,
+                tool: "read_context",
+                private: true,
+              }
+            : null,
       });
     },
   );
@@ -167,5 +184,5 @@ export function canvasTools(context: ToolContext) {
         );
     };
   }
-  return [readCanvas, update, create];
+  return [readCanvas, contextLibraryTool(context), update, create];
 }

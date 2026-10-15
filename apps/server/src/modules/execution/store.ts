@@ -139,12 +139,33 @@ export class RunStore {
           continued: true,
         });
       }
-      const prior = (
+      let prior = (
         await tx.query(
           "select * from runs where kind='conversation' and subject_id=$1 and state in ('queued','running','waiting') for update",
           [input.subjectId],
         )
       ).rows[0];
+      // A human continuation after context failure gets fresh bounded inference
+      // admission and the newly selected model; automatic deliveries cannot restart it.
+      if (
+        prior?.state === "waiting" &&
+        prior.reason === "context_blocked" &&
+        !blocked &&
+        input.userInitiated
+      ) {
+        await tx.query(
+          "update runs set state='cancelled',reason='context_retry',updated_at=now() where id=$1",
+          [prior.id],
+        );
+        await canvasEvent(tx, input.canvasId, "run.changed", {
+          id: prior.id,
+          state: "cancelled",
+          reason: "context_retry",
+          subjectId: prior.subject_id,
+          kind: prior.kind,
+        });
+        prior = undefined;
+      }
       if (prior) {
         if (prior.cancel_requested_at)
           throw new DomainError("INVALID_STATE", "运行正在停止，请在停止后重试");

@@ -5,8 +5,8 @@ import { assertFence, DomainError, type Tx } from "../../../adapters/postgres/da
 import { contextFailure } from "../../context/errors.js";
 import { summaryMessage } from "../../context/messages.js";
 import { summarizeContext } from "../../context/summary.js";
-import { appendMessage } from "../../execution/messages.js";
 import type { ExecutionContext } from "../../execution/worker.js";
+import { persistContextArchive } from "../context-library/archive.js";
 import type { ConversationInput } from "../conversations.js";
 import {
   type InstructionSource,
@@ -21,7 +21,6 @@ export async function compactConversation(
   model: Agent,
   config: ModelConfig,
   sources: InstructionSource[],
-  saveMemory: boolean,
   persist: (tx: Tx) => Promise<void>,
   count: (delta: number) => void,
 ) {
@@ -49,7 +48,6 @@ export async function compactConversation(
     const summary = await summarizeContext(
       config,
       await model.prepareMessages(previous),
-      saveMemory,
       ctx.signal,
       language,
       (count) => {
@@ -89,15 +87,13 @@ export async function compactConversation(
           JSON.stringify(summary.content),
         ],
       );
-      if (summary.content.memory_text)
-        await appendMessage(
-          tx,
-          input.conversationId,
-          summary.id,
-          "memory",
-          { title: summary.content.memory_title, text: summary.content.memory_text },
-          ctx.run.id,
-        );
+      await persistContextArchive(tx, {
+        summaryId: summary.id,
+        conversationId: input.conversationId,
+        canvasId: ctx.run.canvas_id,
+        agentId: input.agentId ?? null,
+        sourceMessages: summary.sourceMessages,
+      });
       model.state.messages = candidate;
       count(1);
       counted = true;

@@ -1,6 +1,8 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { type Database, DomainError, digest, id } from "../../adapters/postgres/database.js";
 import type { ModelFailure } from "./errors.js";
+import { recordResponseValidation } from "./queue-validation.js";
+import type { ResponseValidation } from "./response-validation.js";
 
 export type RequestIdentity = {
   id: string;
@@ -18,6 +20,9 @@ export class ModelQueue {
     readonly db: Database,
     readonly request: RequestIdentity,
   ) {}
+  validate(owner: string, attempt: number, receipt: ResponseValidation, feedback: string | null) {
+    return recordResponseValidation(this.db, this.request, owner, attempt, receipt, feedback);
+  }
   async initialize() {
     const r = this.request;
     return this.db.transaction(async (tx) => {
@@ -197,9 +202,23 @@ export class ModelQueue {
       const changed = await tx.query(
         `update model_requests set state=$3,reason=$4,owner=null,
         first_failure_at=coalesce(first_failure_at,now()),next_attempt_at=clock_timestamp()+$5*interval '1 millisecond',lease_until=case when $6 then lease_until else null end,
-        finished_at=case when $3='failed' then now() else null end where id=$1 and owner=$2 and lease_until>clock_timestamp() returning group_id`,
-        [this.request.id, owner, retry ? "retry_wait" : "failed", failure.code, delay, quarantine],
+        finished_at=case when $3='failed' then now() else null end where id=$1 and owner=$2 and lease_until>clock_timestamp()
+        and ($7::int is null or exists(select 1 from runs where id=model_requests.run_id and epoch=$7 and state='running' and lease_until>clock_timestamp() and cancel_requested_at is null)) returning group_id`,
+        [
+          this.request.id,
+          owner,
+          retry ? "retry_wait" : "failed",
+          failure.code,
+          delay,
+          quarantine,
+          this.request.runEpoch ?? null,
+        ],
       );
+      if (!changed.rowCount)
+        throw new DomainError(
+          "MODEL_LEASE_LOST",
+          "Late model retry rejected / 已拒绝迟到的模型重试",
+        );
       if (changed.rowCount && failure.shared)
         await tx.query(
           "update model_quota_groups set cooldown_until=greatest(coalesce(cooldown_until,now()),clock_timestamp()+$2*interval '1 millisecond') where id=$1",

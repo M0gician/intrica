@@ -176,6 +176,6 @@ test("权限卡片位于相关会话中，通知直接定位；上下文和压�
   await access.getByRole("button", { name: "批准授权" }).click();
   await expect(access).toContainText("已批准");
   await page.getByRole("button", { name: "Agent 能力与设置" }).click();
-  await expect(page.getByLabel("压缩前保存关键资料")).toBeChecked();
+  await expect(page.getByLabel("压缩前保存关键资料")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("permissions-context.png") });
 });

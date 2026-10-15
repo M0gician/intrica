@@ -3,6 +3,8 @@ import type {
   AcceptOperationResponse,
   AssetResponse,
   CanvasCommandResponse,
+  ContextLibraryQuery,
+  ContextLibraryResponse,
   CreateLinkRequest,
   CreateNodeRequest,
   CreateOperationRequest,
@@ -51,6 +53,15 @@ export function createApiClient(
 
   return {
     transport: connection,
+    contextLibrary(conversationId: string, query: ContextLibraryQuery = {}, signal?: AbortSignal) {
+      const parameters = new URLSearchParams();
+      for (const [key, value] of Object.entries(query))
+        if (value !== undefined) parameters.set(key, String(value));
+      return request<ContextLibraryResponse>(
+        `/api/v2/conversations/${encodeURIComponent(conversationId)}/context-library?${parameters}`,
+        { cache: "no-store", ...(signal ? { signal } : {}) },
+      );
+    },
     async agentChat(
       body: {
         message: string;
