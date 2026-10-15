@@ -71,8 +71,18 @@ export async function canvasPermissions(sql: Sql, canvasId: string) {
   const grantRows = await sql.query("select * from grants where canvas_id=$1", [canvasId]);
   const nodes = new Map<string, any>(nodeRows.rows.map((n) => [n.id, n]));
   const children = new Map<string, any[]>();
-  for (const n of nodeRows.rows)
-    if (n.parent_id) children.set(n.parent_id, [...(children.get(n.parent_id) ?? []), n]);
+  for (const n of nodeRows.rows) {
+    if (!n.parent_id) continue;
+    const siblings = children.get(n.parent_id);
+    if (siblings) siblings.push(n);
+    else children.set(n.parent_id, [n]);
+  }
+  const grantsBySubject = new Map<string, typeof grantRows.rows>();
+  for (const grant of grantRows.rows) {
+    const grants = grantsBySubject.get(grant.subject_id);
+    if (grants) grants.push(grant);
+    else grantsBySubject.set(grant.subject_id, [grant]);
+  }
   const memo = new Map<string, ResourceGrant[]>(),
     visiting = new Set<string>();
   const ancestor = (manager: string, subject: string) => {
@@ -91,7 +101,7 @@ export async function canvasPermissions(sql: Sql, canvasId: string) {
     if (!agent?.config || visiting.has(subject)) return [];
     visiting.add(subject);
     const effective: ResourceGrant[] = [];
-    for (const g of grantRows.rows.filter((g) => g.subject_id === subject)) {
+    for (const g of grantsBySubject.get(subject) ?? []) {
       const root = nodes.get(g.resource_id);
       if (!root) continue;
       let mode: "read" | "write" = agent.config.role === "read" ? "read" : g.mode;

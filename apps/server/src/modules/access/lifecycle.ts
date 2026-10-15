@@ -98,12 +98,7 @@ export async function notifyReviewer(tx: Tx, request: any) {
 export async function escalateApproval(tx: Tx, request: any, reason = "escalated", toUser = false) {
   const reviewer = toUser
     ? null
-    : await reviewerFor(
-        tx,
-        request.subject_id,
-        request.action,
-        request.assigned_reviewer_id ?? undefined,
-      );
+    : await reviewerFor(tx, request.subject_id, request.assigned_reviewer_id ?? undefined);
   const updated = (
     await tx.query(
       "update approvals set assigned_reviewer_id=$2,review_due_at=case when $2::text is null then null else now()+interval '5 minutes' end,route_reason=$3,version=version+1 where id=$1 returning *",
@@ -216,7 +211,7 @@ export async function reconcileApprovals(tx: Tx, canvasId: string) {
           chain.includes(r.assigned_reviewer_id) &&
           (await agentIdentity(tx, r.assigned_reviewer_id)).config.role === "admin"
         ? r.assigned_reviewer_id
-        : await reviewerFor(tx, r.subject_id, r.action);
+        : await reviewerFor(tx, r.subject_id);
     if (reviewer !== r.assigned_reviewer_id) {
       const updated = (
         await tx.query(

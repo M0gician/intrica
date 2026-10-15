@@ -178,7 +178,7 @@ export class AccessService {
           nextAction: "查看原 requestId；不要重复申请。",
         });
     }
-    const reviewer = await reviewerFor(tx, actor.agentId, intent);
+    const reviewer = await reviewerFor(tx, actor.agentId);
     const request = (
       await tx.query(
         `insert into approvals(id,canvas_id,subject_id,origin_call_id,action,basis,complete_tool,status,expires_at,reason,assigned_reviewer_id,review_due_at,route_reason)

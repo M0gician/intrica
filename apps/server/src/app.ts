@@ -38,10 +38,11 @@ const createApp = () =>
 export type AppInstance = ReturnType<typeof createApp>;
 export type BuildServerOptions = Partial<ApiConfig>;
 export async function buildServer(options: BuildServerOptions = {}) {
+  const defaults = configFromEnv();
   const config = authenticateConfig({
-    ...configFromEnv(),
+    ...defaults,
     ...options,
-    dataDir: resolve(options.dataDir ?? configFromEnv().dataDir),
+    dataDir: resolve(options.dataDir ?? defaults.dataDir),
   });
   const app = createApp();
   app.setValidatorCompiler(TypeBoxValidatorCompiler);

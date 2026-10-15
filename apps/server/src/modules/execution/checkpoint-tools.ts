@@ -11,19 +11,22 @@ export type CallIdentity = {
 };
 
 export function openCheckpointCalls(checkpoint: any[]): CheckpointCall[] {
-  return checkpoint.flatMap((message, index) => {
-    if (message.role !== "assistant" || !Array.isArray(message.content)) return [];
-    const following = checkpoint.slice(index + 1);
-    const nextAssistant = following.findIndex((m) => m.role === "assistant");
-    const responses = following.slice(0, nextAssistant < 0 ? undefined : nextAssistant);
-    return message.content
-      .filter(
-        (part: any) =>
-          part.type === "toolCall" &&
-          !responses.some((m) => m.role === "toolResult" && m.toolCallId === part.id),
-      )
-      .map((part: any) => ({ index, id: part.id, name: part.name, arguments: part.arguments }));
-  });
+  const open: CheckpointCall[] = [];
+  const responses = new Set<string>();
+  for (let index = checkpoint.length - 1; index >= 0; index--) {
+    const message = checkpoint[index];
+    if (message.role === "toolResult") responses.add(message.toolCallId);
+    if (message.role !== "assistant") continue;
+    if (Array.isArray(message.content))
+      for (let partIndex = message.content.length - 1; partIndex >= 0; partIndex--) {
+        const part = message.content[partIndex];
+        if (part.type === "toolCall" && !responses.has(part.id))
+          open.push({ index, id: part.id, name: part.name, arguments: part.arguments });
+      }
+    // Provider IDs can repeat in a later assistant turn.
+    responses.clear();
+  }
+  return open.reverse();
 }
 
 /** Provider IDs alone are insufficient when a conversation contains repeated turns. */

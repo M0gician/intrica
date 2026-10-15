@@ -223,7 +223,6 @@ export async function executeConversation(
         }
         waitingForInput = false;
       }
-      model.state.tools = await refreshTools();
       // A stored assistant tool call is resumed before another model call. Its
       // logical ID survives attempts, including approvals and unknown outcomes.
       const assistant = [...model.state.messages].reverse().find((m) => m.role === "assistant");
@@ -239,6 +238,7 @@ export async function executeConversation(
               (p): p is ToolCall => p.type === "toolCall" && !completed.has(p.id),
             )
           : [];
+      if (outstanding.length) model.state.tools = await refreshTools();
       let reviewedCompletion = false;
       for (let index = 0; index < outstanding.length; ) {
         const limits = await ctx.store.settings.limits();
@@ -264,14 +264,14 @@ export async function executeConversation(
             );
           }),
         );
-        const rejected = settled.find((r) => r.status === "rejected");
-        if (rejected?.status === "rejected") throw rejected.reason;
+        const outcomes = settled.map((item) => {
+          if (item.status === "rejected") throw item.reason;
+          return item.value;
+        });
         let waiting: ToolExecution["waiting"];
         for (let i = 0; i < batch.length; i++) {
           const call = batch[i]!;
-          const item = settled[i]!;
-          if (item.status !== "fulfilled") continue;
-          const outcome = item.value;
+          const outcome = outcomes[i]!;
           reviewedCompletion ||=
             call.name === "review_progress" &&
             call.arguments?.outcome === "completed" &&
@@ -307,15 +307,6 @@ export async function executeConversation(
             "waiting",
             async (tx) => {
               if (waiting === "message" && (await hasUnread(tx))) return false;
-              if (waiting === "approval") {
-                const pending = (
-                  await tx.query(
-                    "select 1 from tool_calls where run_id=$1 and state='waiting' and approval_id is not null limit 1",
-                    [ctx.run.id],
-                  )
-                ).rowCount;
-                if (!pending) return false;
-              }
               if (waiting === "unknown") {
                 const pending = (
                   await tx.query(

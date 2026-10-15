@@ -219,7 +219,7 @@ export class ModelQueue {
           "MODEL_LEASE_LOST",
           "Late model retry rejected / 已拒绝迟到的模型重试",
         );
-      if (changed.rowCount && failure.shared)
+      if (failure.shared)
         await tx.query(
           "update model_quota_groups set cooldown_until=greatest(coalesce(cooldown_until,now()),clock_timestamp()+$2*interval '1 millisecond') where id=$1",
           [changed.rows[0].group_id, delay],

@@ -4,13 +4,8 @@ import {
   DEFAULT_NODE_HEIGHT,
   DEFAULT_NODE_WIDTH,
   GRID_GAP,
+  rectsIntersect,
 } from "@intrica/contracts";
-
-export function rectsIntersect(a: Rect, b: Rect): boolean {
-  return (
-    a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height
-  );
-}
 
 export function selectionBounds(nodes: Array<{ position: Rect }>): Rect | null {
   if (nodes.length === 0) return null;
@@ -33,11 +28,23 @@ export function findFreeColumn(opts: {
   count: number;
   size: { width: number; height: number };
 }): Rect[] {
+  return freeColumn({
+    ...opts,
+    start: { x: opts.anchor.x + opts.anchor.width + GRID_GAP, y: opts.anchor.y },
+  });
+}
+
+function freeColumn(opts: {
+  existing: Rect[];
+  start: { x: number; y: number };
+  count: number;
+  size: { width: number; height: number };
+}): Rect[] {
   const blockers = opts.existing;
-  let x = opts.anchor.x + opts.anchor.width + GRID_GAP;
+  let x = opts.start.x;
   for (;;) {
     const rects: Rect[] = [];
-    let y = opts.anchor.y;
+    let y = opts.start.y;
     for (let i = 0; i < opts.count; i += 1) {
       rects.push({ x, y, width: opts.size.width, height: opts.size.height });
       y += opts.size.height + GRID_GAP;
@@ -53,21 +60,14 @@ export function containerChildRects(opts: {
   count: number;
   startAt?: Rect;
 }): Rect[] {
-  const blockers = opts.existing;
-  const startX = opts.startAt ? opts.startAt.x + opts.startAt.width + GRID_GAP : CONTAINER_PADDING;
-  const startY = opts.startAt ? opts.startAt.y : CONTAINER_PADDING;
-  let x = startX;
-  for (;;) {
-    const rects: Rect[] = [];
-    let y = startY;
-    for (let i = 0; i < opts.count; i += 1) {
-      rects.push({ x, y, width: DEFAULT_NODE_WIDTH, height: DEFAULT_NODE_HEIGHT });
-      y += DEFAULT_NODE_HEIGHT + GRID_GAP;
-    }
-    const blocked = rects.some((r) => blockers.some((b) => rectsIntersect(r, b)));
-    if (!blocked) return rects;
-    x += DEFAULT_NODE_WIDTH + GRID_GAP;
-  }
+  return freeColumn({
+    existing: opts.existing,
+    count: opts.count,
+    size: { width: DEFAULT_NODE_WIDTH, height: DEFAULT_NODE_HEIGHT },
+    start: opts.startAt
+      ? { x: opts.startAt.x + opts.startAt.width + GRID_GAP, y: opts.startAt.y }
+      : { x: CONTAINER_PADDING, y: CONTAINER_PADDING },
+  });
 }
 
 /** Reserve the first free grid slot without moving manually arranged siblings. */
