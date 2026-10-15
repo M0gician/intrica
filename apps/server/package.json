@@ -13,7 +13,7 @@
   },
   "scripts": {
     "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.json && node ../../scripts/build-metadata.mjs dist/build.json && node --check runtime.mjs && node --check service.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.check.json",
     "test": "vitest run",
     "dev": "pnpm build && node --env-file-if-exists=.env dist/server.js",
     "start": "node dist/server.js",

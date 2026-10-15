@@ -77,14 +77,6 @@ const node = async (canvasId: string, title = "来源", kind: "text" | "agent" =
       : {}),
     idempotencyKey: key(),
   });
-async function _eventually(check: () => Promise<boolean>, timeout = 8000) {
-  const end = Date.now() + timeout;
-  while (Date.now() < end) {
-    if (await check()) return;
-    await new Promise((r) => setTimeout(r, 40));
-  }
-  throw new Error("condition not reached");
-}
 beforeAll(async () => {
   await admin(`create database ${dbName}`);
   const url = new URL(adminUrl);

@@ -12,7 +12,7 @@ import {
 
 function makeSnapshot(): ContextSnapshot {
   return {
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     scope: { id: "root", kind: "group", title: "根", summary: "" },
     selection: ["n-01"],
     contextOnlyNodeIds: [],

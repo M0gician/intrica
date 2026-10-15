@@ -120,12 +120,6 @@ async function consume(s: Awaited<ReturnType<typeof start>>) {
     [s.run.subject_id, s.run.id],
   );
 }
-async function _expire(requestId: string) {
-  await k.db.pool.query(
-    "update message_deliveries set snoozed_until=null,deadline_at=now()-interval '1 second' where id=$1",
-    [requestId],
-  );
-}
 async function notices(conversationId: string) {
   return (
     await k.db.pool.query(

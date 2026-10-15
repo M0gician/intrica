@@ -70,22 +70,6 @@ export const fixtureEdges = [
   },
 ];
 
-/** 固定模型输出（MockRunner 与回放测试共用形状）。 */
-export const modelOutputFixtures = {
-  expand: {
-    items: [
-      { title: "可验证假设", text: "第一条结论……" },
-      { title: "替代解释", text: "第二条结论……" },
-    ],
-  },
-  deepen: {
-    items: [{ title: "深入问题", text: "深入内容……" }],
-  },
-  compress: {
-    items: [{ title: "研究方向", text: "候选摘要……" }],
-  },
-};
-
 /** PRD §5 示例请求中的 contextSnapshot（逐字段摘抄）。 */
 export const prdExampleContextSnapshot: ContextSnapshot = {
   snapshotVersion: 2,

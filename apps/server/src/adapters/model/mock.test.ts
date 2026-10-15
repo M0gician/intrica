@@ -5,7 +5,7 @@ import type { FrozenOperation, ModelEvent } from "./types.js";
 
 function makeSnapshot(selection: string[], titles: Record<string, string>): ContextSnapshot {
   return {
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     scope: { id: "root", kind: "group", title: "根", summary: "" },
     selection,
     contextOnlyNodeIds: [],

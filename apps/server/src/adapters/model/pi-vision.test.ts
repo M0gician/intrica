@@ -2,8 +2,9 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { ContextSnapshot } from "@intrica/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { collect, sseChunk } from "./__tests__/pi-fixtures.js";
 import { PiRunner } from "./pi.js";
-import type { FrozenOperation, ModelEvent } from "./types.js";
+import type { FrozenOperation } from "./types.js";
 
 const ITEMS_JSON = JSON.stringify({ items: [{ title: "结论", text: "基于图片的结论。" }] });
 const PNG_1PX = Buffer.from(
@@ -15,23 +16,6 @@ type CapturedRequest = { url: string; body: string };
 
 let server: Server;
 let captured: CapturedRequest[];
-
-function sseChunk(content: string, finish = false): string {
-  const chunk = {
-    id: "chatcmpl-stub",
-    object: "chat.completion.chunk",
-    created: 1,
-    model: "stub",
-    choices: [
-      {
-        index: 0,
-        delta: content === "" && finish ? {} : { content },
-        finish_reason: finish ? "stop" : null,
-      },
-    ],
-  };
-  return `data: ${JSON.stringify(chunk)}\n\n`;
-}
 
 beforeEach(async () => {
   captured = [];
@@ -64,7 +48,7 @@ function baseUrl(): string {
 
 function imageSnapshot(): ContextSnapshot {
   return {
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     scope: { id: "root", kind: "group", title: "根", summary: "" },
     selection: ["n-img"],
     contextOnlyNodeIds: [],
@@ -98,14 +82,6 @@ function makeOp(): FrozenOperation {
   };
 }
 
-async function collect(runner: PiRunner): Promise<ModelEvent[]> {
-  const events: ModelEvent[] = [];
-  for await (const event of runner.run(makeOp(), new AbortController().signal)) {
-    events.push(event);
-  }
-  return events;
-}
-
 describe("PiRunner 图片输入", () => {
   it("supportsVision=true 时普通图片节点以 image block 进入模型请求", async () => {
     const runner = new PiRunner({
@@ -115,7 +91,7 @@ describe("PiRunner 图片输入", () => {
       apiKey: "k",
       supportsVision: true,
     });
-    const events = await collect(runner);
+    const events = await collect(runner, makeOp());
     expect(events.filter((e) => e.type === "error")).toEqual([]);
     expect(captured).toHaveLength(1);
     const sent = JSON.parse(captured[0]!.body);
@@ -141,7 +117,7 @@ describe("PiRunner 图片输入", () => {
       apiKey: "k",
       supportsVision: false,
     });
-    const events = await collect(runner);
+    const events = await collect(runner, makeOp());
     expect(events.filter((e) => e.type === "error")).toEqual([]);
     const sent = JSON.parse(captured[0]!.body);
     const userMessage = sent.messages.findLast((m: { role: string }) => m.role === "user");

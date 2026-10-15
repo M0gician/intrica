@@ -5,7 +5,7 @@ import type { ToolContext } from "./context.js";
 import { readTools } from "./read.js";
 
 function fixture(cursor?: object) {
-  const query = vi.fn(async (sql: string) => ({
+  const query = vi.fn(async (sql: string, _parameters?: unknown[]) => ({
     rows: sql.includes("select c.agent_id")
       ? [{ agent_id: null, canvas_id: "canvas" }]
       : cursor

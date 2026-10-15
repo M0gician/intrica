@@ -125,7 +125,10 @@ it("summarizes through the configured transport, keeps the recent task, and reje
     expect(seen).toBe(0);
     const result = await summarizeContext(model, messages);
     expect(result.content.text).toContain("已确认关键决策");
-    expect(result.sourceMessages[0]?.content).toContain("OLD_DECISION");
+    expect(result.sourceMessages[0]).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("OLD_DECISION"),
+    });
     expect(result.retainedTail.at(-1)?.role).toBe("user");
     expect(JSON.stringify(result.retainedTail)).toContain("最后任务");
     expect(JSON.stringify(result.retainedTail)).not.toContain("OLD_DECISION");
