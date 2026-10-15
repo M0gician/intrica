@@ -272,7 +272,6 @@ async function start() {
     "check",
     "download",
     "cancel",
-    "open",
     "install",
     "configure",
     "dismissNotice",
