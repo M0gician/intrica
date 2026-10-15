@@ -70,15 +70,15 @@ const cases = [
   [
     "read cursor input binding",
     "work/tools/read.js",
-    "if (Object.keys(args).length !== 1)",
-    "if (false)",
+    "object({ cursor: idParameter })",
+    "object({ cursor: idParameter }, { additionalProperties: true })",
     "read cursors bind targets",
   ],
   [
     "read cursor conversation binding",
     "work/tools/read.js",
-    "conversation_id=$3 and expires_at>now()",
-    "($3::text is not null) and expires_at>now()",
+    "and conversation_id=$3",
+    "and ($3::text is not null)",
     "read cursors bind targets",
   ],
   [
