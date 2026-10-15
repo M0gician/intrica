@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.4
+
+- Preserve complete previous summaries and archive compaction sources for authorized search and progressive reading with `read_context` and the bilingual Working materials panel.
+- Keep current message obligations and successful reading positions in durable records; use `read_next` for continuation and expose reopening positions for expired cursors.
+- Replace summary-format heuristics and identical retries with a shared text contract, precise diagnostics and one bounded correction whose budget survives restarts.
+- Preserve checkpoints and tool receipts when compaction fails, pause automatic inference, and require explicit continuation after uncertain external effects have been verified.
+- Simplify source preparation and query validation, remove redundant fallback paths and simulated tests, and retain production regressions and fault-injection checks.
+- Upgrade to database schema 18 and tool schema 7. Seal unstarted old-protocol calls for replanning while retaining completed receipts and unknown-outcome barriers.
+
+See [release notes](docs/releases/v0.5.4.md), [upgrade safety](docs/updating.md) and the [experiment report](docs/experiments/context-compression-2026-10-15.md).
+
 ## 0.5.3
 
 - Keep assistant tool calls and their results together when compacting context, including oversized final tool groups.

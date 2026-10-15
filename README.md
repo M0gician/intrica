@@ -12,16 +12,16 @@ Intrica runs on your machine or a server you control.
 
 ## Installation
 
-The current release is [v0.5.3](https://github.com/M0gician/intrica/releases/tag/v0.5.3).
+The current release is [v0.5.4](https://github.com/M0gician/intrica/releases/tag/v0.5.4).
 Downloads, update checks and container pulls require no GitHub account,
 personal access token or GitHub CLI. Desktop includes Node.js, PostgreSQL
 and the Web interface; you do not need to install these separately.
 
 | Platform | Download | Installation |
 | --- | --- | --- |
-| macOS, Apple Silicon | [DMG](https://github.com/M0gician/intrica/releases/download/v0.5.3/Intrica-0.5.3-mac-arm64.dmg) · [ZIP](https://github.com/M0gician/intrica/releases/download/v0.5.3/Intrica-0.5.3-mac-arm64.zip) | Copy `Intrica.app` to Applications |
-| Linux x64, Debian/Ubuntu | [DEB](https://github.com/M0gician/intrica/releases/download/v0.5.3/Intrica-0.5.3-linux-amd64.deb) | Install with `apt` |
-| Linux x64, other glibc distributions | [AppImage](https://github.com/M0gician/intrica/releases/download/v0.5.3/Intrica-0.5.3-linux-x86_64.AppImage) | Make executable and run |
+| macOS, Apple Silicon | [DMG](https://github.com/M0gician/intrica/releases/download/v0.5.4/Intrica-0.5.4-mac-arm64.dmg) · [ZIP](https://github.com/M0gician/intrica/releases/download/v0.5.4/Intrica-0.5.4-mac-arm64.zip) | Copy `Intrica.app` to Applications |
+| Linux x64, Debian/Ubuntu | [DEB](https://github.com/M0gician/intrica/releases/download/v0.5.4/Intrica-0.5.4-linux-amd64.deb) | Install with `apt` |
+| Linux x64, other glibc distributions | [AppImage](https://github.com/M0gician/intrica/releases/download/v0.5.4/Intrica-0.5.4-linux-x86_64.AppImage) | Make executable and run |
 
 Linux release checks run on Ubuntu 22.04 x64. Windows, Intel Mac, Linux
 arm64 and Alpine/musl packages are not provided. For a headless Linux x64
@@ -31,7 +31,7 @@ host, see [server installation](#server-installation).
 
 1. Download the DMG, open it, and drag `Intrica.app` to Applications.
    Alternatively, extract the ZIP and move `Intrica.app` to Applications.
-2. Open Intrica from Applications. **v0.5.3 uses an ad-hoc signature and is
+2. Open Intrica from Applications. **v0.5.4 uses an ad-hoc signature and is
    not notarized by Apple.** If macOS blocks it, dismiss the message, open
    **System Settings → Privacy & Security**, choose **Open Anyway**, and
    confirm that you want to open Intrica.
@@ -46,21 +46,21 @@ workspace before an upgrade. See [updates and backups](#updates-and-backups).
 On Debian or Ubuntu, run this in the directory containing the download:
 
 ```sh
-sudo apt install ./Intrica-0.5.3-linux-amd64.deb
+sudo apt install ./Intrica-0.5.4-linux-amd64.deb
 intrica
 ```
 
 For AppImage, a graphical desktop session is required:
 
 ```sh
-chmod +x Intrica-0.5.3-linux-x86_64.AppImage
-./Intrica-0.5.3-linux-x86_64.AppImage
+chmod +x Intrica-0.5.4-linux-x86_64.AppImage
+./Intrica-0.5.4-linux-x86_64.AppImage
 ```
 
 If FUSE 2 is unavailable, use AppImage's extraction mode:
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 ./Intrica-0.5.3-linux-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./Intrica-0.5.4-linux-x86_64.AppImage
 ```
 
 Run the desktop app as your regular user. Use the native server or container
@@ -68,15 +68,15 @@ on a machine without a graphical desktop.
 
 ### Verify a manual download
 
-Download [SHA256SUMS](https://github.com/M0gician/intrica/releases/download/v0.5.3/SHA256SUMS)
+Download [SHA256SUMS](https://github.com/M0gician/intrica/releases/download/v0.5.4/SHA256SUMS)
 from the same release. Calculate your file's SHA-256 and compare it with the
 entry for that exact filename. Examples:
 
 ```sh
 # macOS
-shasum -a 256 Intrica-0.5.3-mac-arm64.dmg
+shasum -a 256 Intrica-0.5.4-mac-arm64.dmg
 # Linux
-sha256sum Intrica-0.5.3-linux-amd64.deb
+sha256sum Intrica-0.5.4-linux-amd64.deb
 ```
 
 Do not install a file whose checksum differs. Download it again from the
@@ -89,14 +89,14 @@ With Bash and curl installed, download the version-pinned script:
 
 ```sh
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.5.3/install.sh \
+  https://github.com/M0gician/intrica/releases/download/v0.5.4/install.sh \
   -o install.sh
 ```
 
 Review the downloaded script, quit Intrica, then run:
 
 ```sh
-bash install.sh v0.5.3
+bash install.sh v0.5.4
 ```
 
 The script verifies the package checksum. It installs the app in
@@ -160,14 +160,14 @@ the installer:
 
 ```sh
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.5.3/install-server.sh \
+  https://github.com/M0gician/intrica/releases/download/v0.5.4/install-server.sh \
   -o install-server.sh
 ```
 
 Run it as the same non-root user, without `sudo`:
 
 ```sh
-bash install-server.sh v0.5.3
+bash install-server.sh v0.5.4
 systemctl --user status intrica-server
 curl --fail http://127.0.0.1:3001/api/v2/ready
 ```
@@ -176,7 +176,7 @@ If the host cannot create user namespaces, explicitly opt into **no-sandbox
 mode** instead of the default installation command:
 
 ```sh
-bash install-server.sh v0.5.3 --no-sandbox
+bash install-server.sh v0.5.4 --no-sandbox
 ```
 
 Use a dedicated service account without sudo access or personal credentials.
@@ -236,13 +236,13 @@ persistent deployment directory, download the published Compose file:
 mkdir intrica-deployment
 cd intrica-deployment
 curl -q --fail --location --proto '=https' --proto-redir '=https' \
-  https://github.com/M0gician/intrica/releases/download/v0.5.3/compose.release.yaml \
+  https://github.com/M0gician/intrica/releases/download/v0.5.4/compose.release.yaml \
   -o compose.release.yaml
 openssl rand -hex 32
 ```
 
 Create `.env` in that directory using your editor. Copy the full `serverImage`
-value from [intrica-update.json](https://github.com/M0gician/intrica/releases/download/v0.5.3/intrica-update.json)
+value from [intrica-update.json](https://github.com/M0gician/intrica/releases/download/v0.5.4/intrica-update.json)
 into `INTRICA_IMAGE`, replacing the digest placeholder below. Replace the
 token placeholder with the random value just generated; keep it private:
 
@@ -272,7 +272,7 @@ Keep `.env`, the deployment directory and both volumes (`pgdata` and
 Install Git, Node.js **24.18.0** and pnpm **11.20.0**, then:
 
 ```sh
-git clone --branch v0.5.3 --depth 1 https://github.com/M0gician/intrica.git
+git clone --branch v0.5.4 --depth 1 https://github.com/M0gician/intrica.git
 cd intrica
 pnpm install --frozen-lockfile
 pnpm --filter @intrica/desktop run prepare:app
@@ -296,7 +296,7 @@ See the [development guide](docs/development.md) for builds and tests.
 In builds with the automatic installer, use **Settings → Version & updates →
 Update and restart**. Desktop saves drafts, stops local services, replaces
 the app and restarts. It then checks the actual version and original workspace.
-The macOS v0.5.3 package uses an ad-hoc signature and requires manual installation.
+The macOS v0.5.4 package uses an ad-hoc signature and requires manual installation.
 Choose **Download and install manually**, quit Intrica, copy the new app to
 Applications and replace the previous copy, then reopen it. Workspace data stays in place.
 Desktop updates include its bundled server. Remote servers update separately.
@@ -317,7 +317,7 @@ docker compose -f compose.release.yaml pull intrica
 docker compose -f compose.release.yaml up -d --no-deps --wait intrica
 ```
 
-Existing databases migrate to schema 17. Affected conversations pause
+Existing databases migrate to schema 18. Affected conversations pause
 for result verification and explicit continuation. Unknown side effects
 are not automatically retried. A binary downgrade does not undo database
 migration. See [updates and recovery](docs/updating.md) before upgrading.

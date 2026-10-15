@@ -11,7 +11,7 @@ Packaged Desktop checks after startup and then every six hours. Automatic
 download is optional. Checks and downloads do not stop Agents or install
 software. Failures use bounded backoff.
 
-For macOS ad-hoc releases (including v0.5.3), choose **Download and install manually**.
+For macOS ad-hoc releases (including v0.5.4), choose **Download and install manually**.
 Quit Intrica, copy the new app from the DMG to Applications, replace the previous
 copy and reopen it. Workspace data is preserved. These packages are not notarized
 by Apple; if macOS blocks startup, use System Settings → Privacy & Security →
@@ -103,7 +103,7 @@ database backup and copy `DATA_DIR` together. Protect backups as credentials.
 
 ## Database migration and uncertain results
 
-Current source uses schema 17. Schemas 11–13 separate file/command grants, preserve
+Current source uses database schema 18 and tool schema 7. Schemas 11–13 separate file/command grants, preserve
 input receipts, and add tracing, media references and resource-change scheduling.
 Schemas 14–15 add message deliveries, read/reply deadlines, inbox reviews and
 persistent collaboration pause. Schema 16 records model response activity.
@@ -113,7 +113,14 @@ inbox/wait handshake with `read_inbox` and `review_progress` and uses flat read
 and message-decision arguments. Completed tool receipts are retained. Unstarted
 old-contract calls are sealed for replanning and their pending approvals are
 invalidated; operations with uncertain effects remain blocked for verification.
-Version 0.5.3 retains the database and tool schemas introduced in 0.5.0.
+Schema 18 archives compaction sources and their access scopes, records successful
+reading positions, and persists response-validation records and correction budgets.
+Tool schema 7 adds `read_context` for archived evidence and `read_next` for continued
+reads. The obsolete pre-compaction memory switch is removed. Version 0.5.4 uses
+these new contracts; versions 0.5.0–0.5.3 use database schema 17 and tool schema 6.
+Context-compaction failures preserve the checkpoint and pause automatic inference.
+After verifying any uncertain effects, explicitly continue the conversation.
+Existing historical gaps are not reconstructed automatically.
 Schema 8 and 9 upgrades reconcile persistent
 tool receipts and execution state in one transaction. Stop the old API,
 Worker and execution processes normally before migration; stopping the
