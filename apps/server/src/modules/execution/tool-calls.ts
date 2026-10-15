@@ -206,8 +206,7 @@ export async function invokeTool(
     const sourceVersion = Number(row?.schema_version ?? inputVersion);
     const validationArgs = args;
     const parameters =
-      definition?.parameters.type === "object" &&
-      definition.parameters.additionalProperties == null
+      definition?.parameters.type === "object" && definition.parameters.additionalProperties == null
         ? {
             ...definition.parameters,
             additionalProperties: false,
