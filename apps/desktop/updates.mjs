@@ -429,7 +429,5 @@ export async function createUpdater({
       }
       return result();
     },
-    // Compatibility for the previous bridge name; installation is still explicit.
-    open: install,
   };
 }

@@ -21,7 +21,3 @@ export function Input({ className = "", ...props }: ComponentPropsWithRef<"input
 export function Select({ className = "", ...props }: ComponentPropsWithRef<"select">) {
   return <select {...props} className={`ui-select ${className}`} />;
 }
-
-export function Textarea({ className = "", ...props }: ComponentPropsWithRef<"textarea">) {
-  return <textarea {...props} className={`ui-textarea ${className}`} />;
-}

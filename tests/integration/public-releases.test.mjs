@@ -203,7 +203,7 @@ test("public desktop downloads are serialized, cancellable, cached and reverifie
   await restored.check();
   assert.equal(restored.state().phase, "ready");
   await writeFile(join(dir, "updates", restored.state().asset.name), "tampered");
-  await restored.open();
+  await restored.install();
   assert.equal(restored.state().error, "UPDATE_CHECKSUM_FAILED");
   assert.equal(opens, 0);
   server.state.mode = "stream";
@@ -252,7 +252,7 @@ test("twenty public update cycles per desktop artifact preserve download and han
         await updater.download();
         await settle(updater);
         assert.equal(updater.state().phase, "ready");
-        await updater.open();
+        await updater.install();
         assert.equal(handoffs, 1);
         assert.equal(updater.state().error, null);
       } finally {

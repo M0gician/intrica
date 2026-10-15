@@ -1,7 +1,9 @@
 import type { ServerCapabilities, ServerInfo } from "@intrica/contracts";
 import { GRAPH_PROTOCOL } from "@intrica/contracts";
 import { serverOrigin } from "./server-address.js";
-import { createTransport } from "./transport.js";
+import { createTransport, type FetchLike } from "./transport.js";
+
+export type { FetchLike } from "./transport.js";
 
 export { serverOrigin };
 
@@ -19,8 +21,6 @@ export type ConnectionState = {
   capabilities: ServerCapabilities | null;
   checkedAt: number | null;
 };
-
-export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export function createConnection(
   profile: ConnectionProfile,

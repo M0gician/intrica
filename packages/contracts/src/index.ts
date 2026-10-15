@@ -1,5 +1,4 @@
 export * from "./agent-names.js";
-export * from "./agent-team.js";
 export * from "./api.js";
 export type {
   AccessIntent,
@@ -18,6 +17,7 @@ export * from "./conversation-navigation.js";
 export * from "./downloads.js";
 export * from "./files.js";
 export * from "./generation.js";
+export * from "./geometry.js";
 export * from "./graph-commit.js";
 export * from "./message-stream.js";
 export * from "./model.js";

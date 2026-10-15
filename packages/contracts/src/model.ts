@@ -202,6 +202,3 @@ export type AgentContextUsage = {
   state: "ready" | "compacting";
   compactions: number;
 };
-
-/** A one-shot host operation. Approval is tied to these exact arguments. */
-export type LocalAgentAction = { tool: string; args: Record<string, unknown> };

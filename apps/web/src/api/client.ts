@@ -47,8 +47,6 @@ export function createApiClient(
   const connection = options.transport ?? createTransport(options, fetchImpl);
   const requestFetch = connection.fetch;
   const request = connection.request;
-  const url = (path: string) => path;
-  const requestHeaders = async () => ({});
   const jsonRequest = connection.json;
 
   return {
@@ -74,9 +72,9 @@ export function createApiClient(
       onEvent: (event: any) => void,
       signal: AbortSignal,
     ): Promise<void> {
-      const response = await requestFetch(url("/api/v2/agent/chat"), {
+      const response = await requestFetch("/api/v2/agent/chat", {
         method: "POST",
-        headers: { ...(await requestHeaders()), "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...body, streamFormat: "delta" }),
         signal,
         credentials: "include",

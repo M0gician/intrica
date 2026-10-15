@@ -1,9 +1,7 @@
 import type { Rect } from "@intrica/contracts";
-export function intersects(a: Rect, b: Rect) {
-  return (
-    a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y
-  );
-}
+import { rectsIntersect as intersects } from "@intrica/contracts";
+
+export { intersects };
 /** Rebuildable uniform grid. Oversized objects stay in one overflow bucket. */
 export class SpatialIndex<T extends { id: string; position: Rect }> {
   private cells = new Map<string, T[]>();

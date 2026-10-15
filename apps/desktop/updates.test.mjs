@@ -357,7 +357,7 @@ test("one application updater serializes renderer checks, downloads and explicit
   await Promise.all([updater.download(), updater.download(), updater.download()]);
   await eventually(() => updater.state().phase === "ready");
   assert.equal(f.calls.downloads, 1);
-  await Promise.all([updater.open(), updater.open(), updater.open()]);
+  await Promise.all([updater.install(), updater.install(), updater.install()]);
   assert.equal(f.calls.open.length, 1);
 });
 
@@ -436,7 +436,7 @@ test("cached symlinks and modified installers are rejected; a network failure do
   await writeFile(target, f.content);
   await rm(file);
   await symlink(target, file);
-  await updater.open();
+  await updater.install();
   assert.equal(updater.state().error, "UPDATE_CHECKSUM_FAILED");
   assert.equal(
     updater.state().notice.status,

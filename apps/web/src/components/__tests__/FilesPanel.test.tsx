@@ -10,7 +10,6 @@ import { FilesPanel } from "../FilesPanel";
 
 vi.mock("../DocumentEditor", () => ({ DocumentEditor: () => <div>Document preview</div> }));
 vi.mock("../PdfPreview", () => ({
-  isPdfPath: (path: string) => /\.pdf$/i.test(path),
   PdfPreview: () => <div>PDF preview</div>,
 }));
 

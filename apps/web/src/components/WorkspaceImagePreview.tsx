@@ -3,9 +3,6 @@ import { useSessionConnection } from "../api/connection";
 import type { FileContent } from "../api/workspace";
 import { tr, useTranslation } from "../i18n";
 import { IconImage } from "./icons";
-export function isImagePath(path: string) {
-  return /\.(?:gif|jpe?g|png|svg|webp)$/i.test(path);
-}
 export function WorkspaceImagePreview({
   path,
   alt,

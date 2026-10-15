@@ -1,11 +1,6 @@
 import type { Rect } from "@intrica/contracts";
 
-/** 相交判定：边界接触也算相交。 */
-export function rectsIntersect(a: Rect, b: Rect): boolean {
-  return (
-    a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height
-  );
-}
+export { rectsIntersect } from "@intrica/contracts";
 
 export function pointInRect(point: { x: number; y: number }, rect: Rect): boolean {
   return (
@@ -14,13 +9,6 @@ export function pointInRect(point: { x: number; y: number }, rect: Rect): boolea
     point.y >= rect.y &&
     point.y <= rect.y + rect.height
   );
-}
-
-/** 点到矩形的最近距离（内部为 0）。 */
-export function pointToRectDistance(point: { x: number; y: number }, rect: Rect): number {
-  const dx = Math.max(rect.x - point.x, 0, point.x - (rect.x + rect.width));
-  const dy = Math.max(rect.y - point.y, 0, point.y - (rect.y + rect.height));
-  return Math.hypot(dx, dy);
 }
 
 export function unionRects(rects: Rect[]): Rect | null {
