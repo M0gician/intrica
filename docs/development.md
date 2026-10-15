@@ -31,8 +31,9 @@ Read the [frontend architecture](architecture/frontend-interactions.md),
 
 ## Validation
 
-Build before tests, and do not rebuild while a suite reads generated
-modules:
+`pnpm test` builds once, then runs isolated functional/database tests, public
+update tests, browser tests and Desktop tests in sequence. The individual suites below assume a
+completed build. Do not rebuild while a suite reads generated modules:
 
 ```sh
 pnpm build
@@ -50,7 +51,8 @@ ports. Never point tests at a personal database. Browser tests reset their
 dedicated schema. Install Chromium with
 `pnpm --filter @intrica/tests-e2e exec playwright install chromium`.
 
-For Desktop, build first, then run the connection/update module tests and
+For Desktop, build first; `pnpm --filter @intrica/desktop test` uses the existing
+build. To select checks, run the connection/update module tests and
 `apps/desktop/test.mjs`, `standalone.test.mjs` and `remote.test.mjs`.
 Linux Electron checks need Xvfb. The
 [client matrix](development/client-server-test-matrix.md) exercises real

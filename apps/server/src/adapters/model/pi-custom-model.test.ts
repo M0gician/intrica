@@ -2,8 +2,9 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { ContextSnapshot } from "@intrica/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { collect, sseChunk } from "./__tests__/pi-fixtures.js";
 import { PiRunner } from "./pi.js";
-import type { FrozenOperation, ModelEvent } from "./types.js";
+import type { FrozenOperation } from "./types.js";
 
 const ITEMS_JSON = JSON.stringify({
   items: [
@@ -16,23 +17,6 @@ type CapturedRequest = { url: string; authorization: string | undefined; body: s
 
 let server: Server;
 let captured: CapturedRequest[];
-
-function sseChunk(content: string, finish = false): string {
-  const chunk = {
-    id: "chatcmpl-stub",
-    object: "chat.completion.chunk",
-    created: 1,
-    model: "stub",
-    choices: [
-      {
-        index: 0,
-        delta: content === "" && finish ? {} : { content },
-        finish_reason: finish ? "stop" : null,
-      },
-    ],
-  };
-  return `data: ${JSON.stringify(chunk)}\n\n`;
-}
 
 beforeEach(async () => {
   captured = [];
@@ -88,7 +72,7 @@ function baseUrl(): string {
 
 function makeSnapshot(): ContextSnapshot {
   return {
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     scope: { id: "root", kind: "group", title: "根", summary: "" },
     selection: ["n-1"],
     contextOnlyNodeIds: [],
@@ -119,14 +103,6 @@ function makeOp(): FrozenOperation {
   };
 }
 
-async function collect(runner: PiRunner): Promise<ModelEvent[]> {
-  const events: ModelEvent[] = [];
-  for await (const event of runner.run(makeOp(), new AbortController().signal)) {
-    events.push(event);
-  }
-  return events;
-}
-
 describe("PiRunner 自定义 baseUrl", () => {
   it("目录外模型 + baseUrl：走合成 openai-completions 模型打到自定义端点", async () => {
     const runner = new PiRunner({
@@ -135,7 +111,7 @@ describe("PiRunner 自定义 baseUrl", () => {
       baseUrl: baseUrl(),
       apiKey: "test-key",
     });
-    const events = await collect(runner);
+    const events = await collect(runner, makeOp());
     const errors = events.filter((e) => e.type === "error");
     expect(errors).toEqual([]);
     const starts = events.filter((e) => e.type === "item.start");
@@ -159,7 +135,7 @@ describe("PiRunner 自定义 baseUrl", () => {
       baseUrl: baseUrl(),
       apiKey: "proxy-key",
     });
-    const events = await collect(runner);
+    const events = await collect(runner, makeOp());
     expect(events.filter((e) => e.type === "error")).toEqual([]);
     expect(events.filter((e) => e.type === "item.start")).toHaveLength(2);
 
@@ -171,7 +147,7 @@ describe("PiRunner 自定义 baseUrl", () => {
 
   it("目录外模型且无 baseUrl：报 MODEL_NOT_FOUND", async () => {
     const runner = new PiRunner({ provider: "custom", modelId: "my-local-model" });
-    const events = await collect(runner);
+    const events = await collect(runner, makeOp());
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: "error", code: "MODEL_NOT_FOUND" });
     expect(captured).toHaveLength(0);
@@ -187,7 +163,9 @@ describe("PiRunner 自定义 baseUrl", () => {
       reasoning: true,
       thinkingLevel: "high" as const,
     };
-    expect((await collect(new PiRunner(config))).filter((e) => e.type === "error")).toEqual([]);
+    expect(
+      (await collect(new PiRunner(config), makeOp())).filter((e) => e.type === "error"),
+    ).toEqual([]);
     expect(JSON.parse(captured[0]!.body).reasoning_effort).toBe("high");
     expect(JSON.parse(captured[0]!.body).messages[0].role).toBe("system");
     const { createCanvasAgent } = await import("./agent.js");
@@ -233,6 +211,7 @@ describe("PiRunner 自定义 baseUrl", () => {
         thinkingLevel: "max",
         thinkingLevels: ["off", "low", "medium", "high", "xhigh", "max"],
       }),
+      makeOp(),
     );
     expect(events.filter((e) => e.type === "error")).toEqual([]);
     expect(JSON.parse(captured[0]!.body).reasoning_effort).toBe("max");

@@ -1,6 +1,7 @@
 import { execSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createDefaultEndpoint } from "../fixtures/default-endpoint.mjs";
+import { superviseProcess } from "./supervise-process.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -17,31 +18,4 @@ const child = spawn(process.execPath, ["apps/server/dist/server.js"], {
   detached: true,
 });
 
-let stopping = false;
-function stopTree() {
-  if (stopping) return;
-  stopping = true;
-  endpoint.close();
-  try {
-    process.kill(-child.pid, "SIGKILL");
-  } catch {
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // 已退出则忽略
-    }
-  }
-}
-
-process.on("SIGTERM", () => {
-  stopTree();
-  process.exit(0);
-});
-process.on("SIGINT", () => {
-  stopTree();
-  process.exit(0);
-});
-process.on("exit", stopTree);
-child.on("exit", (code, signal) => {
-  process.exit(code ?? (signal === null ? 0 : 1));
-});
+superviseProcess(child, () => endpoint.close());

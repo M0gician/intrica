@@ -32,17 +32,5 @@
       "semicolons": "always",
       "trailingCommas": "all"
     }
-  },
-  "overrides": [
-    {
-      "includes": ["**/*.test.ts", "**/*.test.tsx", "tests/**"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noExplicitAny": "off"
-          }
-        }
-      }
-    }
-  ]
+  }
 }

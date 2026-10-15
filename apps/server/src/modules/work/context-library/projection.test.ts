@@ -13,6 +13,18 @@ it("preserves exact source text and tool identifiers while excluding reasoning a
     { role: "user", content: "原始要求\n保留每个字符 😀", timestamp: 1 },
     {
       role: "assistant",
+      api: "openai-completions",
+      provider: "openai",
+      model: "fixture",
+      stopReason: "toolUse",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
       content: [
         { type: "thinking", thinking: "private reasoning" },
         { type: "toolCall", id: "call-1", name: "read", arguments: { path: "file.ts" } },
@@ -31,7 +43,7 @@ it("preserves exact source text and tool identifiers while excluding reasoning a
       ],
       timestamp: 3,
     },
-  ] as AgentMessage[];
+  ] satisfies AgentMessage[];
   const sources = archiveSources(messages);
   expect(sources[0]!.text).toBe(messages[0]!.content);
   expect(sources[1]!.text).toContain("exact-evidence");
