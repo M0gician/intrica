@@ -77,7 +77,7 @@ export class ConversationReader {
       await this.db.pool.query("select * from conversations where id=$1", [conversationId])
     ).rows[0];
     const config = await this.models.resolve(selection);
-    const model = createCanvasAgent(config, "inspect");
+    const model = createCanvasAgent(config);
     model.state.messages = row?.checkpoint ?? [];
     return { ...contextUsage(model, config), compactions: row?.context?.compactions ?? 0 };
   }

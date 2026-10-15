@@ -9,7 +9,6 @@ export type AgentCapabilities = {
   canvasId: string;
   managerId: string | null;
   persona: string;
-  saveMemory: boolean;
   manageTeam: boolean;
   broadcastCanvas: boolean;
   writeNodes: boolean;
@@ -37,7 +36,6 @@ export async function agentCapabilities(
         canvasId,
         managerId: null,
         persona: "",
-        saveMemory: true,
         manageTeam: true,
         broadcastCanvas: true,
         writeNodes: true,
@@ -56,7 +54,6 @@ export async function agentCapabilities(
       canvasId,
       managerId: identity.manager_id ?? null,
       persona: identity.config.persona ?? "",
-      saveMemory: identity.config.saveMemoryBeforeCompaction !== false,
       manageTeam: role === "admin",
       broadcastCanvas: role === "admin",
       writeNodes: role !== "read",

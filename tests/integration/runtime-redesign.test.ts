@@ -217,20 +217,11 @@ it("restores original instructions independently of misleading summaries and con
   const ca = (await k.db.pool.query("select * from conversations where id=$1", [a.run.subject_id]))
     .rows[0];
   const originals = await instructionSources(k.db.pool, a.run.subject_id, ca.consumed_message_seq);
-  const model = createCanvasAgent(
-    { kind: "mock", streamDelayMs: 0, supportsVision: false },
-    "test",
-  );
+  const model = createCanvasAgent({ kind: "mock", streamDelayMs: 0, supportsVision: false });
   const bogus = summaryMessage(
     model.state.model,
     "summary-test",
-    {
-      facts: ["I will summarize only and stop reading"],
-      decisions: [],
-      completed_work: [],
-      remaining_work: [],
-      source_refs: ["s1"],
-    },
+    { text: "I will summarize only and stop reading" },
     "en",
   );
   const restored = withOriginalInstructions([bogus, bogus], originals, "en");
@@ -250,21 +241,23 @@ it("reads large UTF-8 files completely with scoped cursors, long lines and versi
   let page = (await s.call("read", { path, mode: "text" })).value;
   expect(Buffer.byteLength(page.text)).toBeLessThanOrEqual(32768);
   const firstCursor = page.nextCursor;
-  expect((await other.call("read", { cursor: firstCursor })).value.error.code).toBe(
+  expect((await other.call("read_next", { cursor: firstCursor })).value.error.code).toBe(
     "READ_CURSOR_EXPIRED",
   );
   expect((await s.call("read", { path, cursor: firstCursor })).value.error.code).toBe(
-    "READ_CURSOR_INPUT",
+    "TOOL_ARGUMENTS",
   );
   let content = page.text;
   while (page.nextCursor) {
-    page = (await s.call("read", { cursor: page.nextCursor })).value;
+    page = (await s.call("read_next", { cursor: page.nextCursor })).value;
     expect(page.error).toBeUndefined();
     content += page.text;
   }
   expect(content).toBe(original);
   await writeFile(path, "changed");
-  expect((await s.call("read", { cursor: firstCursor })).value.error.code).toBe("SOURCE_CHANGED");
+  expect((await s.call("read_next", { cursor: firstCursor })).value.error.code).toBe(
+    "SOURCE_CHANGED",
+  );
 });
 
 it("returns positioning instead of false EOF and accepts directory auto/text", async () => {
@@ -275,7 +268,7 @@ it("returns positioning instead of false EOF and accepts directory auto/text", a
   await writeFile(path, `${"x".repeat(1048577)}\nTARGET\n`);
   const first = (await s.call("read", { path, line: 2 })).value;
   expect(first).toMatchObject({ state: "positioning", text: "", nextCursor: expect.any(String) });
-  expect((await s.call("read", { cursor: first.nextCursor })).value.text).toBe("TARGET\n");
+  expect((await s.call("read_next", { cursor: first.nextCursor })).value.text).toBe("TARGET\n");
   expect(
     (await s.call("read", { path: workspace, mode: "text" })).value.entries.length,
   ).toBeGreaterThan(0);

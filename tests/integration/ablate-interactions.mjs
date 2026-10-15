@@ -70,15 +70,15 @@ const cases = [
   [
     "read cursor input binding",
     "work/tools/read.js",
-    "if (Object.keys(args).length !== 1)",
-    "if (false)",
+    "object({ cursor: idParameter })",
+    "object({ cursor: idParameter, mode: Type.Optional(Type.String()) })",
     "read cursors bind targets",
   ],
   [
     "read cursor conversation binding",
     "work/tools/read.js",
-    "conversation_id=$3 and expires_at>now()",
-    "($3::text is not null) and expires_at>now()",
+    "and conversation_id=$3",
+    "and ($3::text is not null)",
     "read cursors bind targets",
   ],
   [
@@ -530,6 +530,41 @@ const cases = [
     "let exhausted = false;",
     "L28 recovery after a persisted",
   ],
+  [
+    "archived context preserves full evidence",
+    "work/context-library/projection.js",
+    "text: visibleMessageText(message),",
+    "text: visibleMessageText(message).slice(0, 6000),",
+    "recovers exact middle evidence",
+  ],
+  [
+    "archive permission recheck",
+    "work/context-library/access.js",
+    "return (scope) => archiveScopeAllowed(scope, grants, hostExecution);",
+    "return (_scope) => Promise.resolve(true);",
+    "rechecks revoked scope for directory and body",
+  ],
+  [
+    "compaction candidate budget",
+    "work/conversation-runtime/compaction.js",
+    "diagnostics.afterTokens >= before.safeLimit",
+    "false",
+    "rejects an over-budget candidate",
+  ],
+  [
+    "context pause preserves uncertain effects",
+    "work/conversation-runtime/context-tools.js",
+    'const unknown = call.state === "dispatching" && call.effect_class !== "read";',
+    "const unknown = false;",
+    "seals interrupted background effects",
+  ],
+  [
+    "context query boundary validation",
+    "../../../../packages/contracts/dist/context-library.js",
+    "minimum: 0, maximum: Number.MAX_SAFE_INTEGER",
+    "maximum: Number.MAX_SAFE_INTEGER",
+    "validates query fields at the tool boundary",
+  ],
 ].filter((item) => !process.argv[2] || new RegExp(process.argv[2]).test(item[4]));
 assert.ok(cases.length, "No ablation case matched the requested filter");
 const anchors = await Promise.all(
@@ -557,6 +592,9 @@ function run(
     "pdf.test.ts",
     "tool-contracts.test.ts",
     "tool-upgrade.test.ts",
+    "context-compaction.test.ts",
+    "context-library.test.ts",
+    "context-working-state.test.ts",
   ],
 ) {
   const report = join(output, `${name}.json`);

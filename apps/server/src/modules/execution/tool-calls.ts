@@ -6,8 +6,8 @@ import { withOutcome } from "./tool-outcome.js";
 import { toolFailure, validationFailure } from "./tool-validation.js";
 import type { ExecutionContext } from "./worker.js";
 
-// Version 6 uses progress review, flat reads and explicit effect receipts.
-export const TOOL_SCHEMA_VERSION = 6;
+// Version 7 separates continuation reads and exposes versioned context archives.
+export const TOOL_SCHEMA_VERSION = 7;
 
 export type ToolResult = {
   content: Array<

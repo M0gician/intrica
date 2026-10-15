@@ -55,7 +55,6 @@ export const ModelSelectionSchema = Type.Object(
 
 export const AgentConfigSchema = Type.Object(
   {
-    saveMemoryBeforeCompaction: Type.Optional(Type.Boolean()),
     model: Type.Optional(Type.Union([ModelSelectionSchema, Type.Null()])),
     portraitAssetId: Type.Optional(Type.String({ maxLength: 100 })),
     portraitVariant: Type.Optional(Type.Integer({ minimum: 0, maximum: PORTRAIT_VARIANTS - 1 })),

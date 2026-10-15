@@ -78,7 +78,7 @@ it("upgrades the published schema without discarding graph data", async () => {
     expect(
       (await db.pool.query("select status from approvals where id='old-approval'")).rows[0].status,
     ).toBe("cancelled");
-    expect((await db.pool.query("select version from schema_info")).rows[0].version).toBe(17);
+    expect((await db.pool.query("select version from schema_info")).rows[0].version).toBe(18);
     expect(
       (await db.pool.query("select title from canvases where id='migration-canvas'")).rows[0].title,
     ).toBe("preserved");
@@ -138,7 +138,7 @@ it("T16 schema upgrades preserve approval identity and resource provenance", asy
     );
     await db.migrate();
     await db.migrate();
-    expect((await db.pool.query("select version from schema_info")).rows[0].version).toBe(17);
+    expect((await db.pool.query("select version from schema_info")).rows[0].version).toBe(18);
   } finally {
     await db.close();
     await admin.query(`drop database if exists ${migrationName} with(force)`);
@@ -328,7 +328,7 @@ async function prepared() {
     [
       submitted.conversationId,
       JSON.stringify([message]),
-      JSON.stringify({ pendingTurnId: "saved-turn", toolSchemaVersion: 6 }),
+      JSON.stringify({ pendingTurnId: "saved-turn", toolSchemaVersion: 7 }),
     ],
   );
   return { c, submitted, run };

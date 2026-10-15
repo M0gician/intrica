@@ -1,0 +1,252 @@
+{
+  "experiment": "context-live-v1",
+  "modelFingerprint": "3c51a0b181f2",
+  "api": "openai-completions",
+  "requests": 12,
+  "requestCap": 12,
+  "concurrency": 2,
+  "maxOutputTokens": 2000,
+  "limitations": "Two synthetic tasks, one sample per strategy. Does not establish statistical superiority, 30-round live behavior, model-led query selection, production durability or permission behavior. C uses deterministic topic-based pre-retrieval; all extra retrieval/context tokens are counted. Invalid candidates preserve the previous checkpoint, whose use is explicitly reported.",
+  "results": [
+    {
+      "fixture": "large-tool-result-middle",
+      "strategy": "A",
+      "summary": {
+        "stop": "length",
+        "elapsedMs": 79998,
+        "inputTokens": 1258,
+        "outputTokens": 2000,
+        "inputChars": 6682
+      },
+      "validation": "incomplete_or_large",
+      "checkpointUsed": "previous-valid",
+      "continuation": {
+        "stop": "stop",
+        "elapsedMs": 37907,
+        "inputTokens": 324,
+        "outputTokens": 1320,
+        "inputChars": 898
+      },
+      "score": {
+        "parsed": true,
+        "correct": 2,
+        "total": 6,
+        "fields": {
+          "approvalRequired": true,
+          "overallComplete": true,
+          "nextCursor": false,
+          "pendingReport": false,
+          "cacheTtlSeconds": false,
+          "failedCase": false
+        }
+      },
+      "retrieval": {
+        "sourceChars": 6213,
+        "sourceHash": "7198ae52825baee0d0880b6b2781b956ac9539bb0bcdcd6b93db98ac09f9b781",
+        "searches": 0,
+        "reads": 0,
+        "retrievedChars": 0
+      }
+    },
+    {
+      "fixture": "large-tool-result-middle",
+      "strategy": "B",
+      "summary": {
+        "stop": "stop",
+        "elapsedMs": 12862,
+        "inputTokens": 1254,
+        "outputTokens": 388,
+        "inputChars": 6715
+      },
+      "validation": null,
+      "checkpointUsed": "candidate",
+      "continuation": {
+        "stop": "stop",
+        "elapsedMs": 19844,
+        "inputTokens": 335,
+        "outputTokens": 559,
+        "inputChars": 864
+      },
+      "score": {
+        "parsed": true,
+        "correct": 2,
+        "total": 6,
+        "fields": {
+          "approvalRequired": true,
+          "overallComplete": true,
+          "nextCursor": false,
+          "pendingReport": false,
+          "cacheTtlSeconds": false,
+          "failedCase": false
+        }
+      },
+      "retrieval": {
+        "sourceChars": 6213,
+        "sourceHash": "7198ae52825baee0d0880b6b2781b956ac9539bb0bcdcd6b93db98ac09f9b781",
+        "searches": 0,
+        "reads": 0,
+        "retrievedChars": 0
+      }
+    },
+    {
+      "fixture": "large-tool-result-middle",
+      "strategy": "C",
+      "summary": {
+        "stop": "stop",
+        "elapsedMs": 15496,
+        "inputTokens": 1254,
+        "outputTokens": 524,
+        "inputChars": 6715
+      },
+      "validation": null,
+      "checkpointUsed": "candidate",
+      "continuation": {
+        "stop": "stop",
+        "elapsedMs": 2953,
+        "inputTokens": 555,
+        "outputTokens": 117,
+        "inputChars": 1683
+      },
+      "score": {
+        "parsed": true,
+        "correct": 6,
+        "total": 6,
+        "fields": {
+          "approvalRequired": true,
+          "overallComplete": true,
+          "nextCursor": true,
+          "pendingReport": true,
+          "cacheTtlSeconds": true,
+          "failedCase": true
+        }
+      },
+      "retrieval": {
+        "sourceChars": 6213,
+        "sourceHash": "7198ae52825baee0d0880b6b2781b956ac9539bb0bcdcd6b93db98ac09f9b781",
+        "searches": 1,
+        "reads": 1,
+        "retrievedChars": 512
+      }
+    },
+    {
+      "fixture": "long-prior-with-memory",
+      "strategy": "A",
+      "summary": {
+        "stop": "stop",
+        "elapsedMs": 40527,
+        "inputTokens": 1257,
+        "outputTokens": 1103,
+        "inputChars": 6641
+      },
+      "validation": null,
+      "checkpointUsed": "candidate",
+      "continuation": {
+        "stop": "stop",
+        "elapsedMs": 19161,
+        "inputTokens": 376,
+        "outputTokens": 635,
+        "inputChars": 1271
+      },
+      "score": {
+        "parsed": true,
+        "correct": 2,
+        "total": 6,
+        "fields": {
+          "approvalRequired": true,
+          "overallComplete": true,
+          "nextCursor": false,
+          "pendingReport": false,
+          "cacheTtlSeconds": false,
+          "failedCase": false
+        }
+      },
+      "retrieval": {
+        "sourceChars": 6172,
+        "sourceHash": "c2c8b18b0dea98e7075a35b52834c5089f597b6980fb8873ceb2438c9d60ad01",
+        "searches": 0,
+        "reads": 0,
+        "retrievedChars": 0
+      }
+    },
+    {
+      "fixture": "long-prior-with-memory",
+      "strategy": "B",
+      "summary": {
+        "stop": "stop",
+        "elapsedMs": 19644,
+        "inputTokens": 2430,
+        "outputTokens": 648,
+        "inputChars": 13475
+      },
+      "validation": null,
+      "checkpointUsed": "candidate",
+      "continuation": {
+        "stop": "stop",
+        "elapsedMs": 7095,
+        "inputTokens": 400,
+        "outputTokens": 218,
+        "inputChars": 1361
+      },
+      "score": {
+        "parsed": true,
+        "correct": 6,
+        "total": 6,
+        "fields": {
+          "approvalRequired": true,
+          "overallComplete": true,
+          "nextCursor": true,
+          "pendingReport": true,
+          "cacheTtlSeconds": true,
+          "failedCase": true
+        }
+      },
+      "retrieval": {
+        "sourceChars": 12973,
+        "sourceHash": "1a79f8304793a86ae74609973cbdf6f6d2c5cf79eee3b14ca56ea2d9b7a05371",
+        "searches": 0,
+        "reads": 0,
+        "retrievedChars": 0
+      }
+    },
+    {
+      "fixture": "long-prior-with-memory",
+      "strategy": "C",
+      "summary": {
+        "stop": "stop",
+        "elapsedMs": 14997,
+        "inputTokens": 2430,
+        "outputTokens": 487,
+        "inputChars": 13475
+      },
+      "validation": null,
+      "checkpointUsed": "candidate",
+      "continuation": {
+        "stop": "stop",
+        "elapsedMs": 3383,
+        "inputTokens": 723,
+        "outputTokens": 116,
+        "inputChars": 2679
+      },
+      "score": {
+        "parsed": true,
+        "correct": 6,
+        "total": 6,
+        "fields": {
+          "approvalRequired": true,
+          "overallComplete": true,
+          "nextCursor": true,
+          "pendingReport": true,
+          "cacheTtlSeconds": true,
+          "failedCase": true
+        }
+      },
+      "retrieval": {
+        "sourceChars": 12973,
+        "sourceHash": "1a79f8304793a86ae74609973cbdf6f6d2c5cf79eee3b14ca56ea2d9b7a05371",
+        "searches": 1,
+        "reads": 2,
+        "retrievedChars": 1024
+      }
+    }
+  ]
+}

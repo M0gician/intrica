@@ -2,6 +2,7 @@ import { contextUsage } from "../../../adapters/model/context.js";
 import { canvasEvent, DomainError, type Tx } from "../../../adapters/postgres/database.js";
 import type { ExecutionContext } from "../../execution/worker.js";
 import type { ConversationInput } from "../conversations.js";
+import { recordReadObservations } from "../evidence/read-observations.js";
 import { publishDeliveryReads } from "../messaging/receipts.js";
 export function createCheckpointWriter(
   ctx: ExecutionContext,
@@ -47,6 +48,7 @@ export function createCheckpointWriter(
       });
     }
     consumedInContext.clear();
+    await recordReadObservations(tx, input.conversationId, model.state.messages);
     const info = {
       ...contextUsage(model, config),
       compactions,

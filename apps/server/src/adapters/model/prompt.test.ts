@@ -1,9 +1,9 @@
 import type { ContextSnapshot } from "@intrica/contracts";
 import { describe, expect, it } from "vitest";
+import { buildCompactionPrompt } from "../../modules/context/summary-contract.js";
 import { promptLanguage } from "../../prompt-language.js";
 import {
   buildClosingPrompt,
-  buildCompactionPrompt,
   buildConversationPrompt,
   buildSystemPrompt,
   parseModelOutput,
@@ -69,7 +69,7 @@ describe("buildSystemPrompt", () => {
       expect(conversation).toContain("truncated/reasons/skipped");
       expect(conversation).toContain("nextCursor");
       expect(conversation).toContain(language === "en" ? "existing text layer" : "现有文字层");
-      expect(buildCompactionPrompt(language, false)).toContain("6000");
+      expect(buildCompactionPrompt(language)).toContain("6000");
       expect(buildSystemPrompt("expand", language)).toContain(
         '"items":[{"title":string,"text":string}]',
       );

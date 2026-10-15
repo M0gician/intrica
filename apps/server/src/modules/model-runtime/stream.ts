@@ -2,6 +2,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { type AssistantMessage, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { classifyModelFailure, retryDelay } from "./errors.js";
 import type { ModelQueue } from "./queue.js";
+import { responseCorrection, validationReceipt } from "./response-validation.js";
 
 type Options = {
   validate?: ((message: AssistantMessage) => void) | undefined;
@@ -32,7 +33,9 @@ export function scheduledStream(source: StreamFn, runtime: Options): StreamFn {
       const signal = options?.signal ?? runtime.signal,
         queue = runtime.queue;
       let owner: string | null = null,
-        started = false;
+        started = false,
+        validationFailures = 0,
+        repairFeedback: string | null = null;
       let partial: AssistantMessage = {
         role: "assistant",
         content: [],
@@ -76,7 +79,12 @@ export function scheduledStream(source: StreamFn, runtime: Options): StreamFn {
             await pause(500, signal);
             continue;
           }
+          if (admission) {
+            validationFailures = admission.row.validation_failures;
+            repairFeedback = admission.row.validation_feedback;
+          }
           await runtime.suspend?.(null);
+          signal?.throwIfAborted();
           const abort = new AbortController();
           let timer: ReturnType<typeof setTimeout> | undefined;
           let reject: (err: Error) => void = () => {};
@@ -97,7 +105,8 @@ export function scheduledStream(source: StreamFn, runtime: Options): StreamFn {
             }, runtime.idleMs ?? 300000);
           };
           let headers: Record<string, string> = {},
-            status: number | undefined;
+            status: number | undefined,
+            validationFailed = false;
           signal?.addEventListener("abort", cancel, { once: true });
           const renew =
             queue && owner
@@ -112,17 +121,33 @@ export function scheduledStream(source: StreamFn, runtime: Options): StreamFn {
             touch();
             const stream = await Promise.race([
               Promise.resolve(
-                source(model, context, {
-                  ...options,
-                  signal: abort.signal,
-                  onResponse: async (response, responseModel) => {
-                    headers = Object.fromEntries(
-                      Object.entries(response.headers).map(([k, v]) => [k.toLowerCase(), v]),
-                    );
-                    status = response.status;
-                    await options?.onResponse?.(response, responseModel);
+                source(
+                  model,
+                  repairFeedback
+                    ? {
+                        ...context,
+                        messages: [
+                          ...context.messages,
+                          {
+                            role: "user",
+                            content: `The previous response was rejected by service validation. Generate a corrected response from the original source.\n${repairFeedback}`,
+                            timestamp: 0,
+                          },
+                        ],
+                      }
+                    : context,
+                  {
+                    ...options,
+                    signal: abort.signal,
+                    onResponse: async (response, responseModel) => {
+                      headers = Object.fromEntries(
+                        Object.entries(response.headers).map(([k, v]) => [k.toLowerCase(), v]),
+                      );
+                      status = response.status;
+                      await options?.onResponse?.(response, responseModel);
+                    },
                   },
-                }),
+                ),
               ),
               interrupted,
             ]);
@@ -136,12 +161,41 @@ export function scheduledStream(source: StreamFn, runtime: Options): StreamFn {
                 throw new Error(event.error.errorMessage ?? "Model request failed");
               if (event.type === "done") {
                 signal?.throwIfAborted();
-                runtime.validate?.(event.message);
+                if (runtime.validate) {
+                  try {
+                    runtime.validate(event.message);
+                  } catch (error) {
+                    validationFailed = true;
+                    const feedback = validationFailures === 0 ? responseCorrection(error) : null;
+                    signal?.throwIfAborted();
+                    validationFailures = queue
+                      ? await queue.validate(
+                          owner!,
+                          admission!.row.attempts,
+                          validationReceipt(event.message, error),
+                          feedback,
+                        )
+                      : validationFailures + 1;
+                    repairFeedback = feedback;
+                    throw error;
+                  }
+                  signal?.throwIfAborted();
+                  if (queue)
+                    await queue.validate(
+                      owner!,
+                      admission!.row.attempts,
+                      validationReceipt(event.message),
+                      null,
+                    );
+                }
+                signal?.throwIfAborted();
                 if (queue) await queue.succeed(owner!, event.message);
                 output.push(event);
                 return;
               }
               partial = event.partial;
+              // Unaccepted summary content is diagnostic data, not model output for the caller.
+              if (runtime.validate) continue;
               if (event.type === "start" && started)
                 output.push({ type: "text_delta", contentIndex: 0, delta: "", partial });
               else {
@@ -155,16 +209,16 @@ export function scheduledStream(source: StreamFn, runtime: Options): StreamFn {
               error instanceof Error ? error.message : String(error),
               status,
             );
-            const delay = retryDelay(admission?.row.attempts ?? 1, headers["retry-after"]);
-            const validationLimit =
-              failure.code === "CONTEXT_SUMMARY_INVALID" && (admission?.row.attempts ?? 1) >= 3;
+            const delay = validationFailed
+              ? 0
+              : retryDelay(admission?.row.attempts ?? 1, headers["retry-after"]);
+            const correctionAvailable =
+              validationFailed && validationFailures === 1 && repairFeedback !== null;
             const retry = Boolean(
-              queue &&
-                failure.retryable &&
-                !validationLimit &&
+              (correctionAvailable || (queue && !validationFailed && failure.retryable)) &&
                 Date.now() +
                   delay -
-                  new Date(admission!.row.first_failure_at ?? Date.now()).getTime() <
+                  new Date(admission?.row.first_failure_at ?? Date.now()).getTime() <
                   (runtime.retryWindowMs ?? 600000),
             );
             if (queue)
@@ -177,7 +231,7 @@ export function scheduledStream(source: StreamFn, runtime: Options): StreamFn {
               );
             if (!retry)
               throw new Error(
-                `${failure.code}: ${failure.message}${validationLimit ? " — summary validation failed after 3 attempts / 摘要校验连续 3 次失败" : queue && failure.retryable ? " — automatic retry window ended / 自动重试窗口已结束" : ""}`,
+                `${failure.code}: ${failure.message}${validationFailed ? (validationFailures >= 2 ? " — summary rejected after one correction / 摘要修正一次后仍未通过校验" : " — no safe correction is available / 当前响应无法安全修正") : queue && failure.retryable ? " — automatic retry window ended / 自动重试窗口已结束" : ""}`,
               );
           } finally {
             clearTimeout(timer);
@@ -194,6 +248,7 @@ export function scheduledStream(source: StreamFn, runtime: Options): StreamFn {
           reason,
           error: {
             ...partial,
+            ...(runtime.validate ? { content: [] } : {}),
             stopReason: reason,
             errorMessage: signal?.aborted
               ? "Model request cancelled / 模型请求已取消"

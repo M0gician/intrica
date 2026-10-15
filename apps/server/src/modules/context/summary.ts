@@ -1,20 +1,19 @@
-import { type AgentMessage, serializeConversation } from "@earendil-works/pi-agent-core";
-import type { Message } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createCanvasAgent } from "../../adapters/model/agent.js";
-import {
-  checkpointMessages,
-  contextTail,
-  estimatedMessageTokens,
-} from "../../adapters/model/context.js";
+import { estimatedMessageTokens } from "../../adapters/model/context.js";
 import { modelCapabilities, modelContextWindow } from "../../adapters/model/model-catalog.js";
-import { buildCompactionPrompt } from "../../adapters/model/prompt.js";
 import type { ModelConfig } from "../../adapters/model/types.js";
 import { modelPurposeRequestId, withModelPurpose } from "../../adapters/model/usage.js";
-import { DomainError, digest, id } from "../../adapters/postgres/database.js";
+import { DomainError, digest } from "../../adapters/postgres/database.js";
 import { type PromptLanguage, promptText } from "../../prompt-language.js";
 import { contextFailure } from "./errors.js";
-import { cleanContext, isSummary } from "./messages.js";
-import { parseContextSummary, type SummaryContent } from "./summary-contract.js";
+import { renderCompactionSources, selectCompactionSources } from "./sources.js";
+import {
+  buildCompactionPrompt,
+  SUMMARY_TEMPLATE_VERSION,
+  type SummaryContent,
+  validateContextSummary,
+} from "./summary-contract.js";
 
 export type ContextSummary = {
   id: string;
@@ -22,146 +21,79 @@ export type ContextSummary = {
   content: SummaryContent;
   sourceHash: string;
   sources: Array<{ ref: string; hash: string }>;
+  sourceMessages: AgentMessage[];
   retainedTail: AgentMessage[];
 };
 
-function sourceMessages(messages: AgentMessage[]): Message[] {
-  return checkpointMessages(messages)
-    .filter((message): message is Message =>
-      ["user", "assistant", "toolResult"].includes(message.role),
-    )
-    .map((message) => {
-      if (message.role === "user") return message;
-      return {
-        ...message,
-        content: message.content
-          .filter((part) => part.type !== "thinking")
-          .map((part) =>
-            part.type === "text" && part.text.length > 6000
-              ? {
-                  ...part,
-                  text: `${part.text.slice(0, 3000)}\n[Source excerpt shortened]\n${part.text.slice(-3000)}`,
-                }
-              : part,
-          ),
-      } as Message;
-    });
-}
-
-/** Source IDs are assigned by the server; the model only cites this frozen set. */
+/** Freeze source and archive identity before inference; commit them with the checkpoint. */
 export async function summarizeContext(
   config: ModelConfig,
   messages: AgentMessage[],
-  saveMemory: boolean,
   signal?: AbortSignal,
   language: PromptLanguage = "en",
   onSource?: (count: number) => void,
 ): Promise<ContextSummary> {
   signal?.throwIfAborted();
-  const parts = contextTail(
-    cleanContext(messages),
-    modelContextWindow(config).contextWindow,
-    language,
+  const window = modelContextWindow(config).contextWindow;
+  const source = selectCompactionSources(messages, window, language);
+  const requestId = modelPurposeRequestId(
+    "compaction",
+    digest([SUMMARY_TEMPLATE_VERSION, language, source.sourceHash]),
   );
-  // A retained old summary must become evidence for its replacement, never disappear.
-  const original = checkpointMessages([...parts.older, ...parts.tail.filter(isSummary)], language);
-  const source = sourceMessages(original);
-  onSource?.(source.length);
-  if (!source.length) throw contextFailure("CONTEXT_EMPTY_SOURCE", language);
-  const sources = source.map((message, index) => ({ ref: `s${index + 1}`, hash: digest(message) }));
-  const requestId = modelPurposeRequestId("compaction", digest(original));
-  const metadata = {
-    id: id("summary"),
-    requestId,
-    sources,
-    sourceHash: digest(original),
-    retainedTail: parts.tail.filter((message) => !isSummary(message)),
-  };
+  const summaryId = `summary-${digest(requestId)}`;
+  onSource?.(source.sourceMessages.length);
+  if (!source.sourceMessages.length) throw contextFailure("CONTEXT_EMPTY_SOURCE", language);
+  const { transcript, sources } = renderCompactionSources(source.sourceMessages, summaryId, window);
+  const metadata = { id: summaryId, requestId, ...source, sources };
   if (config.kind === "mock")
     return {
       ...metadata,
       content: {
-        facts: [
-          promptText(
-            language,
-            "Earlier records were summarized for the test conversation.",
-            "测试会话的历史记录已整理。",
-          ),
-        ],
-        decisions: [],
-        completed_work: [],
-        remaining_work: [],
-        source_refs: sources.map((s) => s.ref),
-        ...(saveMemory
-          ? { memory_title: "Conversation notes", memory_text: "Test conversation evidence." }
-          : {}),
+        text: promptText(
+          language,
+          "Earlier test history is archived. Continue the original instructions and inspect the preserved evidence when needed.",
+          "测试历史已存入资料索引。继续原始任务，需要细节时查询保留的证据。",
+        ),
       },
     };
-  const summarizer = createCanvasAgent(config, requestId);
+  const summarizer = createCanvasAgent({
+    ...config,
+    maxOutputTokens: Math.min(
+      config.maxOutputTokens ?? 8192,
+      8192,
+      Math.max(256, Math.floor(window * 0.08)),
+    ),
+  });
   if (modelCapabilities(config).thinkingLevels.includes("off"))
     summarizer.state.thinkingLevel = "off";
-  summarizer.state.systemPrompt = buildCompactionPrompt(language, saveMemory);
-  const transcript = source
-    .map((message, index) => `[source ${sources[index]!.ref}]\n${serializeConversation([message])}`)
-    .join("\n\n");
+  summarizer.state.systemPrompt = buildCompactionPrompt(language);
   if (
-    estimatedMessageTokens({ role: "user", content: transcript, timestamp: 0 }) >
-    modelContextWindow(config).contextWindow * 0.8
+    estimatedMessageTokens({
+      role: "user",
+      content: transcript + summarizer.state.systemPrompt,
+      timestamp: 0,
+    }) >
+    window * 0.8
   )
     throw new DomainError(
       "CONTEXT_SOURCE_LIMIT",
       promptText(
         language,
-        "The source exceeds the summarization context budget. The existing checkpoint is preserved.",
-        "来源内容超过摘要上下文预算，原 checkpoint 已保留。",
+        "The protected source exceeds the summary budget. The complete checkpoint is preserved; use a larger context or narrow the active instructions.",
+        "必须保留的来源超过摘要预算。完整会话记录已保留，请使用更大的上下文窗口或明确缩小有效指令范围。",
       ),
     );
   const abort = () => summarizer.abort();
   signal?.addEventListener("abort", abort, { once: true });
   try {
-    // Request retry belongs to the shared model scheduler, never a second summary loop.
-    await withModelPurpose(
+    const response = await withModelPurpose(
       "compaction",
       () => summarizer.prompt(transcript),
       requestId,
-      (message) => {
-        if (
-          !parseContextSummary(
-            message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
-            new Set(sources.map((s) => s.ref)),
-            message.stopReason !== "stop",
-          )
-        )
-          throw new DomainError(
-            "CONTEXT_SUMMARY_INVALID",
-            "CONTEXT_SUMMARY_INVALID: summary structure or references rejected / 摘要结构或来源引用无效",
-          );
-      },
+      validateContextSummary,
     );
     signal?.throwIfAborted();
-    const last = summarizer.state.messages.at(-1);
-    const content =
-      last?.role === "assistant"
-        ? parseContextSummary(
-            last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
-            new Set(sources.map((source) => source.ref)),
-            last.stopReason !== "stop",
-          )
-        : null;
-    if (!content)
-      throw new DomainError(
-        "CONTEXT_SUMMARY_INVALID",
-        promptText(
-          language,
-          "The summary has an invalid structure or source reference. The original instructions and checkpoint are preserved.",
-          "摘要结构或来源引用无效。真实指令与原 checkpoint 已保留。",
-        ),
-      );
-    if (!saveMemory) {
-      delete content.memory_text;
-      delete content.memory_title;
-    }
-    return { ...metadata, content };
+    return { ...metadata, content: validateContextSummary(response) };
   } finally {
     signal?.removeEventListener("abort", abort);
   }

@@ -1088,7 +1088,7 @@ describe("production graph and execution", () => {
       [
         submitted.conversationId,
         JSON.stringify(checkpoint),
-        JSON.stringify({ pendingTurnId: "second-turn", toolSchemaVersion: 6 }),
+        JSON.stringify({ pendingTurnId: "second-turn", toolSchemaVersion: 7 }),
       ],
     );
     let effects = 0;
@@ -1194,7 +1194,7 @@ describe("production graph and execution", () => {
       [
         submitted.conversationId,
         JSON.stringify([...current.checkpoint, assistant]),
-        JSON.stringify({ pendingTurnId: "unknown-turn", toolSchemaVersion: 6 }),
+        JSON.stringify({ pendingTurnId: "unknown-turn", toolSchemaVersion: 7 }),
       ],
     );
     let effects = 0;

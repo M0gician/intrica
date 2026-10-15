@@ -103,6 +103,7 @@ jobs:
 
       - name: Functional and integration tests
         run: |
+          node --test tests/experiments/context-runners.test.mjs
           node --test scripts/check-canvas-snapshot.test.mjs
           node --test scripts/deploy-server.test.mjs scripts/server-prerequisites.test.mjs scripts/install-server.test.mjs scripts/service-sandbox.test.mjs
           node --test tests/integration/public-releases.test.mjs

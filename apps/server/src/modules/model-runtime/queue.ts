@@ -1,6 +1,8 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { type Database, DomainError, digest, id } from "../../adapters/postgres/database.js";
 import type { ModelFailure } from "./errors.js";
+import { recordResponseValidation } from "./queue-validation.js";
+import type { ResponseValidation } from "./response-validation.js";
 
 export type RequestIdentity = {
   id: string;
@@ -18,6 +20,9 @@ export class ModelQueue {
     readonly db: Database,
     readonly request: RequestIdentity,
   ) {}
+  validate(owner: string, attempt: number, receipt: ResponseValidation, feedback: string | null) {
+    return recordResponseValidation(this.db, this.request, owner, attempt, receipt, feedback);
+  }
   async initialize() {
     const r = this.request;
     return this.db.transaction(async (tx) => {
@@ -197,9 +202,23 @@ export class ModelQueue {
       const changed = await tx.query(
         `update model_requests set state=$3,reason=$4,owner=null,
         first_failure_at=coalesce(first_failure_at,now()),next_attempt_at=clock_timestamp()+$5*interval '1 millisecond',lease_until=case when $6 then lease_until else null end,
-        finished_at=case when $3='failed' then now() else null end where id=$1 and owner=$2 and lease_until>clock_timestamp() returning group_id`,
-        [this.request.id, owner, retry ? "retry_wait" : "failed", failure.code, delay, quarantine],
+        finished_at=case when $3='failed' then now() else null end where id=$1 and owner=$2 and lease_until>clock_timestamp()
+        and ($7::int is null or exists(select 1 from runs where id=model_requests.run_id and epoch=$7 and state='running' and lease_until>clock_timestamp() and cancel_requested_at is null)) returning group_id`,
+        [
+          this.request.id,
+          owner,
+          retry ? "retry_wait" : "failed",
+          failure.code,
+          delay,
+          quarantine,
+          this.request.runEpoch ?? null,
+        ],
       );
+      if (!changed.rowCount)
+        throw new DomainError(
+          "MODEL_LEASE_LOST",
+          "Late model retry rejected / 已拒绝迟到的模型重试",
+        );
       if (changed.rowCount && failure.shared)
         await tx.query(
           "update model_quota_groups set cooldown_until=greatest(coalesce(cooldown_until,now()),clock_timestamp()+$2*interval '1 millisecond') where id=$1",
@@ -208,9 +227,24 @@ export class ModelQueue {
     });
   }
   async cancel(owner?: string | null) {
-    // Retain the upstream slot until its lease expires when transport shutdown is unconfirmed.
+    // Aborting transport during worker shutdown is not a user cancellation. Keep
+    // the same logical request and its correction budget recoverable after requeue.
+    // In both cases the uncertain upstream slot remains occupied until lease expiry.
     await this.db.pool.query(
-      "update model_requests set state='cancelled',owner=null,reason='MODEL_CANCELLED',finished_at=now() where id=$1 and state<>'succeeded' and (owner=$2 or (owner is null and state in('queued','retry_wait'))) and ($3::int is null or exists(select 1 from runs where id=model_requests.run_id and epoch=$3))",
+      `with interrupted as (
+        select m.id,($3::int is not null and exists(
+          select 1 from runs r where r.id=m.run_id and r.epoch=$3
+            and r.cancel_requested_at is null and r.state in ('running','queued','waiting')
+        )) as recoverable from model_requests m
+        where m.id=$1 and m.state in ('queued','retry_wait','leased','streaming')
+          and (m.owner=$2 or (m.owner is null and m.state in ('queued','retry_wait')))
+          and ($3::int is null or exists(select 1 from runs r where r.id=m.run_id and r.epoch=$3))
+        for update of m
+      ) update model_requests m set
+        state=case when i.recoverable then 'retry_wait' else 'cancelled' end,
+        reason=case when i.recoverable then 'MODEL_INTERRUPTED' else 'MODEL_CANCELLED' end,
+        owner=null,finished_at=case when i.recoverable then null else now() end
+      from interrupted i where m.id=i.id`,
       [this.request.id, owner ?? null, this.request.runEpoch ?? null],
     );
   }

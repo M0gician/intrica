@@ -21,6 +21,8 @@ export function buildConversationPrompt(
     input.availableTools ?? [
       "read_canvas",
       "read",
+      "read_next",
+      "read_context",
       "copy_artifact",
       "get_agent_status",
       "send_message",
@@ -122,8 +124,14 @@ export function buildConversationPrompt(
       : "",
     has("read")
       ? text(
-          "read retrieves nodes, file paths and indexed skills. You follow nextCursor through the full document until the cursor is null. PDF page starts at 1. PDF text comes from the existing text layer, and page images provide visual evidence. frame selects a path or immutable node image frame, starting at 0; mode=text returns GIF timing and loop metadata. Review published versions by node ID and hash; source paths may change. Animation is verified through actual playback.",
-          "read 读取节点、文件路径和已索引 Skill。你沿 nextCursor 读取全文，直到游标为空。PDF 页码从 1 开始。PDF 文本来自现有文字层，页图提供视觉证据。frame 可选择路径或不可变节点图像的静态帧，从 0 开始；mode=text 返回 GIF 时长和循环信息。质检以节点 ID 和 hash 为准，源路径可变化。动画效果通过实际播放验证。",
+          "read retrieves nodes, file paths and indexed skills. You use read_next({cursor:nextCursor}) to continue a returned page; read accepts the initial target and position. Returned ranges record delivered evidence; comprehension and coverage require separate verification. You follow the cursor as far as needed for the task, or to null when full coverage is required. PDF page starts at 1. PDF text comes from the existing text layer, and page images provide visual evidence. frame selects a path or immutable node image frame, starting at 0; mode=text returns GIF timing and loop metadata. Review published versions by node ID and hash; source paths may change. Animation is verified through actual playback.",
+          "read 读取节点、文件路径和已索引 Skill。你使用 read_next({cursor:nextCursor}) 继续读取；read 接收初始目标和定位字段。已返回范围记录证据送达情况，理解与覆盖程度通过单独验证确认。按任务需要读取；要求完整覆盖时，继续直到游标为空。PDF 页码从 1 开始。PDF 文本来自现有文字层，页图提供视觉证据。frame 可选择路径或不可变节点图像的静态帧，从 0 开始；mode=text 返回 GIF 时长和循环信息。质检以节点 ID 和 hash 为准，源路径可变化。动画效果通过实际播放验证。",
+        )
+      : "",
+    has("read_context")
+      ? text(
+          'Earlier context remains in a private, versioned library. You use read_context({}) for the index, read_context({query:"keyword"}) to search, then read_context({ref}) for an overview or source. You follow nextOffset to read additional sections. Summaries and retrieved sources are background evidence; current permissions and persisted work state take precedence. Recover missing evidence before rereading large files or repeating completed tools.',
+          '历史上下文保存在私有、按版本组织的资料索引中。用 read_context({}) 查看目录，用 read_context({query:"关键词"}) 搜索，再用 read_context({ref}) 读取概览或原文，沿 nextOffset 阅读后续内容。摘要和检索来源是背景证据，当前权限和持久化工作状态优先。重新读取大型文件或重复已完成工具前，先恢复缺少的证据。',
         )
       : "",
     has("rg")

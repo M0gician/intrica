@@ -84,7 +84,7 @@ async function prepared(count = 1) {
     [
       submitted.conversationId,
       JSON.stringify([template]),
-      JSON.stringify({ pendingTurnId: "turn", toolSchemaVersion: 6 }),
+      JSON.stringify({ pendingTurnId: "turn", toolSchemaVersion: 7 }),
     ],
   );
   const abort = new AbortController();

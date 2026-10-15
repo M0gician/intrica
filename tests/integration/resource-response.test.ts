@@ -868,7 +868,7 @@ it("migrates ambiguous legacy blocks without reviving stopped work", async () =>
       );
     }
     await db.pool.query(
-      "drop table context_summaries,read_cursors,model_requests,model_fairness,message_dispositions,mailbox_refs,mailbox_pages,progress_reviews; drop sequence mailbox_ref_seq; alter table conversations drop column context_version; alter table model_endpoints drop column quota_group_id; drop table model_quota_groups",
+      "drop table model_response_validations,read_observations,context_summaries,read_cursors,model_requests,model_fairness,message_dispositions,mailbox_refs,mailbox_pages,progress_reviews; drop sequence mailbox_ref_seq; alter table conversations drop column context_version; alter table model_endpoints drop column quota_group_id; drop table model_quota_groups",
     );
     // Reconstruct v12, including removal of fields introduced by later migrations.
     await db.pool.query(

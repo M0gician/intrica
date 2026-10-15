@@ -291,7 +291,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
   });
   it("PDF01 upgrades schema 7 to 8 through buildServer while preserving existing nodes", async () => {
     expect(priorVersion).toBe(7);
-    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(17);
+    expect((await k.db.pool.query("select version from schema_info")).rows[0].version).toBe(18);
     expect(await k.graph.queries.node("pdf-upgrade-text")).toMatchObject({
       kind: "text",
       title: "old text",
@@ -446,7 +446,7 @@ describe("PDF canvas, multimodal read and durable authorization", () => {
     });
     expect(text.value.content).toBe(first.value.content);
     expect(hasImage(text.result)).toBe(false);
-    const last = await child.call("read", {
+    const last = await child.call("read_next", {
       cursor: first.value.nextCursor,
     });
     expect(last.value).toMatchObject({ page: 2, nextCursor: null, hasText: false, content: "" });

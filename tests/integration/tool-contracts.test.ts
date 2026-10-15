@@ -284,17 +284,18 @@ it("read cursors bind targets, preserve complete content and cannot grant indexe
   expect(first.value.nextCursor).toEqual(expect.any(String));
   const otherConversation = await start();
   expect(
-    (await otherConversation.call("read", { cursor: first.value.nextCursor })).value.error.code,
+    (await otherConversation.call("read_next", { cursor: first.value.nextCursor })).value.error
+      .code,
   ).toBe("READ_CURSOR_EXPIRED");
-  const resumed = await s.call("read", { cursor: first.value.nextCursor });
+  const resumed = await s.call("read_next", { cursor: first.value.nextCursor });
   expect(resumed.result.isError).not.toBe(true);
   expect(
-    (await s.call("read", { cursor: first.value.nextCursor, mode: "auto" })).value.error.code,
-  ).toBe("READ_CURSOR_INPUT");
+    (await s.call("read_next", { cursor: first.value.nextCursor, mode: "auto" })).value.error.code,
+  ).toBe("TOOL_ARGUMENTS");
   const textFirst = await s.call("read", { path, mode: "text" });
-  expect((await s.call("read", { cursor: textFirst.value.nextCursor })).result.isError).not.toBe(
-    true,
-  );
+  expect(
+    (await s.call("read_next", { cursor: textFirst.value.nextCursor })).result.isError,
+  ).not.toBe(true);
   const forged = await s.call("read", {
     path: `${path}.other`,
     cursor: first.value.nextCursor,
@@ -312,7 +313,7 @@ it("read cursors bind targets, preserve complete content and cannot grant indexe
   let output = first.value.text,
     cursor = first.value.nextCursor;
   while (cursor) {
-    const page = await s.call("read", { cursor });
+    const page = await s.call("read_next", { cursor });
     expect(page.result.isError).not.toBe(true);
     output += page.value.text;
     cursor = page.value.nextCursor;
@@ -329,7 +330,7 @@ it("read cursors bind targets, preserve complete content and cannot grant indexe
   let text = page.value.content,
     more = page.value.nextCursor;
   while (more) {
-    const next = await s.call("read", {
+    const next = await s.call("read_next", {
       cursor: more,
     });
     text += next.value.content;

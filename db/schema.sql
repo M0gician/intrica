@@ -1,6 +1,6 @@
 -- Intrica protocol 2. This schema never reads or alters the previous public tables.
-CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=17), models_initialized boolean NOT NULL DEFAULT false);
-INSERT INTO schema_info(version) VALUES (17) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS schema_info (version integer PRIMARY KEY CHECK (version=18), models_initialized boolean NOT NULL DEFAULT false);
+INSERT INTO schema_info(version) VALUES (18) ON CONFLICT DO NOTHING;
 CREATE TABLE canvases (
  id text PRIMARY KEY, title text NOT NULL, graph_revision integer NOT NULL DEFAULT 0,
  event_seq bigint NOT NULL DEFAULT 0,
@@ -251,3 +251,25 @@ CREATE TABLE read_cursors (
 CREATE INDEX read_cursor_owner ON read_cursors(conversation_id,created_at);
 
 ALTER TABLE tool_calls ALTER COLUMN schema_version SET DEFAULT 6;
+
+ALTER TABLE context_summaries ADD COLUMN source_messages jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE context_summaries ADD COLUMN access_scope jsonb;
+ALTER TABLE model_requests ADD COLUMN validation_failures integer NOT NULL DEFAULT 0;
+ALTER TABLE model_requests ADD COLUMN validation_feedback text;
+CREATE TABLE model_response_validations (
+ request_id text NOT NULL REFERENCES model_requests(id) ON DELETE CASCADE,
+ attempt integer NOT NULL, status text NOT NULL CHECK(status IN ('accepted','rejected')),
+ issue text, stop_reason text NOT NULL, output_chars integer NOT NULL,
+ output_hash text NOT NULL, output_excerpt text NOT NULL CHECK(length(output_excerpt)<=16000),
+ output_truncated boolean NOT NULL DEFAULT false, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(request_id,attempt)
+);
+CREATE TABLE read_observations (
+ tool_call_id text PRIMARY KEY REFERENCES tool_calls(id) ON DELETE CASCADE,
+ conversation_id text NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+ source_key text NOT NULL, target jsonb NOT NULL, source_version text NOT NULL,
+ position jsonb NOT NULL, next_cursor text, content_hash text NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX read_observations_source ON read_observations(conversation_id,source_key,created_at DESC);
+ALTER TABLE tool_calls ALTER COLUMN schema_version SET DEFAULT 7;

@@ -11,6 +11,7 @@ import { authorizedRequest, sessionCookie, tokenIsValid } from "./auth.js";
 import { createKernel } from "./composition.js";
 import { type ApiConfig, authenticateConfig, configFromEnv } from "./config.js";
 import { superviseWorker } from "./entrypoints/supervisor.js";
+import { registerContextLibrary } from "./http/context-library.js";
 import { registerConversations } from "./http/conversations.js";
 import { registerGraph } from "./http/graph.js";
 import { registerModelSettingsRoutes } from "./http/models.js";
@@ -177,6 +178,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     registerUpdates(app, config);
     registerGraph(app, kernel);
     registerConversations(app, kernel);
+    registerContextLibrary(app, kernel);
     registerWorkspace(app, kernel, identity.id);
     registerStreams(app, kernel);
     registerModelSettingsRoutes(app, kernel.models);

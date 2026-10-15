@@ -726,7 +726,7 @@ describe("origin-bound approval lifecycle", () => {
       reconstructed = "",
       pages = 0;
     do {
-      const read = await child.call("read", {
+      const read = await child.call(cursor ? "read_next" : "read", {
         ...(cursor ? { cursor } : { path }),
       });
       expect(read.result.isError).not.toBe(true);

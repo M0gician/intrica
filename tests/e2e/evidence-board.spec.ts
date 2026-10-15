@@ -218,7 +218,7 @@ test("Agent 自动命名、设置快速保存与失败恢复、会话收起设�
   await name.fill("顾言");
   await page.getByLabel("Agent 任务").click();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  const settings = page.locator(".agent-settings-disclosure");
+  const settings = page.locator(".agent-settings-disclosure").filter({ hasText: "性格与职责" });
   const expandedHeight = (await settings.boundingBox())!.height;
   await page.getByLabel("Agent 任务").fill("说明当前职责。");
   await page.getByRole("button", { name: "发送", exact: true }).click();

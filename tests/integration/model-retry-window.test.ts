@@ -93,7 +93,7 @@ it("does not dispatch an already eligible retry after its recovery window expire
   });
 });
 
-it("stops summary validation after three attempts and preserves the specific failure", async () => {
+it("does not repeat a rejected summary without actionable correction feedback", async () => {
   const { queue } = await request();
   let attempts = 0;
   const stream = await scheduledStream(
@@ -123,10 +123,10 @@ it("stops summary validation after three attempts and preserves the specific fai
     },
   )({ id: "test", provider: "custom", api: "openai-completions" } as any, { messages: [] });
   const result = await stream.result();
-  expect(attempts).toBe(3);
+  expect(attempts).toBe(1);
   expect(result.errorMessage).toContain("CONTEXT_SUMMARY_INVALID");
-  expect(result.errorMessage).toContain("after 3 attempts");
-  expect(result.errorMessage).toContain("连续 3 次失败");
+  expect(result.errorMessage).toContain("no safe correction");
+  expect(result.errorMessage).toContain("无法安全修正");
   expect(result.errorMessage).not.toContain("retry window ended");
   expect(failureReason(new Error(result.errorMessage))).toBe(result.errorMessage);
   expect(
@@ -135,5 +135,5 @@ it("stops summary validation after three attempts and preserves the specific fai
         queue.request.id,
       ])
     ).rows[0],
-  ).toEqual({ state: "failed", attempts: 3 });
+  ).toEqual({ state: "failed", attempts: 1 });
 });

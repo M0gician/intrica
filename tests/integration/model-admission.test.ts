@@ -118,9 +118,7 @@ it("retries an overloaded provider through one durable request and reuses the sa
   };
   try {
     const run = () =>
-      withModelUsage(identity, () =>
-        createCanvasAgent(config, "cache-test").prompt("original requirement"),
-      );
+      withModelUsage(identity, () => createCanvasAgent(config).prompt("original requirement"));
     expect((await run()).content).toEqual([{ type: "text", text: "Verified result" }]);
     expect((await run()).content).toEqual([{ type: "text", text: "Verified result" }]);
     expect(attempts).toBe(2);
@@ -236,7 +234,7 @@ it("bounds actual provider concurrency for fourteen Agents sharing quota ten, in
             runEpoch: s.run.epoch,
             conversationId: s.run.subject_id,
           },
-          () => createCanvasAgent(config, s.run.id).prompt(`goal-${i}`),
+          () => createCanvasAgent(config).prompt(`goal-${i}`),
         ),
       ),
     );

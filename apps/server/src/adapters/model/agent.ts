@@ -50,7 +50,11 @@ export class Agent {
       ? AbortSignal.any([signal, this.abortController.signal])
       : this.abortController.signal;
     combined.throwIfAborted();
-    const options: any = { signal: combined, apiKey: this.apiKey ?? "intrica-keyless" };
+    const options: any = {
+      signal: combined,
+      apiKey: this.apiKey ?? "intrica-keyless",
+      maxTokens: this.state.model.maxTokens,
+    };
     if (this.state.thinkingLevel !== "off") options.reasoning = this.state.thinkingLevel;
     const source = await this.stream(
       this.state.model,
@@ -87,11 +91,7 @@ export class Agent {
 }
 
 /** A PI workspace Agent session. Context is replaced each turn; transcript remains in Agent. */
-export function createCanvasAgent(
-  config: ModelConfig,
-  _sessionId: string,
-  streamOverride?: StreamFn,
-): Agent {
+export function createCanvasAgent(config: ModelConfig, streamOverride?: StreamFn): Agent {
   const options =
     config.kind === "pi"
       ? config

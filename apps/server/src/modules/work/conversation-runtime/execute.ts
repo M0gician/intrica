@@ -28,8 +28,10 @@ import { progressExecutionState } from "../progress/execution-state.js";
 import { instructionSources, withOriginalInstructions } from "../progress/sources.js";
 import { createCheckpointWriter } from "./checkpoints.js";
 import { compactConversation } from "./compaction.js";
+import { pauseContextFailure } from "./context-blocked.js";
 import { finishConversation } from "./finish.js";
 import { recoverCheckpointTools } from "./recovery.js";
+import { workingState } from "./working-state.js";
 
 export async function executeConversation(
   conversations: Conversations,
@@ -38,7 +40,7 @@ export async function executeConversation(
 ) {
   const input = ctx.run.frozen_input as ConversationInput;
   const config = await conversations.models.materialize(input.model);
-  const model = createCanvasAgent(config, ctx.run.id);
+  const model = createCanvasAgent(config);
   if (ctx.store.media)
     model.prepareMessages = (messages) => ctx.store.media!.hydrate(messages, input.conversationId);
   const { conversation, blocked } = await recoverCheckpointTools(ctx);
@@ -78,18 +80,20 @@ export async function executeConversation(
     setPrompt();
     return modelTools(tools);
   };
+  let currentWork = "";
   const setPrompt = (withTools = true) => {
-    model.state.systemPrompt = buildConversationPrompt(input.language ?? "en", {
-      agent: Boolean(identity),
-      persona: capabilities?.persona ?? identity?.config.persona,
-      capabilities,
-      role: capabilities?.role ?? identity?.config.role ?? "owner",
-      availableTools: withTools
-        ? tools.filter((tool) => tool.modelVisible !== false).map((tool) => tool.name)
-        : [],
-      selection: input.selection,
-      asyncSeconds: ctx.store.limits.toolAsyncAfterMs / 1000,
-    });
+    model.state.systemPrompt =
+      buildConversationPrompt(input.language ?? "en", {
+        agent: Boolean(identity),
+        persona: capabilities?.persona ?? identity?.config.persona,
+        capabilities,
+        role: capabilities?.role ?? identity?.config.role ?? "owner",
+        availableTools: withTools
+          ? tools.filter((tool) => tool.modelVisible !== false).map((tool) => tool.name)
+          : [],
+        selection: input.selection,
+        asyncSeconds: ctx.store.limits.toolAsyncAfterMs / 1000,
+      }) + (currentWork ? `\n\n${currentWork}` : "");
   };
   setPrompt();
   let consumed = String(conversation.consumed_message_seq);
@@ -280,6 +284,7 @@ export async function executeConversation(
               toolCallId: call.id,
               toolName: call.name,
               content: outcome.result.content,
+              details: outcome.result.details,
               isError: Boolean(outcome.result.isError),
               timestamp: Date.now(),
             });
@@ -420,6 +425,7 @@ export async function executeConversation(
                 : message.content.text,
           timestamp: new Date(message.created_at).getTime(),
           intrica: { kind: "input", id: message.client_message_id, seq: String(message.seq) },
+          ...(call ? { intricaCallId: call.id } : {}),
         } as ContextMessage);
         consumedInContext.add(String(message.seq));
       }
@@ -432,26 +438,30 @@ export async function executeConversation(
         input.conversationId,
         consumed,
       );
-      model.state.messages = withOriginalInstructions(
-        model.state.messages,
-        sources,
-        input.language,
-      );
-      if (contextUsage(model, config).tokens >= contextUsage(model, config).safeLimit) {
-        await compactConversation(
-          ctx,
-          input,
-          model,
-          config,
+      try {
+        model.state.messages = withOriginalInstructions(
+          model.state.messages,
           sources,
-          capabilities?.saveMemory ?? identity?.config.saveMemoryBeforeCompaction !== false,
-          persist,
-          (delta) => {
-            compactions += delta;
-          },
+          input.language,
         );
-        // New instructions arriving during compaction must be consumed before inference.
-        if (await hasUnread(conversations.db.pool)) continue;
+        currentWork = await workingState(
+          conversations.db.pool,
+          input.conversationId,
+          input.language,
+          tools.readObservations,
+        );
+        setPrompt();
+        const projected = contextUsage(model, config, model.state.messages, { estimateOnly: true });
+        if (Math.max(contextUsage(model, config).tokens, projected.tokens) >= projected.safeLimit) {
+          await compactConversation(ctx, input, model, config, sources, persist, (delta) => {
+            compactions += delta;
+          });
+          // New instructions arriving during compaction must be consumed before inference.
+          if (await hasUnread(conversations.db.pool)) continue;
+        }
+      } catch (error) {
+        if (await pauseContextFailure(ctx, error, input.language, () => background.close())) return;
+        throw error;
       }
       // Refresh after input and compaction, immediately before every model request.
       const currentTools = await refreshTools();

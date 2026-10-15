@@ -13,6 +13,7 @@ export type {
 export * from "./collaboration-messages.js";
 export * from "./command-result.js";
 export * from "./constants.js";
+export * from "./context-library.js";
 export * from "./conversation-navigation.js";
 export * from "./downloads.js";
 export * from "./files.js";
