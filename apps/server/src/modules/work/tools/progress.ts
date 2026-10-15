@@ -46,24 +46,22 @@ export function progressTools(context: ToolContext) {
     preflightOnly,
   );
   review.prepare = async (tx, _call, _logical, args) => {
-    for (const ref of args.evidence_refs ?? []) {
-      if (
-        (
+    const evidence: string[] = args.evidence_refs ?? [];
+    const candidates = evidence.length
+      ? (
           await tx.query(
-            "select 1 from tool_calls t join runs r on r.id=t.run_id where t.id=$1 and r.subject_id=$2 and t.state='succeeded'",
-            [ref, input.conversationId],
+            `select t.id,'call' as kind from tool_calls t join runs r on r.id=t.run_id
+           where t.id=any($1::text[]) and r.subject_id=$2 and t.state='succeeded'
+           union all select id,'node' as kind from nodes where id=any($1::text[]) and canvas_id=$3`,
+            [evidence, input.conversationId, ctx.run.canvas_id],
           )
-        ).rowCount
-      )
-        continue;
-      if (
-        (
-          await tx.query("select 1 from nodes where id=$1 and canvas_id=$2", [
-            ref,
-            ctx.run.canvas_id,
-          ])
-        ).rowCount
-      ) {
+        ).rows
+      : [];
+    const calls = new Set(candidates.filter((row) => row.kind === "call").map((row) => row.id));
+    const nodes = new Set(candidates.filter((row) => row.kind === "node").map((row) => row.id));
+    for (const ref of evidence) {
+      if (calls.has(ref)) continue;
+      if (nodes.has(ref)) {
         await authorize(tx, actor, ctx.run.canvas_id, ref, "read");
         continue;
       }

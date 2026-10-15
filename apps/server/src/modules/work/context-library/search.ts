@@ -89,11 +89,33 @@ export async function searchSources(
 }
 
 /** Called only after the archive's source permissions have passed. */
-export async function archiveSearchMatches(sql: Sql, row: any, query: string) {
-  const rows = await searchSources(sql, row.id, query, 0, 2);
-  const matches = rows.map(({ source, source_index }) =>
-    sourceEntry(row.id, source, Number(source_index), query),
+export async function archiveSearchMatches(sql: Sql, archives: any[], query: string) {
+  const rows = archives.length
+    ? (
+        await sql.query(
+          `select s.id as archive_id,matched.* from context_summaries s cross join lateral (
+       select source,ordinality-1 as source_index,ranked.score as match_score from jsonb_array_elements(s.source_messages)
+       with ordinality as item(source,ordinality)
+       cross join lateral (select count(*)::int as score from unnest($3::text[]) term
+         where strpos(lower(source->>'text'),term)>0) ranked
+       where ($2='' or ranked.score>0) order by ranked.score desc,ordinality limit 2
+     ) matched where s.id=any($1::text[]) order by s.id,matched.match_score desc,matched.source_index`,
+          [archives.map((row) => row.id), query, contextSearchTerms(query)],
+        )
+      ).rows
+    : [];
+  const byArchive = new Map<string, ContextSourceEntry[]>();
+  for (const row of rows) {
+    const entries = byArchive.get(row.archive_id) ?? [];
+    entries.push(sourceEntry(row.archive_id, row.source, Number(row.source_index), query));
+    byArchive.set(row.archive_id, entries);
+  }
+  return new Map(
+    archives.map((row) => [row.id, archiveMatches(row, query, byArchive.get(row.id) ?? [])]),
   );
+}
+
+function archiveMatches(row: any, query: string, matches: ContextSourceEntry[]) {
   const summary =
     typeof row.content?.text === "string" ? row.content.text : JSON.stringify(row.content);
   const matchOffset = contextMatchOffset(summary, query);

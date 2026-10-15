@@ -13,10 +13,6 @@
   margin: 12px 0 24px;
   overflow-wrap: anywhere;
 }
-.chat-role {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
 .chat-turn {
   margin: 0 0 22px;
 }
@@ -37,34 +33,18 @@
   margin: 14px 0 0;
   font-size: 14px;
 }
-.agent-thinking,
-.agent-tool {
+.agent-thinking {
   margin: 10px 0;
   font-size: 12px;
   color: var(--text-secondary);
 }
-.agent-thinking summary,
-.agent-tool summary {
+.agent-thinking summary {
   cursor: pointer;
   padding: 6px 0;
-}
-.agent-tool pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 180px;
-  overflow: auto;
 }
 .agent-progress {
   font-size: 12px;
   color: var(--text-secondary);
-}
-.agent-tool h3 {
-  font-size: 11px;
-  font-weight: 500;
-  margin: 12px 0 4px;
-}
-.agent-capabilities summary {
-  cursor: pointer;
 }
 
 .agent-node-panel {

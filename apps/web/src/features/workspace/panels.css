@@ -152,8 +152,7 @@
   margin: 16px 0 8px;
   color: var(--text-primary);
 }
-.workspace-empty p,
-.workspace-hint {
+.workspace-empty p {
   font-size: 12px;
   line-height: 1.7;
   color: var(--text-secondary);

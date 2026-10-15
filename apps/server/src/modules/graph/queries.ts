@@ -156,7 +156,7 @@ export class GraphQueries {
       const columns = full
         ? nodeColumns
         : `n.id,n.canvas_id,n.parent_id,n.sort_key,n.kind,n.x,n.y,n.w,n.h,n.content_version,n.layout_version,n.origin,n.asset_id,n.created_at,
-        (n.body - 'text' - 'summary') || jsonb_build_object('text',left(n.body->>'text',400),'summary',left(n.body->>'summary',400)) as body,a.config as agent,parent_agent.node_id as manager_id`;
+        (n.body - 'text' - 'summary') || jsonb_strip_nulls(jsonb_build_object('text',left(n.body->>'text',400),'summary',left(n.body->>'summary',400))) as body,a.config as agent,parent_agent.node_id as manager_id`;
       const rows = (
         await tx.query(
           `select ${columns} from ${nodeJoin} where n.canvas_id=$1 order by n.sort_key,n.id`,

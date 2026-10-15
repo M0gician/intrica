@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { makeNode } from "../../test/factories";
+import { fireEvent, render, screen } from "../../test/render";
 import { MentionComposerInput } from "../MentionComposerInput";
 
 describe("MentionComposerInput", () => {

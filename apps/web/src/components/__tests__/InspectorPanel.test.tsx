@@ -1,7 +1,7 @@
 import type { Edge, Node, Operation } from "@intrica/contracts";
-import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { makeEdge, makeNode, makeOperation } from "../../test/factories";
+import { fireEvent, render, screen, within } from "../../test/render";
 import { InspectorPanel } from "../InspectorPanel";
 
 function buildGraph() {

@@ -12,6 +12,7 @@ const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"></he
 <script type="module">
 import React from "react";
 import {createRoot} from "react-dom/client";
+import {createTestProviders} from "/src/test/providers.tsx";
 import {Servers} from "/src/features/settings/Servers.tsx";
 import {useSettingsNavigation} from "/src/features/settings/use-settings-navigation.ts";
 import {UnsavedDialog} from "/src/features/settings/UnsavedDialog.tsx";
@@ -40,7 +41,9 @@ function Fixture() {
     h(Servers,{actions,register:navigation.register,navigate:navigation.navigate}),
     navigation.pending && h(UnsavedDialog,{saving:navigation.saving,onStay:navigation.stay,onDiscard:navigation.discard,onSave:navigation.canSave?navigation.save:undefined}));
 }
-createRoot(document.getElementById("root")).render(h(Fixture));
+const {Provider,dispose} = createTestProviders();
+window.addEventListener("pagehide", dispose, {once:true});
+createRoot(document.getElementById("root")).render(h(Provider,null,h(Fixture)));
 </script></body></html>`;
 
 test("connection dialogs preserve credential drafts and restore one-click installation progress", async () => {

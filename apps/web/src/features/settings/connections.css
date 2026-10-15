@@ -92,21 +92,15 @@
   background: var(--canvas-bg);
   font-size: 12px;
 }
-.connection-details dl,
-.settings-ssh-plan dl,
-.ssh-inspection dl {
+.connection-details dl {
   display: grid;
   grid-template-columns: minmax(110px, auto) minmax(0, 1fr);
   gap: 8px 16px;
 }
-.connection-details dt,
-.ssh-inspection dt,
-.settings-ssh-plan dt {
+.connection-details dt {
   color: var(--text-secondary);
 }
-.connection-details dd,
-.ssh-inspection dd,
-.settings-ssh-plan dd {
+.connection-details dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -161,18 +155,6 @@
   align-items: start;
   gap: 8px;
 }
-.ssh-setup .ssh-inspection {
-  padding: 14px;
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  margin-block: 16px;
-}
-.ssh-setup .settings-ssh-plan {
-  margin-block: 20px;
-  padding: 16px;
-  background: var(--canvas-bg);
-  border-radius: 8px;
-}
 .ssh-setup details,
 .update-details {
   margin-top: 18px;
@@ -202,15 +184,11 @@
   .connection-row-actions {
     justify-content: end;
   }
-  .connection-details dl,
-  .ssh-inspection dl,
-  .settings-ssh-plan dl {
+  .connection-details dl {
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
   }
-  .connection-details dd,
-  .ssh-inspection dd,
-  .settings-ssh-plan dd {
+  .connection-details dd {
     margin-bottom: 8px;
   }
 }

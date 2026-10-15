@@ -3,17 +3,9 @@ import { writeFileSync } from "node:fs";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { API_URL } from "./environment.mjs";
+import { createBoard as board } from "./helpers/workspace";
 
 const api = API_URL;
-async function board(request: any, title: string) {
-  return (
-    await (
-      await request.post(`${api}/api/v2/canvases`, {
-        data: { title, idempotencyKey: randomUUID() },
-      })
-    ).json()
-  ).node;
-}
 test("四边连接点、恒定点击区域、工具栏延迟退场和画布入口", async ({ page, request }) => {
   const root = await board(request, "证据工作台");
   const node = (

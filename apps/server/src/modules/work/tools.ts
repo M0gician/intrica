@@ -92,7 +92,10 @@ export class ToolRegistry {
       ...tools.filter((t) => t.name !== "read"),
     ];
     for (const definition of combined)
-      if (definition.parameters.type === "object")
+      if (
+        definition.parameters.type === "object" &&
+        definition.parameters.additionalProperties !== false
+      )
         definition.parameters = { ...definition.parameters, additionalProperties: false };
     adaptToolDiscovery(combined, context);
     return Object.assign(combined, {

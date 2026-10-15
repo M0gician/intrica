@@ -1,15 +1,16 @@
+import type { Static } from "typebox";
 import type { GraphMutationResponse } from "./graph-commit.js";
+import type { ContextSnapshot, Edge, Node, Operation, WorkspaceSnapshot } from "./model.js";
 import type {
-  AgentConfig,
-  ContextSnapshot,
-  Edge,
-  LocalResource,
-  Node,
-  Operation,
-  OperationType,
-  Rect,
-  WorkspaceSnapshot,
-} from "./model.js";
+  CreateLinkBodySchema,
+  CreateNodeBodySchema,
+  DeleteLinkBodySchema,
+  DeleteNodesGraphOpBodySchema,
+  IdempotencyBodySchema,
+  MoveGraphOpBodySchema,
+  OperationIntentBodySchema,
+  UpdateNodeBodySchema,
+} from "./schemas.js";
 
 export type ServerInfo = {
   id: string;
@@ -57,78 +58,34 @@ export type ServerCapabilities = {
 };
 
 /** 所有需要幂等键的写请求共用的请求体。 */
-export type IdempotencyBody = { idempotencyKey: string };
+export type IdempotencyBody = Static<typeof IdempotencyBodySchema>;
 
-export type CreateNodeRequest = {
-  kind: "text" | "image" | "pdf" | "agent" | "todo";
-  parentId: string;
-  title?: string;
-  resource?: LocalResource;
-  agent?: AgentConfig;
-  todo?: import("./model.js").TodoConfig;
-  text?: string;
-  assetId?: string;
-  assetVersion?: number;
-  alt?: string;
-  position: Rect;
-  index?: number; // 插入 childOrder 的位置；缺省追加
-  idempotencyKey: string;
-};
+export type CreateNodeRequest = Static<typeof CreateNodeBodySchema>;
 
-export type UpdateNodeRequest = {
-  todo?: import("./model.js").TodoConfig;
-  agent?: AgentConfig;
-  summary?: string;
-  expectedRevision: number;
-  title?: string;
-  text?: string;
-  alt?: string;
-  idempotencyKey: string;
-};
+export type UpdateNodeRequest = Static<typeof UpdateNodeBodySchema>;
 
 /** 多选整体移动：所有节点当前必须同父，且使用同一目标父级。 */
-export type MoveEntry = {
-  nodeId: string;
-  x: number;
-  y: number;
-  index?: number;
+export type MoveEntry = Omit<
+  Static<typeof MoveGraphOpBodySchema>["moves"][number],
+  "expectedLayoutVersion"
+> & {
+  // Callers may pass undefined; JSON omits the optional optimistic-lock value.
   expectedLayoutVersion?: number | undefined;
 };
 
-export type MoveGraphOpRequest = {
-  kind: "move";
-  targetParentId: string;
+export type MoveGraphOpRequest = Omit<Static<typeof MoveGraphOpBodySchema>, "moves"> & {
   moves: MoveEntry[];
-  idempotencyKey: string;
 };
 
 /** 可撤销删除：删除节点及其子树，同时删除触及的全部关系；一次撤销完全恢复。 */
-export type DeleteNodesGraphOpRequest = {
-  kind: "delete";
-  nodeIds: string[];
-  idempotencyKey: string;
-};
+export type DeleteNodesGraphOpRequest = Static<typeof DeleteNodesGraphOpBodySchema>;
 
-export type CreateLinkRequest = {
-  fromId: string;
-  toId: string;
-  idempotencyKey: string;
-};
+export type CreateLinkRequest = Static<typeof CreateLinkBodySchema>;
 
-export type DeleteLinkRequest = {
-  expectedRevision: number;
-  idempotencyKey: string;
-};
+export type DeleteLinkRequest = Static<typeof DeleteLinkBodySchema>;
 
 /** 上下文预览与创建操作共用同一组意图字段；服务端从 GraphStore 重建权威快照。 */
-export type OperationIntentRequest = {
-  type: OperationType;
-  scopeId: string;
-  selection: string[];
-  includeDescendants: string[]; // 勾选“包含内部 N 项”的父节点
-  includeConnected: boolean; // 勾选“包含已连接节点/关系（N）”
-  instruction: string;
-};
+export type OperationIntentRequest = Static<typeof OperationIntentBodySchema>;
 
 export type PreviewOperationRequest = OperationIntentRequest;
 export type CreateOperationRequest = OperationIntentRequest & IdempotencyBody;

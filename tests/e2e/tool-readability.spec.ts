@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, expect, type Locator, type Page, test } from "@playwright/test";
 import { API_URL } from "./environment.mjs";
+import { resizeSidebar } from "./helpers/workspace";
 
 const result = (value: unknown) => ({
   content: [{ type: "text", text: JSON.stringify(value) }],
@@ -81,18 +82,6 @@ async function fixture(
 async function expand(card: Locator) {
   await card.locator(":scope > summary").press("Enter");
   await expect(card).toHaveAttribute("open");
-}
-
-async function resizeSidebar(page: Page, width: number) {
-  const separator = page.getByRole("separator", { name: "调整侧栏宽度", exact: true });
-  let current = Number(await separator.getAttribute("aria-valuenow"));
-  while (current !== width) {
-    await separator.press(current > width ? "ArrowRight" : "ArrowLeft");
-    const next = Number(await separator.getAttribute("aria-valuenow"));
-    expect(next).not.toBe(current);
-    current = next;
-  }
-  expect((await page.locator(".workspace-panel").boundingBox())!.width).toBeCloseTo(width, 0);
 }
 
 async function expectNoOverflow(card: Locator) {

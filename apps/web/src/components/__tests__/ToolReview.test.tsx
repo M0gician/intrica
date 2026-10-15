@@ -1,5 +1,4 @@
 import type { EffectiveAgentPermissions, ServerInfo, UnknownToolReview } from "@intrica/contracts";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConnectionServices, createSessionConnection } from "../../api/connection";
@@ -7,6 +6,7 @@ import { ConnectionContext } from "../../app/connection-context";
 import { UnknownTools } from "../../features/conversations/UnknownTools";
 import { date } from "../../i18n";
 import { makeNode } from "../../test/factories";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "../../test/render";
 import { AgentNodePanel } from "../AgentNodePanel";
 import { EffectivePermissions } from "../EffectivePermissions";
 import { ExecutionTarget } from "../ExecutionTarget";

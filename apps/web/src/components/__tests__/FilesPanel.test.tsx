@@ -1,11 +1,11 @@
 import type { ServerInfo } from "@intrica/contracts";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { type ReactNode, StrictMode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConnectionServices, createSessionConnection } from "../../api/connection";
 import type { DirectoryListing, FileContent } from "../../api/workspace";
 import { ConnectionContext } from "../../app/connection-context";
 import type { ServerActions } from "../../app/preferences";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "../../test/render";
 import { FilesPanel } from "../FilesPanel";
 
 vi.mock("../DocumentEditor", () => ({ DocumentEditor: () => <div>Document preview</div> }));

@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { persistContextArchive } from "../../apps/server/dist/modules/work/context-library/archive.js";
 import {
   readContextLibrary,
@@ -56,6 +56,38 @@ it("makes 30 archived versions searchable and exactly recoverable for a read-onl
       ],
       `Phase ${index}`,
     );
+  const queries: string[] = [];
+  const canvas = k.db.canvas.bind(k.db);
+  const intercept = vi.spyOn(k.db, "canvas").mockImplementation((id, action, includeDeleted) =>
+    canvas(
+      id,
+      async (tx) => {
+        const query = vi.spyOn(tx, "query");
+        try {
+          return await action(tx);
+        } finally {
+          queries.push(...query.mock.calls.map(([text]) => String(text)));
+          query.mockRestore();
+        }
+      },
+      includeDeleted,
+    ),
+  );
+  try {
+    const directory = await readOwnerContextLibrary(k.db, session.run.subject_id, {
+      query: "unique evidence",
+    });
+    expect(directory.kind).toBe("directory");
+    if (directory.kind === "directory") {
+      expect(directory.archives).toHaveLength(20);
+      expect(directory.archives.every((entry) => entry.matches?.length === 1)).toBe(true);
+    }
+    expect(
+      queries.filter((query) => query.includes("jsonb_array_elements(s.source_messages)")),
+    ).toHaveLength(1);
+  } finally {
+    intercept.mockRestore();
+  }
   const first = (await session.call("read_context", {})).value;
   expect(first.archives).toHaveLength(20);
   expect(first.nextOffset).toBe(20);
@@ -84,8 +116,8 @@ it("makes 30 archived versions searchable and exactly recoverable for a read-onl
     offset = page.nextOffset;
   }
   expect(recovered).toBe(texts[13]);
-  const canvas = (await session.call("read_canvas", {})).value;
-  expect(canvas.contextLibrary).toMatchObject({
+  const canvasView = (await session.call("read_canvas", {})).value;
+  expect(canvasView.contextLibrary).toMatchObject({
     tool: "read_context",
     private: true,
     latestRef: first.archives[0].ref,

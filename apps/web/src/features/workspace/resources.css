@@ -15,10 +15,6 @@
   border-radius: 8px;
   font-size: 12px;
 }
-.browser-location a {
-  font-size: 12px;
-  color: var(--primary);
-}
 .terminal-panel {
   flex: 1;
   min-height: 0;
@@ -54,16 +50,6 @@
   display: flex;
   align-items: center;
   cursor: grab;
-}
-.detail-local-image {
-  display: block;
-  width: 100%;
-  max-height: 360px;
-  object-fit: contain;
-  border: 1px solid var(--card-border);
-  border-radius: 6px;
-  background: #f5f4f1;
-  margin: 8px 0 14px;
 }
 .resource-overview {
   padding: 24px 20px;
@@ -198,19 +184,6 @@
   max-width: 100%;
   overflow-wrap: anywhere;
   font-size: 12px;
-}
-.web-resource-url {
-  font-size: 12px;
-  overflow-wrap: anywhere;
-  max-width: 100%;
-}
-.web-resource-page > a {
-  margin: 4px 0 14px;
-  color: var(--primary);
-}
-.web-resource-page > small {
-  color: var(--text-secondary);
-  line-height: 1.6;
 }
 .todo-inspector .todo-list.markdown-lite {
   font-size: 13px;

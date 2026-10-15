@@ -10,6 +10,7 @@ import type { Lease } from "../../../apps/server/dist/modules/execution/store.js
 import { invokeTool } from "../../../apps/server/dist/modules/execution/tool-calls.js";
 import type { ExecutionContext } from "../../../apps/server/dist/modules/execution/worker.js";
 import type { ToolSet } from "../../../apps/server/dist/modules/work/tools.js";
+import { consumeInput } from "./tool-session.js";
 
 const key = () => randomUUID();
 const database = `intrica_redesign_${key().replaceAll("-", "")}`;
@@ -103,13 +104,7 @@ async function start(agentId: string) {
   };
 }
 async function consume(s: Awaited<ReturnType<typeof start>>) {
-  await k.db.pool.query("update conversations set consumed_message_seq=message_seq where id=$1", [
-    s.run.subject_id,
-  ]);
-  await k.db.pool.query(
-    "update messages set consumed_at=now(),consumed_run_id=$2 where conversation_id=$1 and consumed_at is null",
-    [s.run.subject_id, s.run.id],
-  );
+  return consumeInput(k, s);
 }
 
 export { agent, board, consume, k, key, start };

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import pg from "pg";
 import { API_URL, DATABASE_URL } from "./environment.mjs";
+import { ablateHistory, visualAblations } from "./experiments/visual-ablations";
 
 const api = API_URL;
 test("长历史按页卸载、旧检查点直达、窄画布顶栏与输入区对齐", async ({ page, request }) => {
@@ -68,59 +68,7 @@ test("长历史按页卸载、旧检查点直达、窄画布顶栏与输入区�
   const controls = (await page.locator(".top-bar-controls").boundingBox())!;
   expect(Math.abs(path.y + path.height / 2 - controls.y - controls.height / 2)).toBeLessThan(3);
   expect(path.x + path.width).toBeLessThanOrEqual(controls.x);
-  const measurePan = async () => {
-    await page.evaluate(() => {
-      const w = window as any;
-      w.panFrames = [];
-      w.panStart = performance.now();
-      let last = w.panStart;
-      const frame = (now: number) => {
-        w.panFrames.push(now - last);
-        last = now;
-        if (now - w.panStart < 1200) requestAnimationFrame(frame);
-      };
-      requestAnimationFrame(frame);
-    });
-    await page.keyboard.down("Space");
-    await page.mouse.move(220, 430);
-    await page.mouse.down();
-    await page.mouse.move(440, 540, { steps: 35 });
-    await page.mouse.up();
-    await page.keyboard.up("Space");
-    await page.waitForTimeout(1250);
-    return page.evaluate(() => {
-      const values = (window as any).panFrames.slice(1).sort((a: number, b: number) => a - b);
-      return {
-        p95: values[Math.floor(values.length * 0.95)],
-        frames: values.length,
-        dom: document.querySelectorAll(".agent-event *").length,
-      };
-    });
-  };
-  const bounded = await measurePan();
-  // Ablate page offloading by restoring thousands of mounted message rows, then restore the UI.
-  await page.locator(".agent-activity").evaluate((el) => {
-    const row = el.querySelector(".agent-event")!;
-    const fragment = document.createDocumentFragment();
-    for (let i = 0; i < 2420; i++) {
-      const copy = row.cloneNode(true) as HTMLElement;
-      copy.dataset.ablation = "history";
-      copy.style.contentVisibility = "visible";
-      fragment.append(copy);
-    }
-    el.append(fragment);
-  });
-  const mounted = await measurePan();
-  await page.locator('[data-ablation="history"]').evaluateAll((nodes) =>
-    nodes.forEach((node) => {
-      node.remove();
-    }),
-  );
-  expect(mounted.dom).toBeGreaterThan(bounded.dom * 10);
-  writeFileSync(
-    test.info().outputPath("canvas-ablation.json"),
-    JSON.stringify({ bounded, mounted }, null, 2),
-  );
+  if (visualAblations) await ablateHistory(page);
   await page.getByRole("button", { name: "模型会话", exact: true }).click();
   const toolbar = page.locator(".workspace-tool:not([hidden]) .agent-composer-toolbar");
   const box = (await toolbar.boundingBox())!;

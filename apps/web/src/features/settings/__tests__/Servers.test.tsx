@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ServerActions } from "../../../app/preferences";
+import { cleanup, render, screen } from "../../../test/render";
 import { Servers } from "../Servers";
 
 afterEach(() => {

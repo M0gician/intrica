@@ -28,9 +28,12 @@ export function createStore(initial: AppState = initialAppState()): Store {
   };
 }
 
-export const store = createStore();
-export const StoreContext = createContext(store);
-export const useStore = () => useContext(StoreContext);
+export const StoreContext = createContext<Store | null>(null);
+export function useStore() {
+  const store = useContext(StoreContext);
+  if (!store) throw new Error("StoreContext provider is required");
+  return store;
+}
 
 export function useStateValue<T>(selector: (state: AppState) => T): T {
   const store = useStore();

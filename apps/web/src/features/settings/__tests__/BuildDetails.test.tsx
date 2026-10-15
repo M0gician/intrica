@@ -1,6 +1,6 @@
 import { describeBuild } from "@intrica/contracts";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "../../../test/render";
 import { BuildDetails } from "../BuildDetails";
 
 afterEach(() => {

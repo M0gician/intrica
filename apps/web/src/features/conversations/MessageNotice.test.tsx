@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { ConnectionServices, createSessionConnection } from "../../api/connection";
+import { fireEvent, render, screen, waitFor } from "../../test/render";
 import { MessageNotice } from "./MessageNotice";
 
 it("通知提交当前版本和等待时间，并在回复后隐藏跟踪操作", async () => {

@@ -1,7 +1,7 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConnectionServices, createSessionConnection } from "../../api/connection";
 import { MarkdownLite } from "../../components/MarkdownLite";
+import { act, cleanup, render, screen, waitFor } from "../../test/render";
 import { HtmlFilePreview } from "./HtmlFilePreview";
 
 afterEach(() => {

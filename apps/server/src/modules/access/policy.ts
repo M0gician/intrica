@@ -63,8 +63,9 @@ export async function collaborationNeedsApproval(
   if (sender.canvas_id !== target.canvas_id) return true;
   if (!report && sender.config.role === "admin") return false;
   if (await commonTeamManager(sql, senderId, targetId)) return false;
-  const left = (await grantsFor(sql, senderId)).filter((g) => g.resource_kind !== "agent");
-  const right = (await grantsFor(sql, targetId)).filter((g) => g.resource_kind !== "agent");
+  const permissions = await canvasPermissions(sql, sender.canvas_id);
+  const left = (permissions.get(senderId) ?? []).filter((g) => g.resource_kind !== "agent");
+  const right = (permissions.get(targetId) ?? []).filter((g) => g.resource_kind !== "agent");
   const covers = async (available: typeof left, required: typeof left, readOnly = false) => {
     for (const needed of required)
       if (

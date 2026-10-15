@@ -63,13 +63,14 @@ async function queryLibrary(
   if (!args.ref) {
     const limit = Math.min(args.limit ?? 20, 40);
     const rows = await searchArchives(sql, conversationId, query, offset, limit + 1);
-    const archives: ContextArchiveEntry[] = [];
+    const allowed: any[] = [];
     for (const row of rows.slice(0, limit))
-      if (await permitted(row.access_scope))
-        archives.push({
-          ...archiveEntry(row),
-          ...(query ? { matches: await archiveSearchMatches(sql, row, query) } : {}),
-        });
+      if (await permitted(row.access_scope)) allowed.push(row);
+    const matches = query ? await archiveSearchMatches(sql, allowed, query) : null;
+    const archives: ContextArchiveEntry[] = allowed.map((row) => ({
+      ...archiveEntry(row),
+      ...(matches ? { matches: matches.get(row.id) ?? [] } : {}),
+    }));
     return {
       kind: "directory",
       conversationId,

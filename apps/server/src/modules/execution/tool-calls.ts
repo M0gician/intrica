@@ -206,10 +206,10 @@ export async function invokeTool(
     const sourceVersion = Number(row?.schema_version ?? inputVersion);
     const validationArgs = args;
     const parameters =
-      definition?.parameters.type === "object"
+      definition?.parameters.type === "object" && definition.parameters.additionalProperties == null
         ? {
             ...definition.parameters,
-            additionalProperties: definition.parameters.additionalProperties ?? false,
+            additionalProperties: false,
           }
         : definition?.parameters;
     const invalid =

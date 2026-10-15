@@ -1,16 +1,20 @@
-import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { store } from "../../state/store";
+import { createStore, type Store } from "../../state/store";
+import { act, renderHook } from "../../test/render";
+
+let store: Store;
+
 import { useNodeActions } from "../useNodeActions";
 
 beforeEach(() => {
+  store = createStore();
   vi.useFakeTimers();
   store.dispatch({ type: "overlayClosed" });
   store.dispatch({ type: "surfaceClosed" });
 });
 afterEach(() => vi.useRealTimers());
 it("离开后先等待再淡出，并保留选区", () => {
-  const { result } = renderHook(() => useNodeActions());
+  const { result } = renderHook(() => useNodeActions(), { store });
   store.dispatch({ type: "selectionChanged", selection: new Set(["a"]) });
   act(() => result.current.hover("a", true));
   act(() => result.current.hover("a", false));
@@ -24,7 +28,7 @@ it("离开后先等待再淡出，并保留选区", () => {
   expect(store.getState().view.selection.has("a")).toBe(true);
 });
 it("移入工具栏或新节点后取消旧计时器", () => {
-  const { result } = renderHook(() => useNodeActions());
+  const { result } = renderHook(() => useNodeActions(), { store });
   act(() => result.current.hover("a", true));
   act(() => result.current.hover("a", false));
   act(() => vi.advanceTimersByTime(300));

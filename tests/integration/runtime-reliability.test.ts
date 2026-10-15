@@ -20,6 +20,7 @@ import { Activity } from "../../apps/server/dist/modules/work/activity.js";
 import { finishConversation } from "../../apps/server/dist/modules/work/conversation-runtime/finish.js";
 import { recoverCheckpointTools } from "../../apps/server/dist/modules/work/conversation-runtime/recovery.js";
 import { completionState } from "../../apps/server/dist/modules/work/progress/completion.js";
+import { consumeInput } from "./helpers/tool-session.js";
 
 const key = () => randomUUID();
 const database = `intrica_reliability_${key().replaceAll("-", "")}`;
@@ -136,13 +137,7 @@ async function review(s: Session, decide?: (item: any) => object) {
   });
 }
 async function consume(s: Session) {
-  await k.db.pool.query("update conversations set consumed_message_seq=message_seq where id=$1", [
-    s.run.subject_id,
-  ]);
-  await k.db.pool.query(
-    "update messages set consumed_at=now(),consumed_run_id=$2 where conversation_id=$1 and consumed_run_id is null",
-    [s.run.subject_id, s.run.id],
-  );
+  return consumeInput(k, s);
 }
 
 it("keeps snapshots out of raw path authority and bounds repeated approval maintenance", async () => {

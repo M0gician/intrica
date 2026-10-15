@@ -1,7 +1,7 @@
 import type { CollaborationReceipt } from "@intrica/contracts";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { ConnectionServices, createSessionConnection } from "../../api/connection";
+import { fireEvent, render, screen, waitFor } from "../../test/render";
 import { DeliveryReceipts } from "./DeliveryReceipts";
 import { TimelineEvent } from "./TimelineEvent";
 

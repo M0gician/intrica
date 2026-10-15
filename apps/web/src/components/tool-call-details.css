@@ -4,10 +4,6 @@
   color: var(--text-secondary);
   overflow-wrap: anywhere;
 }
-.tool-call-details-summary {
-  cursor: pointer;
-  padding: 6px 0;
-}
 .tool-call-name {
   color: var(--text-primary);
 }

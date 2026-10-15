@@ -3,6 +3,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 import type { ApprovalDecision, ApprovalRecord } from "@intrica/contracts";
 import { type APIRequestContext, expect, type Locator, type Page, test } from "@playwright/test";
 import { API_URL } from "./environment.mjs";
+import { resizeSidebar } from "./helpers/workspace";
 
 const directoryRisk = "无命令执行权限";
 const blockedRisk = "超出当前审查者的授权范围";
@@ -152,18 +153,6 @@ async function fixture(page: Page, request: APIRequestContext, title: string) {
     decisions,
     card: (record: ApprovalRecord) => page.locator(`[data-access-id="${record.id}"]`),
   };
-}
-
-async function resizeSidebar(page: Page, width: number) {
-  const separator = page.getByRole("separator", { name: "调整侧栏宽度", exact: true });
-  let current = Number(await separator.getAttribute("aria-valuenow"));
-  while (current !== width) {
-    await separator.press(current > width ? "ArrowRight" : "ArrowLeft");
-    const next = Number(await separator.getAttribute("aria-valuenow"));
-    expect(next).not.toBe(current);
-    current = next;
-  }
-  expect((await page.locator(".workspace-panel").boundingBox())!.width).toBeCloseTo(width, 0);
 }
 
 async function expectNoOverflow(card: Locator) {

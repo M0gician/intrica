@@ -67,7 +67,10 @@ export function createSessionConnection(
   };
 }
 export type SessionConnection = ReturnType<typeof createSessionConnection>;
-// Immutable same-origin default permits independently rendered components in tests.
-export const ConnectionServices = createContext<SessionConnection>(createSessionConnection());
-export const useSessionConnection = () => useContext(ConnectionServices);
+export const ConnectionServices = createContext<SessionConnection | null>(null);
+export function useSessionConnection() {
+  const connection = useContext(ConnectionServices);
+  if (!connection) throw new Error("ConnectionServices provider is required");
+  return connection;
+}
 export type { Transport };

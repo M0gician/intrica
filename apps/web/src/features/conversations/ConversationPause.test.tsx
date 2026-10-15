@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { setLanguage } from "../../i18n";
+import { cleanup, render, screen } from "../../test/render";
 import { ConversationPause } from "./ConversationPause";
 
 afterEach(async () => {
