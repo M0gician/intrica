@@ -11,7 +11,7 @@
     "build": "pnpm -r --sort build",
     "typecheck": "node scripts/check-boundaries.mjs && node scripts/check-i18n.mjs && pnpm -r typecheck",
     "lint": "biome check .",
-    "test": "pnpm build && node scripts/ci-tests.mjs functional && node scripts/ci-tests.mjs browser && pnpm --filter @intrica/desktop test",
+    "test": "pnpm build && node scripts/ci-tests.mjs functional && node --test tests/integration/public-releases.test.mjs && node scripts/ci-tests.mjs browser && pnpm --filter @intrica/desktop test",
     "test:matrix": "node --test --test-concurrency=1 tests/e2e/client-matrix.test.mjs",
     "dev": "pnpm --filter @intrica/desktop dev",
     "web": "pnpm run web:prepare && node scripts/web-dev.mjs",

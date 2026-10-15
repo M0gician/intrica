@@ -31,8 +31,8 @@ Read the [frontend architecture](architecture/frontend-interactions.md),
 
 ## Validation
 
-`pnpm test` builds once, then runs isolated functional/database tests, browser
-tests and Desktop tests in sequence. The individual suites below assume a
+`pnpm test` builds once, then runs isolated functional/database tests, public
+update tests, browser tests and Desktop tests in sequence. The individual suites below assume a
 completed build. Do not rebuild while a suite reads generated modules:
 
 ```sh
